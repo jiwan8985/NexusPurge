@@ -1,0 +1,52 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: var(--transfer-btn-width);
+  gap: var(--spacing-4);
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.transferBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-1);
+  width: 36px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.transferBtn:hover:not(:disabled) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.arrow {
+  font-size: 16px;
+  color: var(--color-text-primary);
+  line-height: 1;
+}
+
+.label {
+  font-size: 9px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.transferBtn:disabled .arrow,
+.transferBtn:disabled .label {
+  opacity: 0.35;
+}
+
+.transferBtn:hover:not(:disabled) .arrow,
+.transferBtn:hover:not(:disabled) .label {
+  color: #ffffff;
+}

@@ -1,0 +1,142 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 560px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-5) var(--spacing-6);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.counter {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+}
+
+.overallProgress {
+  height: 3px;
+  background: var(--color-bg-tertiary);
+  flex-shrink: 0;
+}
+
+.overallFill {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--transition-base);
+}
+
+.transferList {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-3) 0;
+}
+
+.transferRow {
+  padding: var(--spacing-3) var(--spacing-6);
+}
+
+.transferInfo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-2);
+}
+
+.fileName {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+}
+
+.statusPending   { color: var(--color-status-pending); }
+.statusActive    { color: var(--color-status-active); }
+.statusComplete  { color: var(--color-status-complete); }
+.statusSkipped   { color: var(--color-status-skipped); }
+.statusOverwrite { color: var(--color-status-overwrite); }
+.statusError     { color: var(--color-status-error); }
+
+.progressBar {
+  height: 2px;
+  background: var(--color-bg-elevated);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--transition-fast);
+}
+
+.errorMsg {
+  margin-top: var(--spacing-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-3);
+  padding: var(--spacing-4) var(--spacing-6);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.clearBtn,
+.closeBtn {
+  padding: var(--spacing-2) var(--spacing-5);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.clearBtn:hover {
+  background: var(--color-bg-hover);
+}
+
+.closeBtn {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.closeBtn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}

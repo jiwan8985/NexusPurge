@@ -1,0 +1,55 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  height: var(--toolbar-height);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--spacing-4);
+  gap: var(--spacing-2);
+  flex-shrink: 0;
+}
+
+.connectionArea,
+.actionArea {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.toolBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-4);
+  height: 28px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  background: transparent;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.toolBtn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.toolBtn.primary {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.toolBtn.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.separator {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 var(--spacing-3);
+}
+
+.spacer {
+  flex: 1;
+}

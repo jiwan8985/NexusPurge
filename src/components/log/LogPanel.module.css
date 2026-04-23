@@ -1,0 +1,90 @@
+.panel {
+  height: var(--log-panel-height);
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  flex-shrink: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--spacing-5);
+  height: 26px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.clearBtn {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-1) var(--spacing-3);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.clearBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.logList {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-2) 0;
+}
+
+.empty {
+  padding: var(--spacing-4) var(--spacing-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-disabled);
+}
+
+.logRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-3);
+  padding: 1px var(--spacing-5);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.time {
+  color: var(--color-text-disabled);
+  flex-shrink: 0;
+}
+
+.level {
+  flex-shrink: 0;
+  width: 52px;
+}
+
+.message {
+  flex: 1;
+  word-break: break-all;
+}
+
+/* Level colors */
+.info    .level { color: var(--color-info); }
+.warn    .level { color: var(--color-warning); }
+.error   .level { color: var(--color-error); }
+.success .level { color: var(--color-success); }
+.debug   .level { color: var(--color-text-disabled); }
+
+.info    .message { color: var(--color-text-primary); }
+.warn    .message { color: var(--color-warning); }
+.error   .message { color: var(--color-error); }
+.success .message { color: var(--color-success); }
+.debug   .message { color: var(--color-text-disabled); }
