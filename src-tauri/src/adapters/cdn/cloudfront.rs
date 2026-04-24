@@ -30,7 +30,8 @@ impl CloudFrontAdapter {
         let items: String = paths
             .iter()
             .map(|p| {
-                let normalized = if p.starts_with('/') { p.clone() } else { format!("/{}", p) };
+                let normalized =
+                    if p.starts_with('/') { p.clone() } else { format!("/{}", p) };
                 format!("      <Path>{}</Path>", normalized)
             })
             .collect::<Vec<_>>()
@@ -57,21 +58,20 @@ impl CloudFrontAdapter {
         );
         let url = Url::parse(&raw_url).context("URL 파싱 실패")?;
 
-        // CloudFront는 us-east-1 글로벌 서비스
         let signer = Signer {
             access_key_id:     &self.creds.access_key_id,
             secret_access_key: &self.creds.secret_access_key,
             region:            "us-east-1",
             service:           "cloudfront",
         };
-        let headers = signer.sign_headers("POST", &url, &[("content-type", "application/xml")], &body);
+        let headers =
+            signer.sign_headers("POST", &url, &[("content-type", "application/xml")], &body);
 
         let mut req = self
             .client
             .post(raw_url)
             .header("content-type", "application/xml")
             .body(body);
-
         for (k, v) in &headers {
             req = req.header(k.as_str(), v.as_str());
         }
@@ -91,6 +91,53 @@ impl CloudFrontAdapter {
         let id = xml_extract(&text, "Id").unwrap_or(caller_ref);
         tracing::info!("CloudFront Invalidation 생성: {} (dist={})", id, distribution_id);
         Ok(id)
+    }
+
+    /// CloudFront 배포의 도메인명 조회 (예: d111111abcdef8.cloudfront.net)
+    pub async fn get_distribution_domain(&self, distribution_id: &str) -> Result<String> {
+        let raw_url = format!(
+            "https://cloudfront.amazonaws.com/2020-05-31/distribution/{}",
+            distribution_id
+        );
+        let url = Url::parse(&raw_url).context("URL 파싱 실패")?;
+
+        let signer = Signer {
+            access_key_id:     &self.creds.access_key_id,
+            secret_access_key: &self.creds.secret_access_key,
+            region:            "us-east-1",
+            service:           "cloudfront",
+        };
+        let headers = signer.sign_headers("GET", &url, &[], b"");
+
+        let mut req = self.client.get(raw_url);
+        for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+
+        let resp = req
+            .send()
+            .await
+            .context("CloudFront GetDistribution 요청 실패")?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "GetDistribution 실패 ({}): {}",
+                status,
+                text
+            ));
+        }
+
+        // <DomainName> 은 Distribution 블록과 Origins 양쪽에 있으므로
+        // Distribution 최상위 블록에서 첫 번째 값을 추출
+        let dist_block = text
+            .find("<Distribution ")
+            .or_else(|| text.find("<Distribution>"))
+            .map(|start| &text[start..])
+            .unwrap_or(&text);
+
+        xml_extract(dist_block, "DomainName").context("배포 도메인명 파싱 실패")
     }
 }
 

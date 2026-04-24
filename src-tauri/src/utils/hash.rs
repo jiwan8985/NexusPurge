@@ -1,9 +1,16 @@
 use anyhow::{Context, Result};
+use std::path::Path;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
-/// 파일 전체 MD5 계산 (S3 ETag 비교용)
+/// 파일 전체 MD5 계산 — Path 타입 (S3 ETag 비교용)
 /// S3 단일 업로드의 ETag == MD5 (Multipart 업로드 시 불일치 — parse_multipart_etag 참고)
+pub async fn calculate_md5(path: &Path) -> Result<String> {
+    let path_str = path.to_str().context("유효하지 않은 경로")?;
+    compute_file_md5(path_str).await
+}
+
+/// 파일 전체 MD5 계산 — &str 경로 (하위 호환)
 pub async fn compute_file_md5(path: &str) -> Result<String> {
     let mut file = fs::File::open(path)
         .await

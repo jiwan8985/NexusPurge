@@ -30,8 +30,10 @@ pub fn run() {
             s3::delete_s3_objects,
             s3::put_s3_object,
             s3::get_presigned_url,
+            s3::upload_files,
             // Sync & Transfer
             sync::build_sync_plan,
+            sync::sync_preview,
             sync::start_uploads,
             sync::start_downloads,
             // CDN Purge
