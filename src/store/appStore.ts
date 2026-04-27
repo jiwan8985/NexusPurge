@@ -10,6 +10,8 @@ import type {
   SyncPlan,
 } from "../types";
 
+// C-2: 프로필 목록을 전역 상태로 관리 — 훅 인스턴스별 분리 방지
+
 // ─── State Shape ─────────────────────────────────────────────────────────────
 
 interface AppState {
@@ -17,6 +19,9 @@ interface AppState {
   activeProfile: S3Profile | null;
   isConnected: boolean;
   isConnecting: boolean;
+
+  // Profiles (전역 공유 — C-2 fix)
+  profiles: S3Profile[];
 
   // Panels
   local: PanelState;
@@ -36,6 +41,9 @@ interface AppState {
 
   // Modal
   isProfileModalOpen: boolean;
+
+  // Actions — Profiles
+  setProfiles: (profiles: S3Profile[]) => void;
 
   // Actions — Connection
   setActiveProfile: (profile: S3Profile | null) => void;
@@ -94,6 +102,9 @@ export const useAppStore = create<AppState>()(
     isConnected: false,
     isConnecting: false,
 
+    // ── Profiles ──────────────────────────────────────────────────────────────
+    profiles: [],
+
     // ── Panels ────────────────────────────────────────────────────────────────
     local: initialPanel("C:\\"),
     remote: initialPanel("/"),
@@ -110,6 +121,9 @@ export const useAppStore = create<AppState>()(
 
     // ── Modal ─────────────────────────────────────────────────────────────────
     isProfileModalOpen: false,
+
+    // ── Profile Actions ───────────────────────────────────────────────────────
+    setProfiles: (profiles) => set({ profiles }),
 
     // ── Connection Actions ────────────────────────────────────────────────────
     setActiveProfile: (profile) => set({ activeProfile: profile }),

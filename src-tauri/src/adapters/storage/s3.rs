@@ -153,8 +153,12 @@ impl S3Adapter {
         Ok(())
     }
 
-    /// 오브젝트 목록 (기존 FileItem 타입, 하위 호환용)
-    pub async fn list_objects_raw(&self, prefix: &str) -> Result<ListResult> {
+    /// 단일 페이지 목록 조회 (내부용)
+    async fn list_objects_page(
+        &self,
+        prefix: &str,
+        continuation_token: Option<&str>,
+    ) -> Result<ListResult> {
         let encoded_prefix = percent_encoding::utf8_percent_encode(
             prefix,
             percent_encoding::NON_ALPHANUMERIC,
@@ -162,15 +166,56 @@ impl S3Adapter {
         .to_string()
         .replace("%2F", "/");
 
-        let raw = format!(
+        let mut raw = format!(
             "{}/?list-type=2&prefix={}&delimiter=%2F&max-keys=1000",
             self.bucket_url(),
             encoded_prefix
         );
+        if let Some(token) = continuation_token {
+            let encoded_token = percent_encoding::utf8_percent_encode(
+                token,
+                percent_encoding::NON_ALPHANUMERIC,
+            )
+            .to_string();
+            raw.push_str(&format!("&continuation-token={}", encoded_token));
+        }
+
         let url = Url::parse(&raw).context("URL 파싱 실패")?;
         let resp = self.signed_get(&url).await?;
+        // C-3 + H-4: HTTP 상태 확인 — 오류 응답을 빈 목록으로 오인하지 않음
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "S3 목록 조회 실패 (HTTP {}): {}",
+                status,
+                body
+            ));
+        }
         let text = resp.text().await.context("응답 읽기 실패")?;
         parse_list_response(&text)
+    }
+
+    /// C-3: 전체 페이지를 순회해 1000개 초과 오브젝트를 모두 반환
+    pub async fn list_objects_all(&self, prefix: &str) -> Result<ListResult> {
+        let mut files = Vec::new();
+        let mut token: Option<String> = None;
+
+        loop {
+            let page = self.list_objects_page(prefix, token.as_deref()).await?;
+            files.extend(page.files);
+            if !page.is_truncated || page.next_token.is_none() {
+                break;
+            }
+            token = page.next_token;
+        }
+
+        Ok(ListResult { files, next_token: None, is_truncated: false })
+    }
+
+    /// 오브젝트 목록 (기존 FileItem 타입, 하위 호환용) — 내부적으로 전체 페이지 조회
+    pub async fn list_objects_raw(&self, prefix: &str) -> Result<ListResult> {
+        self.list_objects_all(prefix).await
     }
 
     /// ETag만 반환 (sync 플랜 비교용)

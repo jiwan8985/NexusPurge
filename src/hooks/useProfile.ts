@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store/appStore";
 import type { S3Profile } from "../types";
@@ -6,13 +6,16 @@ import type { S3Profile } from "../types";
 // 프로파일은 Tauri keyring + 로컬 JSON으로 관리
 // 민감 정보(accessKeyId, secretAccessKey)는 OS keyring에 저장
 export function useProfile() {
-  const [profiles, setProfiles] = useState<S3Profile[]>([]);
-  const { setActiveProfile, setConnected, setConnecting, addLog } = useAppStore((s) => ({
-    setActiveProfile: s.setActiveProfile,
-    setConnected: s.setConnected,
-    setConnecting: s.setConnecting,
-    addLog: s.addLog,
-  }));
+  // C-2: 프로필 목록을 Zustand 전역 상태로 유지 — 여러 훅 인스턴스 간 공유
+  const { setActiveProfile, setConnected, setConnecting, addLog, profiles, setProfiles } =
+    useAppStore((s) => ({
+      setActiveProfile: s.setActiveProfile,
+      setConnected: s.setConnected,
+      setConnecting: s.setConnecting,
+      addLog: s.addLog,
+      profiles: s.profiles,
+      setProfiles: s.setProfiles,
+    }));
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -21,7 +24,7 @@ export function useProfile() {
     } catch (err) {
       addLog("error", `프로파일 로드 실패: ${err}`);
     }
-  }, [addLog]);
+  }, [addLog, setProfiles]);
 
   const saveProfile = useCallback(
     async (profile: S3Profile) => {

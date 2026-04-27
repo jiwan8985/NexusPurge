@@ -21,6 +21,13 @@ interface TransferCompleteEvent {
   error?: string;
 }
 
+// C-4: Windows 경로 구분자 혼용 방지 — local.path가 '\' 포함 시 '\' 사용
+function joinPath(dir: string, fileName: string): string {
+  const normalized = dir.replace(/[/\\]$/, "");
+  const sep = normalized.includes("\\") ? "\\" : "/";
+  return `${normalized}${sep}${fileName}`;
+}
+
 export function useTransfer() {
   const {
     activeProfile,
@@ -140,25 +147,32 @@ export function useTransfer() {
       }
 
       // 3. 업로드 대상 Rust에 전달 (병렬 처리)
-      const uploadItems = [...plan.toUpload, ...plan.toOverwrite].map((file) => {
-        const id = crypto.randomUUID();
-        addTransfer({
-          id,
-          direction: "upload",
-          localPath: file.path,
-          remotePath: remote.path + file.name,
-          fileName: file.name,
-          size: file.size,
-          status: "pending",
-          progress: 0,
-          transferredBytes: 0,
-          startedAt: new Date().toISOString(),
+      // C-1: toOverwrite 항목에만 isOverwrite: true — 신규 파일 CDN Purge 방지
+      const makeItems = (files: typeof plan.toUpload, isOverwrite: boolean) =>
+        files.map((file) => {
+          const id = crypto.randomUUID();
+          addTransfer({
+            id,
+            direction: "upload",
+            localPath: file.path,
+            remotePath: remote.path + file.name,
+            fileName: file.name,
+            size: file.size,
+            status: "pending",
+            progress: 0,
+            transferredBytes: 0,
+            startedAt: new Date().toISOString(),
+          });
+          return { id, localPath: file.path, remotePath: remote.path + file.name, isOverwrite };
         });
-        return { id, localPath: file.path, remotePath: remote.path + file.name };
-      });
+
+      const uploadItems = [
+        ...makeItems(plan.toUpload, false),
+        ...makeItems(plan.toOverwrite, true),
+      ];
 
       if (uploadItems.length > 0) {
-        await invoke("start_uploads", {
+        await invoke("upload_files", {
           profileId: activeProfile.id,
           items: uploadItems,
           cdnDistributionId: activeProfile.cdnDistributionId,
@@ -192,10 +206,12 @@ export function useTransfer() {
       const downloadItems = selectedKeys.map((key) => {
         const id = crypto.randomUUID();
         const fileName = key.split("/").pop() ?? key;
+        // C-4: joinPath로 OS별 경로 구분자 통일
+        const localPath = joinPath(local.path, fileName);
         addTransfer({
           id,
           direction: "download",
-          localPath: local.path + "/" + fileName,
+          localPath,
           remotePath: key,
           fileName,
           size: 0,
@@ -204,7 +220,7 @@ export function useTransfer() {
           transferredBytes: 0,
           startedAt: new Date().toISOString(),
         });
-        return { id, remotePath: key, localPath: local.path + "/" + fileName };
+        return { id, remotePath: key, localPath };
       });
 
       await invoke("start_downloads", {
