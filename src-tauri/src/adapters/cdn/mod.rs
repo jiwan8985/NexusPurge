@@ -1,32 +1,47 @@
+pub mod akamai;
 pub mod base;
 pub mod cloudfront;
 
 use anyhow::Result;
-use crate::utils::config::AwsCredentials;
+use crate::utils::config::CdnCredentials;
 
-/// provider 문자열 기반 Purge (sync.rs 내부 사용 — credentials 없이 호출되는 경우)
-#[allow(dead_code)]
-pub async fn purge(_provider: &str, _distribution_id: &str, _paths: &[String]) -> Result<()> {
-    // sync.rs에서 호출 시 credentials를 State에서 받아오도록 이후 리팩토링 예정
-    Ok(())
-}
-
-/// credentials 포함 Purge (cdn.rs command에서 사용)
+/// H-6: CdnCredentials 기반 Purge — provider 구분은 enum variant로 처리
+/// distribution_id: CloudFront 전용 (Akamai는 URL 기반이므로 무시)
 pub async fn purge_with_credentials(
-    provider: &str,
     distribution_id: &str,
     paths: &[String],
-    creds: AwsCredentials,
+    creds: CdnCredentials,
 ) -> Result<Option<String>> {
-    match provider {
-        "cloudfront" => {
-            let adapter = cloudfront::CloudFrontAdapter::new(creds)?;
+    match creds {
+        CdnCredentials::CloudFront(aws_creds) => {
+            let adapter = cloudfront::CloudFrontAdapter::new(aws_creds)?;
             let id = adapter.create_invalidation(distribution_id, paths).await?;
             Ok(Some(id))
         }
-        "akamai" => Err(anyhow::anyhow!("Akamai CDN 어댑터는 아직 구현되지 않았습니다")),
-        "lgu"    => Err(anyhow::anyhow!("LG U+ CDN 어댑터는 아직 구현되지 않았습니다")),
-        "hyosung" => Err(anyhow::anyhow!("효성 CDN 어댑터는 아직 구현되지 않았습니다")),
-        other    => Err(anyhow::anyhow!("알 수 없는 CDN 제공자: {}", other)),
+        CdnCredentials::Akamai {
+            client_token,
+            client_secret,
+            access_token,
+            host,
+            cdn_domain,
+        } => {
+            let adapter = akamai::AkamaiAdapter::new(
+                client_token,
+                client_secret,
+                access_token,
+                host,
+            )?;
+            // S3 key → CDN URL 변환 (cdn_domain + "/" + key)
+            let urls: Vec<String> = paths
+                .iter()
+                .map(|p| {
+                    let domain = cdn_domain.trim_end_matches('/');
+                    let key = p.trim_start_matches('/');
+                    format!("https://{}/{}", domain, key)
+                })
+                .collect();
+            adapter.purge_urls(&urls).await?;
+            Ok(None)
+        }
     }
 }

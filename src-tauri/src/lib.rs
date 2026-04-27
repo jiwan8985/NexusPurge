@@ -25,14 +25,23 @@ pub fn run() {
             s3::save_profile,
             s3::delete_profile,
             s3::connect_s3,
-            // Local FS
+            s3::test_s3_connection,      // H-3
+            // Settings (H-7)
+            s3::save_last_profile_id,
+            s3::get_last_profile_id,
+            // Local FS (H-1)
+            s3::get_home_dir,
             s3::list_local_dir,
+            s3::create_local_dir,
+            s3::delete_local_files,
+            s3::rename_local_file,
             // S3 Operations
             s3::list_s3_objects,
             s3::delete_s3_objects,
             s3::put_s3_object,
             s3::get_presigned_url,
             s3::upload_files,
+            s3::rename_s3_object,        // H-1
             // Sync & Transfer
             sync::build_sync_plan,
             sync::sync_preview,

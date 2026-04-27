@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+
+// H-2: 동시 파일 전송 상한
+const MAX_CONCURRENT_FILES: usize = 4;
 
 use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
@@ -283,6 +288,8 @@ pub async fn sync_preview(
 }
 
 /// 업로드 실행 (병렬, 진행률 이벤트 emit, 완료 후 CDN Purge)
+/// H-2: Semaphore로 동시 업로드 4개 제한.
+/// H-6: CdnCredentials 기반 CDN Purge.
 #[tauri::command]
 pub async fn start_uploads(
     app:                  AppHandle,
@@ -300,19 +307,33 @@ pub async fn start_uploads(
     let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
         .map_err(|e| e.to_string())?;
 
+    // H-6: CDN 자격증명 사전 조회
+    let cdn_info: Option<(String, crate::utils::config::CdnCredentials)> =
+        match (&cdn_distribution_id, &cdn_provider) {
+            (Some(dist), Some(prov)) => store
+                .get_cdn_credentials(&profile_id, prov)
+                .await
+                .ok()
+                .map(|c| (dist.clone(), c)),
+            _ => None,
+        };
+    let cdn_info = Arc::new(cdn_info);
+
+    // H-2: 동시 실행 제한
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {
-        let adapter = adapter.clone();
-        let app = app.clone();
-        let dist_id = cdn_distribution_id.clone();
-        let provider = cdn_provider.clone();
-        let creds_clone = creds.clone();
+        let adapter  = adapter.clone();
+        let app      = app.clone();
+        let cdn_info = cdn_info.clone();
+        let permit   = semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
-            let id = item.id.clone();
+            let _permit = permit;
+            let id    = item.id.clone();
             let app_p = app.clone();
-            let id_p = id.clone();
+            let id_p  = id.clone();
 
             let result = adapter
                 .upload_with_progress(
@@ -339,21 +360,20 @@ pub async fn start_uploads(
                 .await;
 
             let (status, error) = match &result {
-                Ok(_) => ("complete".to_string(), None),
+                Ok(_)  => ("complete".to_string(), None),
                 Err(e) => ("error".to_string(), Some(e.to_string())),
             };
 
             let (cdn_purged, cdn_purge_error) = if result.is_ok() {
-                if let (Some(dist), Some(prov)) = (dist_id, provider) {
+                if let Some((dist, cdn_creds)) = cdn_info.as_ref() {
                     match crate::adapters::cdn::purge_with_credentials(
-                        &prov,
-                        &dist,
+                        dist,
                         &[item.remote_path.clone()],
-                        creds_clone,
+                        cdn_creds.clone(),
                     )
                     .await
                     {
-                        Ok(_) => (true, None),
+                        Ok(_)  => (true, None),
                         Err(e) => (false, Some(e.to_string())),
                     }
                 } else {
@@ -381,6 +401,7 @@ pub async fn start_uploads(
 }
 
 /// 다운로드 실행 (병렬, 진행률 이벤트 emit)
+/// H-2: Semaphore로 동시 다운로드 4개 제한.
 #[tauri::command]
 pub async fn start_downloads(
     app:        AppHandle,
@@ -396,16 +417,19 @@ pub async fn start_downloads(
     let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
         .map_err(|e| e.to_string())?;
 
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {
         let adapter = adapter.clone();
-        let app = app.clone();
+        let app     = app.clone();
+        let permit  = semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
-            let id = item.id.clone();
+            let _permit = permit;
+            let id    = item.id.clone();
             let app_p = app.clone();
-            let id_p = id.clone();
+            let id_p  = id.clone();
 
             let result = adapter
                 .download_with_progress(
@@ -432,7 +456,7 @@ pub async fn start_downloads(
                 .await;
 
             let (status, error) = match result {
-                Ok(_) => ("complete".to_string(), None),
+                Ok(_)  => ("complete".to_string(), None),
                 Err(e) => ("error".to_string(), Some(e.to_string())),
             };
 

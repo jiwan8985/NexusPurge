@@ -939,7 +939,16 @@ fn xml_extract(xml: &str, tag: &str) -> Option<String> {
     let close = format!("</{}>", tag);
     let start = xml.find(&open)? + open.len();
     let end = xml[start..].find(&close)? + start;
-    Some(xml[start..end].to_owned())
+    Some(xml_unescape(&xml[start..end]))
+}
+
+/// H-5: XML entity 디코딩 — &amp; &lt; &gt; &quot; &apos;
+fn xml_unescape(s: &str) -> String {
+    s.replace("&amp;", "&")
+     .replace("&lt;", "<")
+     .replace("&gt;", ">")
+     .replace("&quot;", "\"")
+     .replace("&apos;", "'")
 }
 
 fn xml_escape(s: &str) -> String {

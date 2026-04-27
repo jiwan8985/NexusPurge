@@ -288,6 +288,48 @@
   color: var(--color-text-disabled);
 }
 
+/* H-3: 연결 테스트 행 */
+.testRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.testBtn {
+  padding: 0 var(--spacing-4);
+  height: 28px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  border: var(--border-width) solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-elevated);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.testBtn:hover:not(:disabled) {
+  background: var(--color-bg-overlay);
+  color: var(--color-text-primary);
+}
+
+.testBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.testOk {
+  font-size: var(--font-size-xs);
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.testFail {
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .errorMsg {
   padding: var(--spacing-3) var(--spacing-4);
   background: var(--color-error-muted);

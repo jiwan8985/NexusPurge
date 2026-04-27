@@ -7,10 +7,15 @@ export interface S3Profile {
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
-  endpoint?: string;           // S3-compatible 서비스용 커스텀 엔드포인트
+  endpoint?: string;              // S3-compatible 서비스용 커스텀 엔드포인트
   cdnProvider?: CdnProvider;
-  cdnDistributionId?: string;  // CloudFront distribution ID 또는 CDN 식별자
-  cdnDomain?: string;          // CDN 도메인 (Purge 경로 생성용)
+  cdnDistributionId?: string;     // CloudFront distribution ID
+  cdnDomain?: string;             // CDN 도메인 (Purge URL 구성용)
+  // H-6: Akamai EdgeGrid 자격증명
+  akamaiClientToken?: string;     // Akamai EdgeGrid client token
+  akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
+  akamaiAccessToken?: string;     // Akamai EdgeGrid access token
+  akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
   createdAt: string;
   updatedAt: string;
 }
@@ -77,7 +82,7 @@ export interface TransferSummary {
 
 // ─── CDN ─────────────────────────────────────────────────────────────────────
 
-export type CdnProvider = "cloudfront" | "akamai" | "lgu" | "hyosung";
+export type CdnProvider = "cloudfront" | "akamai";
 
 export interface CdnPurgeRequest {
   provider: CdnProvider;

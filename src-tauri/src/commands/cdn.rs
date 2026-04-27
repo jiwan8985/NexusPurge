@@ -49,6 +49,7 @@ pub async fn purge_cloudfront(
     }
 }
 
+/// H-6: 공급자별 CDN Purge — CdnCredentials 기반으로 Akamai 지원
 #[tauri::command]
 pub async fn purge_cdn(
     profile_id: String,
@@ -57,9 +58,12 @@ pub async fn purge_cdn(
     paths: Vec<String>,
     store: State<'_, ProfileStore>,
 ) -> Result<CdnPurgeResult, String> {
-    let creds = store.get_credentials(&profile_id).await.map_err(|e| e.to_string())?;
+    let cdn_creds = store
+        .get_cdn_credentials(&profile_id, &provider)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let result = cdn::purge_with_credentials(&provider, &distribution_id, &paths, creds).await;
+    let result = cdn::purge_with_credentials(&distribution_id, &paths, cdn_creds).await;
 
     match result {
         Ok(id) => Ok(CdnPurgeResult {

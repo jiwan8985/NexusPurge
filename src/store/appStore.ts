@@ -23,6 +23,16 @@ interface AppState {
   // Profiles (전역 공유 — C-2 fix)
   profiles: S3Profile[];
 
+  // H-7: 마지막 프로파일 ID (앱 재시작 시 복원용)
+  lastProfileId: string | null;
+
+  // H-1: 현재 포커스된 패널
+  focusedSide: "local" | "remote";
+
+  // H-1: 패널 새로고침 트리거 (increment → panel useEffect 재실행)
+  localRefreshKey: number;
+  remoteRefreshKey: number;
+
   // Panels
   local: PanelState;
   remote: PanelState;
@@ -44,6 +54,14 @@ interface AppState {
 
   // Actions — Profiles
   setProfiles: (profiles: S3Profile[]) => void;
+
+  // Actions — H-7
+  setLastProfileId: (id: string | null) => void;
+
+  // Actions — H-1 panel focus & refresh
+  setFocusedSide: (side: "local" | "remote") => void;
+  triggerLocalRefresh: () => void;
+  triggerRemoteRefresh: () => void;
 
   // Actions — Connection
   setActiveProfile: (profile: S3Profile | null) => void;
@@ -105,8 +123,16 @@ export const useAppStore = create<AppState>()(
     // ── Profiles ──────────────────────────────────────────────────────────────
     profiles: [],
 
+    // ── H-7 ──────────────────────────────────────────────────────────────────
+    lastProfileId: null,
+
+    // ── H-1 panel state ───────────────────────────────────────────────────────
+    focusedSide: "local" as "local" | "remote",
+    localRefreshKey: 0,
+    remoteRefreshKey: 0,
+
     // ── Panels ────────────────────────────────────────────────────────────────
-    local: initialPanel("C:\\"),
+    local: initialPanel(""),
     remote: initialPanel("/"),
 
     // ── Transfer ─────────────────────────────────────────────────────────────
@@ -124,6 +150,14 @@ export const useAppStore = create<AppState>()(
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
+
+    // ── H-7 Actions ───────────────────────────────────────────────────────────
+    setLastProfileId: (lastProfileId) => set({ lastProfileId }),
+
+    // ── H-1 Panel Focus & Refresh ────────────────────────────────────────────
+    setFocusedSide: (focusedSide) => set({ focusedSide }),
+    triggerLocalRefresh: () => set((s) => ({ localRefreshKey: s.localRefreshKey + 1 })),
+    triggerRemoteRefresh: () => set((s) => ({ remoteRefreshKey: s.remoteRefreshKey + 1 })),
 
     // ── Connection Actions ────────────────────────────────────────────────────
     setActiveProfile: (profile) => set({ activeProfile: profile }),

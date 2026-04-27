@@ -3,19 +3,24 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store/appStore";
 import type { S3Profile } from "../types";
 
-// 프로파일은 Tauri keyring + 로컬 JSON으로 관리
-// 민감 정보(accessKeyId, secretAccessKey)는 OS keyring에 저장
 export function useProfile() {
-  // C-2: 프로필 목록을 Zustand 전역 상태로 유지 — 여러 훅 인스턴스 간 공유
-  const { setActiveProfile, setConnected, setConnecting, addLog, profiles, setProfiles } =
-    useAppStore((s) => ({
-      setActiveProfile: s.setActiveProfile,
-      setConnected: s.setConnected,
-      setConnecting: s.setConnecting,
-      addLog: s.addLog,
-      profiles: s.profiles,
-      setProfiles: s.setProfiles,
-    }));
+  const {
+    setActiveProfile,
+    setConnected,
+    setConnecting,
+    addLog,
+    profiles,
+    setProfiles,
+    setLastProfileId,
+  } = useAppStore((s) => ({
+    setActiveProfile: s.setActiveProfile,
+    setConnected: s.setConnected,
+    setConnecting: s.setConnecting,
+    addLog: s.addLog,
+    profiles: s.profiles,
+    setProfiles: s.setProfiles,
+    setLastProfileId: s.setLastProfileId,
+  }));
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -44,20 +49,42 @@ export function useProfile() {
     [loadProfiles, addLog]
   );
 
+  /** H-3: 저장 없이 입력값으로 직접 연결 테스트 */
+  const testConnection = useCallback(
+    async (params: {
+      region: string;
+      bucket: string;
+      accessKey: string;
+      secretKey: string;
+      endpoint?: string;
+    }): Promise<{ success: boolean; error?: string }> => {
+      try {
+        await invoke("test_s3_connection", {
+          region:    params.region,
+          bucket:    params.bucket,
+          accessKey: params.accessKey,
+          secretKey: params.secretKey,
+          endpoint:  params.endpoint ?? null,
+        });
+        return { success: true };
+      } catch (err) {
+        return { success: false, error: String(err) };
+      }
+    },
+    []
+  );
+
   const connectWithProfile = useCallback(
     async (profile: S3Profile) => {
       setConnecting(true);
       setActiveProfile(profile);
       addLog("info", `연결 시도: ${profile.name} (${profile.bucket})`);
       try {
-        // Tauri Rust 측에서 AWS 자격증명 검증
-        await invoke("connect_s3", {
-          profileId: profile.id,
-          region: profile.region,
-          bucket: profile.bucket,
-          endpoint: profile.endpoint,
-        });
+        await invoke("connect_s3", { profileId: profile.id });
         setConnected(true);
+        // H-7: 마지막 연결 프로파일 저장
+        setLastProfileId(profile.id);
+        await invoke("save_last_profile_id", { id: profile.id });
         addLog("success", `연결 성공: ${profile.bucket} (${profile.region})`);
       } catch (err) {
         setConnected(false);
@@ -68,7 +95,7 @@ export function useProfile() {
         setConnecting(false);
       }
     },
-    [setActiveProfile, setConnected, setConnecting, addLog]
+    [setActiveProfile, setConnected, setConnecting, setLastProfileId, addLog]
   );
 
   const disconnect = useCallback(() => {
@@ -77,5 +104,13 @@ export function useProfile() {
     addLog("info", "연결 해제됨");
   }, [setActiveProfile, setConnected, addLog]);
 
-  return { profiles, loadProfiles, saveProfile, deleteProfile, connectWithProfile, disconnect };
+  return {
+    profiles,
+    loadProfiles,
+    saveProfile,
+    deleteProfile,
+    testConnection,
+    connectWithProfile,
+    disconnect,
+  };
 }

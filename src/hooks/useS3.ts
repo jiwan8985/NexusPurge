@@ -81,5 +81,24 @@ export function useS3() {
     [activeProfile]
   );
 
-  return { listObjects, deleteObjects, createDirectory, getPresignedUrl };
+  // H-1: S3 오브젝트 이름 변경 (CopyObject + DeleteObject)
+  const renameObject = useCallback(
+    async (oldKey: string, newKey: string) => {
+      if (!activeProfile) return;
+      try {
+        await invoke("rename_s3_object", {
+          profileId: activeProfile.id,
+          oldKey,
+          newKey,
+        });
+        addLog("success", `S3 이름 변경: ${oldKey} → ${newKey}`);
+      } catch (err) {
+        addLog("error", `S3 이름 변경 실패: ${err}`);
+        throw err;
+      }
+    },
+    [activeProfile, addLog]
+  );
+
+  return { listObjects, deleteObjects, createDirectory, getPresignedUrl, renameObject };
 }

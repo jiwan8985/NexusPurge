@@ -6,7 +6,7 @@
 
 ---
 
-## Critical
+## Critical [ 완료 ]
 
 ### C-1. Smart Sync 업로드 후 신규 파일까지 CDN Purge가 실행됨
 
@@ -59,7 +59,7 @@
 
 ---
 
-## High
+## High [ 완료 ]
 
 ### H-1. 툴바 파일 작업 버튼이 실제 기능과 연결되지 않음
 

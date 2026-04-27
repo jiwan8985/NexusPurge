@@ -27,15 +27,25 @@ function fmtDate(iso: string) {
 }
 
 export default function RemotePanel() {
-  const { remote, isConnected, activeProfile, toggleRemoteSelection, clearRemoteSelection, addLog } =
-    useAppStore((s) => ({
-      remote: s.remote,
-      isConnected: s.isConnected,
-      activeProfile: s.activeProfile,
-      toggleRemoteSelection: s.toggleRemoteSelection,
-      clearRemoteSelection: s.clearRemoteSelection,
-      addLog: s.addLog,
-    }));
+  const {
+    remote,
+    isConnected,
+    activeProfile,
+    toggleRemoteSelection,
+    clearRemoteSelection,
+    addLog,
+    setFocusedSide,
+    remoteRefreshKey,
+  } = useAppStore((s) => ({
+    remote:               s.remote,
+    isConnected:          s.isConnected,
+    activeProfile:        s.activeProfile,
+    toggleRemoteSelection: s.toggleRemoteSelection,
+    clearRemoteSelection: s.clearRemoteSelection,
+    addLog:               s.addLog,
+    setFocusedSide:       s.setFocusedSide,
+    remoteRefreshKey:     s.remoteRefreshKey,
+  }));
 
   const { listObjects, deleteObjects, getPresignedUrl } = useS3();
   const { startUpload } = useTransfer();
@@ -45,6 +55,10 @@ export default function RemotePanel() {
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
+
+  // H-1: Toolbar에서 triggerRemoteRefresh() 호출 시 재조회
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (isConnected) loadPrefix(remote.path); }, [remoteRefreshKey]);
 
   const loadPrefix = useCallback(
     async (prefix: string) => {
@@ -116,6 +130,7 @@ export default function RemotePanel() {
   return (
     <div
       className={`${styles.panel} ${isDragOver ? styles.dragOver : ""}`}
+      onClick={() => setFocusedSide("remote")}
       onDragOver={(event) => {
         if (!isConnected) return;
         event.preventDefault();

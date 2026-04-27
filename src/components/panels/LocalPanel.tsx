@@ -28,12 +28,18 @@ function fmtDate(iso: string) {
 }
 
 function parentDir(path: string) {
-  const sep = path.includes("\\") ? "\\" : "/";
+  const isWin = path.includes("\\");
+  const sep = isWin ? "\\" : "/";
   const parts = path.replace(/[/\\]+$/, "").split(sep).filter(Boolean);
-  if (parts.length <= 1) return path;
+  if (parts.length <= 1) {
+    return isWin ? path : "/";
+  }
   parts.pop();
   const parent = parts.join(sep);
-  return sep === "\\" && /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent;
+  if (isWin) {
+    return /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent;
+  }
+  return `/${parent}`;
 }
 
 function StatusBadge({ status }: { status: FileStatus }) {
@@ -65,15 +71,19 @@ export default function LocalPanel() {
     toggleLocalSelection,
     clearLocalSelection,
     addLog,
+    setFocusedSide,
+    localRefreshKey,
   } = useAppStore((s) => ({
-    local: s.local,
-    syncPlan: s.syncPlan,
-    setLocalPath: s.setLocalPath,
-    setLocalFiles: s.setLocalFiles,
-    setLocalLoading: s.setLocalLoading,
+    local:               s.local,
+    syncPlan:            s.syncPlan,
+    setLocalPath:        s.setLocalPath,
+    setLocalFiles:       s.setLocalFiles,
+    setLocalLoading:     s.setLocalLoading,
     toggleLocalSelection: s.toggleLocalSelection,
     clearLocalSelection: s.clearLocalSelection,
-    addLog: s.addLog,
+    addLog:              s.addLog,
+    setFocusedSide:      s.setFocusedSide,
+    localRefreshKey:     s.localRefreshKey,
   }));
 
   const [pathInput, setPathInput] = useState(local.path);
@@ -101,9 +111,15 @@ export default function LocalPanel() {
     [addLog, clearLocalSelection, setLocalFiles, setLocalLoading, setLocalPath]
   );
 
+  // H-1: 초기 로드 + Toolbar에서 triggerLocalRefresh() 호출 시 재조회
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    loadDirectory(local.path);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (local.path) {
+      loadDirectory(local.path);
+    } else {
+      invoke<string>("get_home_dir").then((home) => loadDirectory(home));
+    }
+  }, [localRefreshKey]);
 
   const fileStatusMap = (() => {
     const map = new Map<string, FileStatus>();
@@ -152,6 +168,7 @@ export default function LocalPanel() {
   return (
     <div
       className={`${styles.panel} ${isDragOver ? styles.dragOver : ""}`}
+      onClick={() => setFocusedSide("local")}
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragOver(true);
