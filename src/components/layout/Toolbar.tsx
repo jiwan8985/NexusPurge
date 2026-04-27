@@ -9,61 +9,52 @@ export default function Toolbar() {
     isConnecting: s.isConnecting,
     openProfileModal: s.openProfileModal,
   }));
-  const { disconnect } = useProfile();
+  const { disconnect, connectWithProfile } = useProfile();
 
   return (
     <div className={styles.toolbar}>
-      {/* 프로파일 선택 / 연결 영역 */}
       <div className={styles.connectionArea}>
-        <button
-          className={styles.toolBtn}
-          onClick={openProfileModal}
-          title="프로파일 관리"
-        >
-          🔌 프로파일
+        <button className={styles.toolBtn} onClick={openProfileModal} title="프로필 관리">
+          <span className={styles.toolBtnIcon}>●</span>
+          프로필
         </button>
 
         {activeProfile && !isConnected && (
           <button
             className={`${styles.toolBtn} ${styles.primary}`}
             disabled={isConnecting}
-            title="S3 연결"
+            onClick={() => connectWithProfile(activeProfile)}
+            title="선택한 프로필로 S3 연결"
           >
-            {isConnecting ? "연결 중..." : `연결: ${activeProfile.name}`}
+            {isConnecting ? "연결 중..." : `${activeProfile.name} 연결`}
           </button>
         )}
 
         {isConnected && (
-          <button
-            className={styles.toolBtn}
-            onClick={disconnect}
-            title="연결 끊기"
-          >
-            ✕ {activeProfile?.name}
+          <button className={styles.toolBtn} onClick={disconnect} title="현재 연결 해제">
+            {activeProfile?.name} 연결됨
           </button>
         )}
       </div>
 
       <div className={styles.separator} />
 
-      {/* 파일 작업 버튼 */}
       <div className={styles.actionArea}>
-        <button className={styles.toolBtn} disabled={!isConnected} title="새 폴더">
-          📁 새 폴더
+        <button className={styles.toolBtn} disabled={!isConnected} title="새 S3 폴더 만들기">
+          새 폴더
         </button>
-        <button className={styles.toolBtn} disabled={!isConnected} title="삭제">
-          🗑 삭제
+        <button className={styles.toolBtn} disabled={!isConnected} title="선택 항목 삭제">
+          삭제
         </button>
-        <button className={styles.toolBtn} disabled={!isConnected} title="이름 변경">
-          ✏ 이름 변경
+        <button className={styles.toolBtn} disabled={!isConnected} title="선택 항목 이름 변경">
+          이름 변경
         </button>
       </div>
 
       <div className={styles.spacer} />
 
-      {/* 설정 */}
       <button className={styles.toolBtn} title="설정">
-        ⚙
+        설정
       </button>
     </div>
   );

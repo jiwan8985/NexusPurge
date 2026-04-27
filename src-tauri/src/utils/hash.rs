@@ -3,8 +3,7 @@ use std::path::Path;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 
-/// 파일 전체 MD5 계산 — Path 타입 (S3 ETag 비교용)
-/// S3 단일 업로드의 ETag == MD5 (Multipart 업로드 시 불일치 — parse_multipart_etag 참고)
+/// 파일 전체 MD5 계산 — Path 타입 (S3 단일 업로드 ETag 비교용)
 pub async fn calculate_md5(path: &Path) -> Result<String> {
     let path_str = path.to_str().context("유효하지 않은 경로")?;
     compute_file_md5(path_str).await
@@ -16,7 +15,6 @@ pub async fn compute_file_md5(path: &str) -> Result<String> {
         .await
         .with_context(|| format!("파일 열기 실패: {}", path))?;
 
-    // md5 v0.7은 스트리밍 Context API 사용
     let mut ctx = md5::Context::new();
     let mut buf = vec![0u8; 1024 * 1024];
 
@@ -31,12 +29,53 @@ pub async fn compute_file_md5(path: &str) -> Result<String> {
     Ok(format!("{:x}", ctx.compute()))
 }
 
-/// 바이트 슬라이스 MD5
+/// S3 Multipart ETag 계산.
+/// S3 멀티파트 업로드의 ETag = MD5(각 파트 MD5 바이너리 이어붙인 값) + "-{파트수}".
+/// `part_size`는 업로드 시 사용한 파트 크기와 동일해야 정확하게 비교된다.
+pub async fn calculate_multipart_etag(path: &Path, part_size: usize) -> Result<String> {
+    let mut file = fs::File::open(path)
+        .await
+        .with_context(|| format!("파일 열기 실패: {}", path.display()))?;
+
+    let mut part_md5s: Vec<u8> = Vec::new();
+    let mut num_parts = 0u32;
+    let mut buf = vec![0u8; part_size];
+
+    loop {
+        let mut filled = 0;
+        while filled < buf.len() {
+            let n = file
+                .read(&mut buf[filled..])
+                .await
+                .context("파일 읽기 실패")?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        if filled == 0 {
+            break;
+        }
+        let digest = md5::compute(&buf[..filled]);
+        part_md5s.extend_from_slice(digest.as_ref());
+        num_parts += 1;
+    }
+
+    if num_parts == 0 {
+        return Ok(format!("{:x}", md5::compute(b"")));
+    }
+
+    let final_hash = format!("{:x}", md5::compute(&part_md5s));
+    Ok(format!("{}-{}", final_hash, num_parts))
+}
+
+#[allow(dead_code)]
 pub fn compute_bytes_md5(data: &[u8]) -> String {
     format!("{:x}", md5::compute(data))
 }
 
 /// S3 Multipart ETag 파싱 ("abc123-3" → (hash, part_count))
+#[allow(dead_code)]
 pub fn parse_multipart_etag(etag: &str) -> Option<(&str, u32)> {
     let cleaned = etag.trim_matches('"');
     let mut parts = cleaned.splitn(2, '-');

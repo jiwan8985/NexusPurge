@@ -1,0 +1,18 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for CDN Upload Tool desktop windows",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-center",
+    "core:window:allow-show",
+    "core:window:allow-is-maximized"
+  ]
+}

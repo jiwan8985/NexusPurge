@@ -1,6 +1,5 @@
 @import "./variables.css";
 
-/* ── Reset ─────────────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -17,67 +16,64 @@ body {
   font-family: var(--font-family);
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
-  background: var(--color-bg-primary);
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.15), transparent 34rem),
+    linear-gradient(135deg, #0b1020 0%, var(--color-bg-primary) 48%, #101827 100%);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0;
 }
 
-/* ── Scrollbar ──────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: var(--scrollbar-size);
-  height: var(--scrollbar-size);
-}
-
-::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
-}
-
+::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(148, 163, 184, 0.38); }
+::-webkit-scrollbar-corner { background: transparent; }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #555555;
-}
-
-/* ── Focus ──────────────────────────────────────────────────────────────────── */
 :focus-visible {
-  outline: 1px solid var(--color-border-focus);
-  outline-offset: -1px;
+  outline: none;
+  box-shadow: var(--glow-focus);
 }
 
-/* ── Button Reset ───────────────────────────────────────────────────────────── */
 button {
   font-family: inherit;
   font-size: inherit;
+  letter-spacing: inherit;
   cursor: pointer;
   border: none;
   background: none;
   color: inherit;
+  -webkit-app-region: no-drag;
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
-/* ── Input Reset ────────────────────────────────────────────────────────────── */
 input, select, textarea {
   font-family: inherit;
   font-size: inherit;
+  letter-spacing: inherit;
   color: inherit;
   background: transparent;
   border: none;
   outline: none;
 }
 
-/* ── App Layout ─────────────────────────────────────────────────────────────── */
+select option { background: var(--color-bg-elevated); }
+
 .app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--color-bg-primary);
+  background: rgba(15, 23, 42, 0.72);
 }
 
 .main-content {
@@ -86,6 +82,8 @@ input, select, textarea {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  padding: var(--spacing-5);
+  gap: var(--spacing-5);
 }
 
 .panels-row {
@@ -93,4 +91,5 @@ input, select, textarea {
   display: flex;
   min-height: 0;
   overflow: hidden;
+  gap: var(--spacing-5);
 }

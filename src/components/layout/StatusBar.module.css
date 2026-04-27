@@ -2,8 +2,9 @@
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
-  background: var(--color-accent);
-  padding: 0 var(--spacing-4);
+  background: rgba(8, 13, 26, 0.94);
+  border-top: var(--border-width) solid var(--color-border);
+  padding: 0 var(--spacing-5);
   gap: var(--spacing-4);
   flex-shrink: 0;
 }
@@ -15,31 +16,32 @@
 }
 
 .indicator {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .connected {
-  background: #4ec9b0;
-  box-shadow: 0 0 4px #4ec9b0;
+  background: var(--color-success);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
 }
 
 .disconnected {
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--color-text-disabled);
 }
 
 .text {
   font-size: var(--font-size-xs);
-  color: #ffffff;
+  color: var(--color-text-secondary);
   white-space: nowrap;
+  font-weight: 600;
 }
 
 .divider {
-  width: 1px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.3);
+  width: var(--border-width);
+  height: 12px;
+  background: var(--color-border);
 }
 
 .spacer {
@@ -47,15 +49,16 @@
 }
 
 .logToggle {
-  font-size: var(--font-size-xs);
-  color: rgba(255, 255, 255, 0.8);
+  height: 20px;
   padding: 0 var(--spacing-3);
-  height: 16px;
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-weight: 700;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .logToggle:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }

@@ -16,9 +16,9 @@ use crate::utils::sigv4::Signer;
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /// 이 크기 이상이면 멀티파트 업로드로 전환
-const MULTIPART_THRESHOLD: u64 = 10 * 1024 * 1024; // 10 MB
+pub const MULTIPART_THRESHOLD: u64 = 10 * 1024 * 1024; // 10 MB
 /// 파트당 크기 (S3 최소 5 MB, 마지막 파트 제외)
-const PART_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+pub const PART_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 /// 동시 파트 업로드 수
 const MAX_CONCURRENT_PARTS: usize = 4;
 

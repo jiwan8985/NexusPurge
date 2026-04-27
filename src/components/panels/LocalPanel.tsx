@@ -1,20 +1,25 @@
-import { useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
+import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { useAppStore } from "../../store/appStore";
-import { useTransfer } from "../../hooks/useTransfer";
 import type { FileItem } from "../../types";
 import styles from "./Panel.module.css";
 
-function formatSize(bytes: number): string {
+type FileStatus = "new" | "modified" | "purge" | null;
+
+function fmtSize(bytes: number) {
   if (bytes === 0) return "-";
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(1)} MB`;
+  return `${(bytes / 1073741824).toFixed(2)} GB`;
 }
 
-function formatDate(iso: string): string {
+function fmtDate(iso: string) {
+  if (!iso) return "-";
   return new Date(iso).toLocaleString("ko-KR", {
-    year: "numeric",
+    year: "2-digit",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -22,116 +27,229 @@ function formatDate(iso: string): string {
   });
 }
 
+function parentDir(path: string) {
+  const sep = path.includes("\\") ? "\\" : "/";
+  const parts = path.replace(/[/\\]+$/, "").split(sep).filter(Boolean);
+  if (parts.length <= 1) return path;
+  parts.pop();
+  const parent = parts.join(sep);
+  return sep === "\\" && /^[A-Za-z]:$/.test(parent) ? `${parent}\\` : parent;
+}
+
+function StatusBadge({ status }: { status: FileStatus }) {
+  if (!status) return null;
+  const labels: Record<NonNullable<FileStatus>, string> = {
+    new: "신규",
+    modified: "수정",
+    purge: "교체",
+  };
+  return <span className={`${styles.badge} ${styles[`badge_${status}`]}`}>{labels[status]}</span>;
+}
+
+function getFileIcon(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"].includes(ext)) return "IMG";
+  if (["mp4", "mov", "avi", "webm"].includes(ext)) return "VID";
+  if (["js", "ts", "jsx", "tsx", "html", "css", "json", "yaml", "yml", "xml"].includes(ext)) return "DEV";
+  if (["zip", "tar", "gz", "rar"].includes(ext)) return "ZIP";
+  return "FILE";
+}
+
 export default function LocalPanel() {
-  const { local, setLocalPath, setLocalFiles, setLocalLoading, toggleLocalSelection } =
-    useAppStore((s) => ({
-      local: s.local,
-      setLocalPath: s.setLocalPath,
-      setLocalFiles: s.setLocalFiles,
-      setLocalLoading: s.setLocalLoading,
-      toggleLocalSelection: s.toggleLocalSelection,
-    }));
+  const {
+    local,
+    syncPlan,
+    setLocalPath,
+    setLocalFiles,
+    setLocalLoading,
+    toggleLocalSelection,
+    clearLocalSelection,
+    addLog,
+  } = useAppStore((s) => ({
+    local: s.local,
+    syncPlan: s.syncPlan,
+    setLocalPath: s.setLocalPath,
+    setLocalFiles: s.setLocalFiles,
+    setLocalLoading: s.setLocalLoading,
+    toggleLocalSelection: s.toggleLocalSelection,
+    clearLocalSelection: s.clearLocalSelection,
+    addLog: s.addLog,
+  }));
+
+  const [pathInput, setPathInput] = useState(local.path);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
+  const pathInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setPathInput(local.path), [local.path]);
 
   const loadDirectory = useCallback(
     async (path: string) => {
       setLocalLoading(true);
       try {
-        // TODO: Tauri invoke("list_local_dir", { path })
-        // const files: FileItem[] = await invoke("list_local_dir", { path });
-        // setLocalFiles(files);
-        setLocalFiles([]);
+        const files = await invoke<FileItem[]>("list_local_dir", { path });
+        setLocalFiles(files);
         setLocalPath(path);
+        setPathInput(path);
+        clearLocalSelection();
       } catch (err) {
-        console.error("Failed to load local directory:", err);
+        addLog("error", `로컬 폴더 로드 실패: ${err}`);
       } finally {
         setLocalLoading(false);
       }
     },
-    [setLocalFiles, setLocalLoading, setLocalPath]
+    [addLog, clearLocalSelection, setLocalFiles, setLocalLoading, setLocalPath]
   );
 
   useEffect(() => {
     loadDirectory(local.path);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRowClick = (e: React.MouseEvent, file: FileItem) => {
-    if (e.ctrlKey || e.metaKey) {
+  const fileStatusMap = (() => {
+    const map = new Map<string, FileStatus>();
+    if (!syncPlan) return map;
+    for (const file of syncPlan.toUpload) map.set(file.path, "new");
+    for (const file of syncPlan.toOverwrite) map.set(file.path, "purge");
+    return map;
+  })();
+
+  const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
+    useVirtualList(local.files);
+
+  const handleRowClick = (event: React.MouseEvent, file: FileItem) => {
+    if (event.ctrlKey || event.metaKey) {
       toggleLocalSelection(file.path);
     } else if (file.isDirectory) {
       loadDirectory(file.path);
     } else {
+      clearLocalSelection();
       toggleLocalSelection(file.path);
     }
   };
 
-  const handleRowDoubleClick = (file: FileItem) => {
-    if (file.isDirectory) loadDirectory(file.path);
+  const handlePathSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    loadDirectory(pathInput);
+    pathInputRef.current?.blur();
   };
 
-  const goUp = () => {
-    const parent = local.path.replace(/[/\\][^/\\]+[/\\]?$/, "") || local.path;
-    if (parent !== local.path) loadDirectory(parent);
-  };
+  const buildMenuItems = (file: FileItem): MenuEntry[] => [
+    {
+      label: file.isDirectory ? "폴더 열기" : "선택",
+      action: () => (file.isDirectory ? loadDirectory(file.path) : toggleLocalSelection(file.path)),
+    },
+    { divider: true },
+    { label: "경로 복사", action: () => navigator.clipboard.writeText(file.path) },
+  ];
+
+  const selectedFiles = local.files.filter((file) => local.selectedPaths.has(file.path));
+  const selectedSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  const footerText =
+    local.selectedPaths.size > 0
+      ? `${local.selectedPaths.size}개 선택 · ${fmtSize(selectedSize)}`
+      : `${local.files.length}개 항목`;
 
   return (
-    <div className={styles.panel}>
-      {/* 패널 헤더 */}
+    <div
+      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={() => setIsDragOver(false)}
+    >
       <div className={styles.header}>
-        <span className={styles.headerTitle}>로컬</span>
+        <span className={styles.headerTitle}>
+          <span className={styles.headerTitleDot} />
+          로컬 파일
+        </span>
         <div className={styles.pathBar}>
-          <button className={styles.upBtn} onClick={goUp} title="상위 폴더">
+          <button className={styles.upBtn} onClick={() => loadDirectory(parentDir(local.path))} title="상위 폴더">
             ↑
           </button>
-          <span className={styles.path}>{local.path}</span>
+          <form className={styles.pathForm} onSubmit={handlePathSubmit}>
+            <input
+              ref={pathInputRef}
+              className={styles.pathInput}
+              value={pathInput}
+              onChange={(event) => setPathInput(event.target.value)}
+              onFocus={(event) => event.target.select()}
+              spellCheck={false}
+              aria-label="로컬 경로"
+            />
+          </form>
         </div>
       </div>
 
-      {/* 파일 목록 헤더 */}
       <div className={`${styles.row} ${styles.columnHeader}`}>
         <span className={`${styles.col} ${styles.colName}`}>이름</span>
         <span className={`${styles.col} ${styles.colSize}`}>크기</span>
         <span className={`${styles.col} ${styles.colDate}`}>수정일</span>
+        <span className={`${styles.col} ${styles.colBadge}`} />
       </div>
 
-      {/* 파일 목록 */}
-      <div className={styles.fileList}>
+      <div ref={containerRef} className={styles.fileList} onScroll={onScroll}>
         {local.isLoading ? (
-          <div className={styles.loading}>로딩 중...</div>
+          <div className={styles.placeholder}>로컬 파일을 불러오는 중입니다.</div>
         ) : local.files.length === 0 ? (
-          <div className={styles.empty}>폴더가 비어 있습니다</div>
+          <div className={styles.placeholder}>표시할 파일이 없습니다.</div>
         ) : (
-          local.files.map((file) => (
-            <div
-              key={file.path}
-              className={`${styles.row} ${styles.fileRow} ${
-                local.selectedPaths.has(file.path) ? styles.selected : ""
-              }`}
-              onClick={(e) => handleRowClick(e, file)}
-              onDoubleClick={() => handleRowDoubleClick(file)}
-            >
-              <span className={`${styles.col} ${styles.colName}`}>
-                <span className={styles.fileIcon}>
-                  {file.isDirectory ? "📁" : "📄"}
-                </span>
-                {file.name}
-              </span>
-              <span className={`${styles.col} ${styles.colSize}`}>
-                {file.isDirectory ? "-" : formatSize(file.size)}
-              </span>
-              <span className={`${styles.col} ${styles.colDate}`}>
-                {formatDate(file.lastModified)}
-              </span>
+          <div style={{ height: totalHeight, position: "relative" }}>
+            <div style={{ transform: `translateY(${offsetTop}px)` }}>
+              {visibleItems.map((file, index) => {
+                const isSelected = local.selectedPaths.has(file.path);
+                return (
+                  <div
+                    key={file.path}
+                    className={`${styles.row} ${styles.fileRow} ${isSelected ? styles.selected : ""}`}
+                    style={{ height: ITEM_H }}
+                    data-index={startIndex + index}
+                    onClick={(event) => handleRowClick(event, file)}
+                    onDoubleClick={() => file.isDirectory && loadDirectory(file.path)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setCtxMenu({ x: event.clientX, y: event.clientY, file });
+                    }}
+                    draggable={!file.isDirectory}
+                    onDragStart={(event) => {
+                      if (!local.selectedPaths.has(file.path)) {
+                        clearLocalSelection();
+                        toggleLocalSelection(file.path);
+                      }
+                      event.dataTransfer.setData("text/plain", "local-files");
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                  >
+                    <span className={`${styles.col} ${styles.colName}`}>
+                      <span className={`${styles.fileIcon} ${file.isDirectory ? styles.folderIcon : ""}`}>
+                        {file.isDirectory ? "DIR" : getFileIcon(file.name)}
+                      </span>
+                      <span className={`${styles.fileName} ${file.isDirectory ? styles.dirName : ""}`}>{file.name}</span>
+                    </span>
+                    <span className={`${styles.col} ${styles.colSize}`}>{file.isDirectory ? "-" : fmtSize(file.size)}</span>
+                    <span className={`${styles.col} ${styles.colDate}`}>{fmtDate(file.lastModified)}</span>
+                    <span className={`${styles.col} ${styles.colBadge}`}>
+                      <StatusBadge status={fileStatusMap.get(file.path) ?? null} />
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          ))
+          </div>
         )}
       </div>
 
-      {/* 하단 선택 정보 */}
-      <div className={styles.footer}>
-        {local.selectedPaths.size > 0
-          ? `${local.selectedPaths.size}개 선택됨`
-          : `${local.files.length}개 항목`}
-      </div>
+      <div className={styles.footer}>{footerText}</div>
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={buildMenuItems(ctxMenu.file)}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }

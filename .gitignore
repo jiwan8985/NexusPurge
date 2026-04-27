@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+.pnpm-store/
+
+# pnpm (npm lockfile는 제거, pnpm-lock.yaml 사용)
+package-lock.json
 
 # Build output
 dist/

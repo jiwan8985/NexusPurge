@@ -33,6 +33,7 @@ export function useTransfer() {
     clearLocalSelection,
     clearRemoteSelection,
     addLog,
+    setSyncPlan,
   } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
     local: s.local,
@@ -44,6 +45,7 @@ export function useTransfer() {
     clearLocalSelection: s.clearLocalSelection,
     clearRemoteSelection: s.clearRemoteSelection,
     addLog: s.addLog,
+    setSyncPlan: s.setSyncPlan,
   }));
 
   const unlistenRef = useRef<UnlistenFn[]>([]);
@@ -114,8 +116,9 @@ export function useTransfer() {
     addLog("info", `업로드 시작: ${selectedPaths.length}개 파일`);
 
     try {
-      // 1. Smart Sync 플랜 생성 (ETag 비교)
+      // 1. Smart Sync 플랜 생성 (ETag 비교) → LocalPanel 상태 배지 반영
       const plan = await buildSyncPlan(selectedPaths, remote.path);
+      setSyncPlan(plan);
       addLog("info", `업로드 계획: ${plan.toUpload.length}개 업로드, ${plan.toSkip.length}개 스킵, ${plan.toOverwrite.length}개 덮어쓰기`);
 
       // 2. 스킵 항목 등록
@@ -164,14 +167,16 @@ export function useTransfer() {
       }
 
       clearLocalSelection();
+      setSyncPlan(null);
     } catch (err) {
       addLog("error", `업로드 오류: ${err}`);
+      setSyncPlan(null);
     } finally {
       setTransferring(false);
     }
   }, [
     activeProfile, local, remote, addTransfer, buildSyncPlan,
-    setTransferring, setShowProgressDialog, clearLocalSelection, addLog,
+    setTransferring, setShowProgressDialog, clearLocalSelection, addLog, setSyncPlan,
   ]);
 
   const startDownload = useCallback(async () => {

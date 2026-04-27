@@ -1,34 +1,219 @@
 .titlebar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   height: var(--titlebar-height);
-  background: var(--color-bg-secondary);
-  border-bottom: 1px solid var(--color-border);
+  background: rgba(17, 24, 39, 0.92);
+  border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
+  position: relative;
+  z-index: 100;
   -webkit-app-region: drag;
+  box-shadow: var(--shadow-inset);
+  backdrop-filter: blur(18px);
 }
 
 .left {
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  padding: 0 var(--spacing-5);
+  padding: 0 var(--spacing-6);
+  flex-shrink: 0;
   -webkit-app-region: drag;
 }
 
-.icon {
-  font-size: 16px;
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-accent), #06b6d4);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.32);
 }
 
-.title {
-  font-size: var(--font-size-sm);
+.brandText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.appName {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.appSub {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
+.center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+.profileArea {
+  position: relative;
+}
+
+.profileBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  height: 28px;
+  max-width: 420px;
+  padding: 0 var(--spacing-4);
+  border-radius: var(--radius-lg);
+  border: var(--border-width) solid var(--color-border);
+  background: rgba(15, 23, 42, 0.58);
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
-  font-weight: 400;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+  box-shadow: var(--shadow-inset);
+}
+
+.profileBtn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.profileBtn.connected {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: var(--color-accent-subtle);
+}
+
+.connDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-disabled);
+  flex-shrink: 0;
+}
+
+.connDot.on {
+  background: var(--color-success);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.72);
+}
+
+.profileLabel {
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.bucketLabel {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-size: 10px;
+}
+
+.caret {
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.profileBtn[aria-expanded="true"] .caret {
+  transform: rotate(180deg);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 280px;
+  background: var(--color-bg-elevated);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.ddHeader {
+  padding: var(--spacing-4) var(--spacing-5);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-tertiary);
+}
+
+.ddEmpty {
+  padding: var(--spacing-5);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-disabled);
+  text-align: center;
+}
+
+.ddItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: var(--spacing-4) var(--spacing-5);
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
+  text-align: left;
+  gap: var(--spacing-1);
+}
+
+.ddItem:hover {
+  background: var(--color-bg-hover);
+}
+
+.ddActive {
+  color: var(--color-accent-hover);
+  background: var(--color-accent-subtle);
+}
+
+.ddName {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.ddMeta {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+}
+
+.ddDivider {
+  height: var(--border-width);
+  background: var(--color-border);
+  margin: var(--spacing-1) 0;
+}
+
+.ddDanger {
+  color: var(--color-error);
+}
+
+.ddDanger:hover {
+  background: var(--color-error-muted);
+}
+
+.ddBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
 }
 
 .controls {
   display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
 
@@ -38,9 +223,8 @@
   justify-content: center;
   width: 46px;
   height: var(--titlebar-height);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  transition: background var(--transition-fast);
+  color: var(--color-text-tertiary);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .controlBtn:hover {
@@ -49,6 +233,6 @@
 }
 
 .closeBtn:hover {
-  background: #c42b1c;
-  color: #ffffff;
+  background: #dc2626;
+  color: #fff;
 }

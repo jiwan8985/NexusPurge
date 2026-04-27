@@ -1,8 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../store/appStore";
-import type { S3ListResponse, FileItem } from "../types";
+import type { S3ListResponse } from "../types";
 
 // S3 파일 탐색 및 단순 조작 훅
 // 실제 업로드/다운로드는 useTransfer에서 처리

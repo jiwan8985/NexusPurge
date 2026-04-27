@@ -25,6 +25,8 @@ pub fn run() {
             s3::save_profile,
             s3::delete_profile,
             s3::connect_s3,
+            // Local FS
+            s3::list_local_dir,
             // S3 Operations
             s3::list_s3_objects,
             s3::delete_s3_objects,

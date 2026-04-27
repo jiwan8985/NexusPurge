@@ -1,84 +1,124 @@
-/* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
-  /* Colors — Base */
-  --color-bg-primary:    #1e1e1e;
-  --color-bg-secondary:  #252526;
-  --color-bg-tertiary:   #2d2d30;
-  --color-bg-elevated:   #333333;
-  --color-bg-hover:      #3e3e42;
-  --color-bg-selected:   #094771;
-  --color-bg-selected-inactive: #37373d;
+  --color-accent: #2563eb;
+  --color-accent-hover: #3b82f6;
+  --color-accent-active: #1d4ed8;
+  --color-accent-muted: rgba(37, 99, 235, 0.18);
+  --color-accent-subtle: rgba(37, 99, 235, 0.08);
 
-  /* Colors — Border */
-  --color-border:        #3c3c3c;
-  --color-border-focus:  #007acc;
+  --color-success: #16a34a;
+  --color-success-muted: rgba(22, 163, 74, 0.14);
+  --color-warning: #d97706;
+  --color-warning-muted: rgba(217, 119, 6, 0.14);
+  --color-error: #dc2626;
+  --color-error-muted: rgba(220, 38, 38, 0.14);
+  --color-info: #0ea5e9;
 
-  /* Colors — Text */
-  --color-text-primary:  #cccccc;
-  --color-text-secondary:#9d9d9d;
-  --color-text-disabled: #5a5a5a;
-  --color-text-link:     #3794ff;
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #111827;
+  --color-bg-tertiary: #182235;
+  --color-bg-elevated: #1f2937;
+  --color-bg-overlay: #263244;
+  --color-bg-hover: rgba(255, 255, 255, 0.06);
+  --color-bg-active: rgba(255, 255, 255, 0.1);
+  --color-bg-selected: rgba(37, 99, 235, 0.22);
+  --color-bg-selected-inactive: rgba(148, 163, 184, 0.12);
 
-  /* Colors — Accent */
-  --color-accent:        #007acc;
-  --color-accent-hover:  #1a8ad4;
+  --color-border: rgba(148, 163, 184, 0.16);
+  --color-border-strong: rgba(203, 213, 225, 0.24);
+  --color-border-focus: #60a5fa;
+  --border-width: 1px;
 
-  /* Colors — Status */
-  --color-success:       #4ec9b0;
-  --color-warning:       #cca700;
-  --color-error:         #f14c4c;
-  --color-info:          #75beff;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-tertiary: #94a3b8;
+  --color-text-disabled: #64748b;
+  --color-text-link: #93c5fd;
+  --color-text-on-accent: #ffffff;
 
-  /* Colors — Transfer Status */
-  --color-status-pending:    #9d9d9d;
-  --color-status-active:     #007acc;
-  --color-status-complete:   #4ec9b0;
-  --color-status-skipped:    #6a9955;
-  --color-status-overwrite:  #cca700;
-  --color-status-error:      #f14c4c;
+  --color-status-pending: #94a3b8;
+  --color-status-active: #3b82f6;
+  --color-status-complete: #22c55e;
+  --color-status-skipped: #64748b;
+  --color-status-overwrite: #f59e0b;
+  --color-status-error: #ef4444;
 
-  /* Typography */
-  --font-family:         "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-family-mono:    "Consolas", "Courier New", monospace;
-  --font-size-xs:        11px;
-  --font-size-sm:        12px;
-  --font-size-base:      13px;
-  --font-size-lg:        14px;
+  --badge-new: #22c55e;
+  --badge-new-bg: rgba(34, 197, 94, 0.13);
+  --badge-new-border: rgba(34, 197, 94, 0.34);
+  --badge-modified: #f59e0b;
+  --badge-modified-bg: rgba(245, 158, 11, 0.13);
+  --badge-modified-border: rgba(245, 158, 11, 0.34);
+  --badge-purge: #38bdf8;
+  --badge-purge-bg: rgba(56, 189, 248, 0.13);
+  --badge-purge-border: rgba(56, 189, 248, 0.34);
 
-  /* Spacing */
-  --spacing-1:  2px;
-  --spacing-2:  4px;
-  --spacing-3:  6px;
-  --spacing-4:  8px;
-  --spacing-5:  12px;
-  --spacing-6:  16px;
-  --spacing-7:  24px;
+  --font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-family-mono: "Cascadia Code", "Fira Code", Consolas, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
 
-  /* Layout */
-  --titlebar-height:     32px;
-  --toolbar-height:      40px;
-  --statusbar-height:    22px;
-  --panel-min-width:     280px;
-  --transfer-btn-width:  48px;
-  --log-panel-height:    180px;
+  --spacing-1: 2px;
+  --spacing-2: 4px;
+  --spacing-3: 6px;
+  --spacing-4: 8px;
+  --spacing-5: 12px;
+  --spacing-6: 16px;
+  --spacing-7: 24px;
 
-  /* Radius */
-  --radius-sm:  2px;
-  --radius-md:  4px;
-  --radius-lg:  6px;
+  --titlebar-height: 42px;
+  --toolbar-height: 48px;
+  --statusbar-height: 26px;
+  --panel-min-width: 300px;
+  --transfer-btn-width: 72px;
+  --log-panel-height: 210px;
 
-  /* Shadow */
-  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg:  0 8px 24px rgba(0, 0, 0, 0.5);
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 
-  /* Transition */
-  --transition-fast:   80ms ease;
-  --transition-base:   150ms ease;
-  --transition-slow:   250ms ease;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.44);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --glow-focus: 0 0 0 3px rgba(96, 165, 250, 0.28);
+  --glow-error: 0 0 0 3px rgba(239, 68, 68, 0.25);
 
-  /* Scrollbar */
-  --scrollbar-size:    8px;
-  --scrollbar-thumb:   #424242;
-  --scrollbar-track:   transparent;
+  --transition-fast: 90ms cubic-bezier(0.2, 0, 0, 1);
+  --transition-base: 160ms cubic-bezier(0.2, 0, 0, 1);
+  --transition-slow: 260ms cubic-bezier(0.2, 0, 0, 1);
+
+  --scrollbar-size: 7px;
+  --scrollbar-thumb: rgba(148, 163, 184, 0.24);
+  --scrollbar-track: transparent;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-primary: #eef2f7;
+    --color-bg-secondary: #ffffff;
+    --color-bg-tertiary: #f8fafc;
+    --color-bg-elevated: #ffffff;
+    --color-bg-overlay: #e2e8f0;
+    --color-bg-hover: rgba(15, 23, 42, 0.045);
+    --color-bg-active: rgba(15, 23, 42, 0.075);
+    --color-bg-selected: rgba(37, 99, 235, 0.12);
+    --color-bg-selected-inactive: rgba(15, 23, 42, 0.06);
+    --color-border: rgba(15, 23, 42, 0.11);
+    --color-border-strong: rgba(15, 23, 42, 0.18);
+    --color-text-primary: #0f172a;
+    --color-text-secondary: #334155;
+    --color-text-tertiary: #64748b;
+    --color-text-disabled: #94a3b8;
+    --color-text-link: #1d4ed8;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 12px 30px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 24px 70px rgba(15, 23, 42, 0.2);
+    --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+  }
 }

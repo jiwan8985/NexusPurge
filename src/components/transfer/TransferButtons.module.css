@@ -5,48 +5,64 @@
   justify-content: center;
   width: var(--transfer-btn-width);
   gap: var(--spacing-4);
-  background: var(--color-bg-secondary);
-  border-left: 1px solid var(--color-border);
-  border-right: 1px solid var(--color-border);
   flex-shrink: 0;
+  position: relative;
+}
+
+.container::before {
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 50%;
+  width: var(--border-width);
+  background: var(--color-border);
+  transform: translateX(-50%);
 }
 
 .transferBtn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-1);
-  width: 36px;
-  height: 52px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
+  justify-content: center;
+  gap: var(--spacing-2);
+  width: 58px;
+  height: 64px;
+  border-radius: var(--radius-lg);
+  border: var(--border-width) solid var(--color-border-strong);
   background: var(--color-bg-elevated);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+  box-shadow: var(--shadow-sm), var(--shadow-inset);
+  position: relative;
+  z-index: 1;
 }
 
 .transferBtn:hover:not(:disabled) {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+  background: linear-gradient(135deg, var(--color-accent), #0891b2);
+  border-color: transparent;
+  box-shadow: 0 18px 32px rgba(37, 99, 235, 0.25);
+  transform: translateY(-1px);
+}
+
+.transferBtn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .arrow {
-  font-size: 16px;
+  font-size: 20px;
+  font-weight: 800;
   color: var(--color-text-primary);
   line-height: 1;
 }
 
 .label {
-  font-size: 9px;
-  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--color-text-tertiary);
   white-space: nowrap;
-}
-
-.transferBtn:disabled .arrow,
-.transferBtn:disabled .label {
-  opacity: 0.35;
 }
 
 .transferBtn:hover:not(:disabled) .arrow,
 .transferBtn:hover:not(:disabled) .label {
-  color: #ffffff;
+  color: var(--color-text-on-accent);
 }

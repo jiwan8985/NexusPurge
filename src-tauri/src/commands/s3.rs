@@ -193,6 +193,49 @@ pub async fn get_presigned_url(
         .map_err(|e| e.to_string())
 }
 
+/// 로컬 디렉터리 목록 반환 (폴더 우선, 이름 오름차순, 숨김파일 제외)
+#[tauri::command]
+pub async fn list_local_dir(path: String) -> Result<Vec<FileItem>, String> {
+    let dir = std::path::Path::new(&path);
+    if !dir.is_dir() {
+        return Err(format!("디렉터리가 아닙니다: {}", path));
+    }
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("디렉터리 읽기 실패: {}", e))?;
+
+    let mut files: Vec<FileItem> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|entry| {
+            let meta = entry.metadata().ok()?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                return None;
+            }
+            let last_modified = meta
+                .modified()
+                .ok()
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
+                .unwrap_or_default();
+            Some(FileItem {
+                name,
+                path: entry.path().to_string_lossy().into_owned(),
+                size: if meta.is_file() { meta.len() } else { 0 },
+                last_modified,
+                is_directory: meta.is_dir(),
+                etag: None,
+                content_type: None,
+            })
+        })
+        .collect();
+
+    files.sort_by(|a, b| {
+        b.is_directory
+            .cmp(&a.is_directory)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(files)
+}
+
 /// 파일 업로드 — is_overwrite == true 인 항목만 CDN Purge 트리거.
 /// start_uploads (sync.rs) 와 달리 항목별로 Purge 여부를 제어한다.
 #[tauri::command]

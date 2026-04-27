@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, State};
 use tokio::task::JoinSet;
 
-use crate::adapters::storage::s3::S3Adapter;
+use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
 use crate::utils::config::ProfileStore;
 use crate::utils::hash;
@@ -117,7 +117,6 @@ pub async fn build_sync_plan(
             let file_name = path.file_name()?.to_str()?.to_string();
             let remote_key = format!("{}{}", prefix, file_name);
 
-            let local_md5 = hash::compute_file_md5(&local_path).await.ok()?;
             let metadata = tokio::fs::metadata(&local_path).await.ok()?;
             let size = metadata.len();
             let modified = metadata.modified().ok()?;
@@ -126,13 +125,21 @@ pub async fn build_sync_plan(
 
             let remote_etag = adapter.head_object_etag(&remote_key).await.ok().flatten();
 
+            // 파일 크기에 따라 비교할 ETag를 결정:
+            // 10MB 이상이면 S3 멀티파트 ETag 형식("hash-N")으로 계산해야 원격과 일치한다.
+            let local_etag = if size >= MULTIPART_THRESHOLD {
+                hash::calculate_multipart_etag(path, PART_SIZE).await.ok()?
+            } else {
+                hash::compute_file_md5(&local_path).await.ok()?
+            };
+
             Some((
                 local_path,
                 file_name,
                 remote_key,
                 size,
                 last_modified,
-                local_md5,
+                local_etag,
                 remote_etag,
             ))
         });
@@ -144,7 +151,7 @@ pub async fn build_sync_plan(
         _remote_key,
         size,
         last_modified,
-        local_md5,
+        local_etag,
         remote_etag,
     )))) = tasks.join_next().await
     {
@@ -154,13 +161,13 @@ pub async fn build_sync_plan(
             size,
             last_modified,
             is_directory:  false,
-            etag:          Some(local_md5.clone()),
+            etag:          Some(local_etag.clone()),
             content_type:  None,
         };
 
         match remote_etag {
             None => plan.to_upload.push(item),
-            Some(etag) if etag == local_md5 => plan.to_skip.push(item),
+            Some(etag) if etag == local_etag => plan.to_skip.push(item),
             Some(_) => plan.to_overwrite.push(item),
         }
     }
@@ -212,15 +219,21 @@ async fn compare_local_remote(
         let remote_meta = remote_map.remove(&remote_key);
 
         tasks.spawn(async move {
-            let md5 = hash::calculate_md5(&abs).await.ok()?;
             let metadata = tokio::fs::metadata(&abs).await.ok()?;
             let size = metadata.len();
+
+            let local_etag = if size >= MULTIPART_THRESHOLD {
+                hash::calculate_multipart_etag(&abs, PART_SIZE).await.ok()?
+            } else {
+                hash::calculate_md5(&abs).await.ok()?
+            };
+
             Some(FileEntry {
                 local_path:  Some(abs.to_string_lossy().into_owned()),
                 remote_key,
                 size,
-                local_md5:   Some(md5),
-                remote_etag: remote_meta.map(|(_, etag)| etag).unwrap_or(None),
+                local_md5:   Some(local_etag),
+                remote_etag: remote_meta.map(|(_, etag)| etag).flatten(),
             })
         });
     }

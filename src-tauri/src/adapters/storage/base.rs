@@ -18,6 +18,7 @@ pub struct RemoteFile {
 
 /// 진행률 이벤트 (UnboundedSender로 비동기 없이 전송)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Progress {
     pub transferred: u64,
     pub total:       u64,
@@ -32,6 +33,7 @@ pub struct UploadResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ObjectMeta {
     pub key:           String,
     pub size:          u64,
@@ -52,6 +54,7 @@ pub struct ListResult {
 // dyn StorageAdapter 는 사용하지 않으므로 AFIT로 정의. 각 구현체 Future 의
 // Send 여부는 구체 타입 추론에 맡긴다.
 
+#[allow(dead_code)]
 pub trait StorageAdapter: Send + Sync {
     /// prefix 하위 오브젝트 목록 (페이지네이션 없이 최대 1000개)
     async fn list_objects(&self, prefix: &str) -> Result<Vec<RemoteFile>>;

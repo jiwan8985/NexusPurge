@@ -7,6 +7,7 @@ import type {
   LogEntry,
   LogLevel,
   PanelState,
+  SyncPlan,
 } from "../types";
 
 // ─── State Shape ─────────────────────────────────────────────────────────────
@@ -25,6 +26,9 @@ interface AppState {
   transfers: TransferItem[];
   isTransferring: boolean;
   showProgressDialog: boolean;
+
+  // Sync plan (업로드 전 ETag 비교 결과 — 상태 배지 표시용)
+  syncPlan: SyncPlan | null;
 
   // Log
   logs: LogEntry[];
@@ -58,6 +62,7 @@ interface AppState {
   clearCompletedTransfers: () => void;
   setTransferring: (transferring: boolean) => void;
   setShowProgressDialog: (show: boolean) => void;
+  setSyncPlan: (plan: SyncPlan | null) => void;
 
   // Actions — Log
   addLog: (level: LogLevel, message: string, metadata?: Record<string, unknown>) => void;
@@ -97,6 +102,7 @@ export const useAppStore = create<AppState>()(
     transfers: [],
     isTransferring: false,
     showProgressDialog: false,
+    syncPlan: null,
 
     // ── Log ───────────────────────────────────────────────────────────────────
     logs: [],
@@ -157,6 +163,7 @@ export const useAppStore = create<AppState>()(
       })),
     setTransferring: (isTransferring) => set({ isTransferring }),
     setShowProgressDialog: (showProgressDialog) => set({ showProgressDialog }),
+    setSyncPlan: (syncPlan) => set({ syncPlan }),
 
     // ── Log Actions ───────────────────────────────────────────────────────────
     addLog: (level, message, metadata) =>

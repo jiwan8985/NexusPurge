@@ -12,42 +12,37 @@ export default function StatusBar() {
     }));
 
   const activeTransfers = transfers.filter(
-    (t) => t.status === "uploading" || t.status === "downloading" || t.status === "hashing"
+    (transfer) =>
+      transfer.status === "uploading" ||
+      transfer.status === "downloading" ||
+      transfer.status === "hashing"
   );
-
-  const completedCount = transfers.filter((t) => t.status === "complete").length;
+  const completedCount = transfers.filter((transfer) => transfer.status === "complete").length;
 
   return (
     <div className={styles.statusbar}>
-      {/* 연결 상태 */}
       <div className={styles.section}>
-        <span
-          className={`${styles.indicator} ${isConnected ? styles.connected : styles.disconnected}`}
-        />
+        <span className={`${styles.indicator} ${isConnected ? styles.connected : styles.disconnected}`} />
         <span className={styles.text}>
-          {isConnected ? `${activeProfile?.bucket} (${activeProfile?.region})` : "연결 안됨"}
+          {isConnected ? `${activeProfile?.bucket} · ${activeProfile?.region}` : "S3 연결 대기"}
         </span>
       </div>
 
       <div className={styles.divider} />
 
-      {/* 전송 상태 */}
       <div className={styles.section}>
         {isTransferring ? (
-          <span className={styles.text}>
-            전송 중: {activeTransfers.length}개 파일
-          </span>
+          <span className={styles.text}>전송 중 · {activeTransfers.length}개 파일</span>
         ) : completedCount > 0 ? (
-          <span className={styles.text}>완료: {completedCount}개</span>
+          <span className={styles.text}>완료 · {completedCount}개</span>
         ) : (
-          <span className={styles.text}>대기 중</span>
+          <span className={styles.text}>준비됨</span>
         )}
       </div>
 
       <div className={styles.spacer} />
 
-      {/* 로그 패널 토글 */}
-      <button className={styles.logToggle} onClick={toggleLogPanel} title="로그 패널 토글">
+      <button className={styles.logToggle} onClick={toggleLogPanel} title="작업 로그 표시 전환">
         로그
       </button>
     </div>

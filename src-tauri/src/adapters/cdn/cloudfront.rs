@@ -94,6 +94,7 @@ impl CloudFrontAdapter {
     }
 
     /// CloudFront 배포의 도메인명 조회 (예: d111111abcdef8.cloudfront.net)
+    #[allow(dead_code)]
     pub async fn get_distribution_domain(&self, distribution_id: &str) -> Result<String> {
         let raw_url = format!(
             "https://cloudfront.amazonaws.com/2020-05-31/distribution/{}",

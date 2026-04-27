@@ -16,7 +16,6 @@ export default function TransferButtons() {
 
   return (
     <div className={styles.container}>
-      {/* 업로드: 로컬 → S3 */}
       <button
         className={`${styles.transferBtn} ${styles.upload}`}
         onClick={startUpload}
@@ -27,7 +26,6 @@ export default function TransferButtons() {
         <span className={styles.label}>업로드</span>
       </button>
 
-      {/* 다운로드: S3 → 로컬 */}
       <button
         className={`${styles.transferBtn} ${styles.download}`}
         onClick={startDownload}
