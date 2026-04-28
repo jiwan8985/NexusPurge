@@ -103,11 +103,14 @@ export interface CdnPurgeResult {
 
 export type LogLevel = "info" | "warn" | "error" | "success" | "debug";
 
+export type LogCategory = "transfer" | "cdn" | "profile" | "system";
+
 export interface LogEntry {
   id: string;
   level: LogLevel;
   message: string;
   timestamp: string;         // ISO 8601
+  category?: LogCategory;
   metadata?: Record<string, unknown>;
 }
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../store/appStore";
 import type { TransferItem, SyncPlan } from "../types";
 
-// Tauri イベント型: Rust 측에서 emit하는 전송 진행률 이벤트
+// Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
   id: string;
   progress: number;
@@ -85,10 +86,16 @@ export function useTransfer() {
           });
 
           if (payload.status === "complete") {
-            const purgeMsg = payload.cdnPurged ? " + CDN Purge 완료" : "";
-            addLog("success", `전송 완료${purgeMsg}: ${payload.id}`);
+            // M-10: transfer / cdn 카테고리 분리
+            addLog("success", `전송 완료: ${payload.id}`, "transfer");
+            if (payload.cdnPurged) {
+              addLog("success", `CDN Purge 완료: ${payload.id}`, "cdn");
+            }
+            if (payload.cdnPurgeError) {
+              addLog("warn", `CDN Purge 실패: ${payload.cdnPurgeError}`, "cdn");
+            }
           } else if (payload.status === "error") {
-            addLog("error", `전송 실패 [${payload.id}]: ${payload.error}`);
+            addLog("error", `전송 실패 [${payload.id}]: ${payload.error}`, "transfer");
           }
         }
       );
@@ -117,16 +124,36 @@ export function useTransfer() {
     if (!activeProfile || local.selectedPaths.size === 0) return;
 
     setTransferring(true);
-    setShowProgressDialog(true);
+    // M-8: dialog는 실제 전송 항목이 있을 때만 열기
 
     const selectedPaths = Array.from(local.selectedPaths);
-    addLog("info", `업로드 시작: ${selectedPaths.length}개 파일`);
+    addLog("info", `업로드 시작: ${selectedPaths.length}개 파일 선택됨`, "transfer");
 
     try {
-      // 1. Smart Sync 플랜 생성 (ETag 비교) → LocalPanel 상태 배지 반영
+      // 1. Smart Sync 플랜 생성 (ETag 비교)
       const plan = await buildSyncPlan(selectedPaths, remote.path);
       setSyncPlan(plan);
-      addLog("info", `업로드 계획: ${plan.toUpload.length}개 업로드, ${plan.toSkip.length}개 스킵, ${plan.toOverwrite.length}개 덮어쓰기`);
+      addLog(
+        "info",
+        `업로드 계획: ${plan.toUpload.length}개 업로드, ${plan.toSkip.length}개 스킵, ${plan.toOverwrite.length}개 덮어쓰기`,
+        "transfer"
+      );
+
+      // M-8: 업로드할 파일이 없으면 progress dialog 없이 종료
+      if (plan.toUpload.length === 0 && plan.toOverwrite.length === 0) {
+        const skipCount = plan.toSkip.length;
+        addLog(
+          "info",
+          skipCount > 0
+            ? `모든 파일이 최신 상태입니다. (${skipCount}개 건너뜀)`
+            : "업로드할 파일이 없습니다.",
+          "transfer"
+        );
+        setSyncPlan(null);
+        return;
+      }
+
+      setShowProgressDialog(true);
 
       // 2. 스킵 항목 등록
       for (const file of plan.toSkip) {
@@ -171,19 +198,17 @@ export function useTransfer() {
         ...makeItems(plan.toOverwrite, true),
       ];
 
-      if (uploadItems.length > 0) {
-        await invoke("upload_files", {
-          profileId: activeProfile.id,
-          items: uploadItems,
-          cdnDistributionId: activeProfile.cdnDistributionId,
-          cdnProvider: activeProfile.cdnProvider,
-        });
-      }
+      await invoke("upload_files", {
+        profileId: activeProfile.id,
+        items: uploadItems,
+        cdnDistributionId: activeProfile.cdnDistributionId,
+        cdnProvider: activeProfile.cdnProvider,
+      });
 
       clearLocalSelection();
       setSyncPlan(null);
     } catch (err) {
-      addLog("error", `업로드 오류: ${err}`);
+      addLog("error", `업로드 오류: ${err}`, "transfer");
       setSyncPlan(null);
     } finally {
       setTransferring(false);
@@ -196,18 +221,29 @@ export function useTransfer() {
   const startDownload = useCallback(async () => {
     if (!activeProfile || remote.selectedPaths.size === 0) return;
 
+    // M-7: 다운로드 대상 폴더 선택 다이얼로그
+    const selectedDir = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: local.path || undefined,
+      title: "다운로드 폴더 선택",
+    });
+
+    // 사용자가 취소했을 때
+    if (!selectedDir || typeof selectedDir !== "string") return;
+
     setTransferring(true);
     setShowProgressDialog(true);
 
     const selectedKeys = Array.from(remote.selectedPaths);
-    addLog("info", `다운로드 시작: ${selectedKeys.length}개 파일`);
+    addLog("info", `다운로드 시작: ${selectedKeys.length}개 파일`, "transfer");
 
     try {
       const downloadItems = selectedKeys.map((key) => {
         const id = crypto.randomUUID();
         const fileName = key.split("/").pop() ?? key;
-        // C-4: joinPath로 OS별 경로 구분자 통일
-        const localPath = joinPath(local.path, fileName);
+        // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준)
+        const localPath = joinPath(selectedDir, fileName);
         addTransfer({
           id,
           direction: "download",
@@ -230,7 +266,7 @@ export function useTransfer() {
 
       clearRemoteSelection();
     } catch (err) {
-      addLog("error", `다운로드 오류: ${err}`);
+      addLog("error", `다운로드 오류: ${err}`, "transfer");
     } finally {
       setTransferring(false);
     }

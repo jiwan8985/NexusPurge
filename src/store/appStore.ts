@@ -6,6 +6,7 @@ import type {
   TransferItem,
   LogEntry,
   LogLevel,
+  LogCategory,
   PanelState,
   SyncPlan,
 } from "../types";
@@ -91,7 +92,7 @@ interface AppState {
   setSyncPlan: (plan: SyncPlan | null) => void;
 
   // Actions — Log
-  addLog: (level: LogLevel, message: string, metadata?: Record<string, unknown>) => void;
+  addLog: (level: LogLevel, message: string, category?: LogCategory, metadata?: Record<string, unknown>) => void;
   clearLogs: () => void;
   toggleLogPanel: () => void;
 
@@ -214,7 +215,7 @@ export const useAppStore = create<AppState>()(
     setSyncPlan: (syncPlan) => set({ syncPlan }),
 
     // ── Log Actions ───────────────────────────────────────────────────────────
-    addLog: (level, message, metadata) =>
+    addLog: (level, message, category, metadata) =>
       set((s) => ({
         logs: [
           ...s.logs,
@@ -222,6 +223,7 @@ export const useAppStore = create<AppState>()(
             id: crypto.randomUUID(),
             level,
             message,
+            category,
             timestamp: new Date().toISOString(),
             metadata,
           },

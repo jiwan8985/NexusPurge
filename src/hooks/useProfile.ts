@@ -27,7 +27,7 @@ export function useProfile() {
       const saved = await invoke<S3Profile[]>("load_profiles");
       setProfiles(saved);
     } catch (err) {
-      addLog("error", `프로파일 로드 실패: ${err}`);
+      addLog("error", `프로필 로드 실패: ${err}`, "profile");
     }
   }, [addLog, setProfiles]);
 
@@ -35,7 +35,7 @@ export function useProfile() {
     async (profile: S3Profile) => {
       await invoke("save_profile", { profile });
       await loadProfiles();
-      addLog("success", `프로파일 저장됨: ${profile.name}`);
+      addLog("success", `프로필 저장됨: ${profile.name}`, "profile");
     },
     [loadProfiles, addLog]
   );
@@ -44,7 +44,7 @@ export function useProfile() {
     async (id: string) => {
       await invoke("delete_profile", { id });
       await loadProfiles();
-      addLog("info", "프로파일 삭제됨");
+      addLog("info", "프로필 삭제됨", "profile");
     },
     [loadProfiles, addLog]
   );
@@ -78,18 +78,18 @@ export function useProfile() {
     async (profile: S3Profile) => {
       setConnecting(true);
       setActiveProfile(profile);
-      addLog("info", `연결 시도: ${profile.name} (${profile.bucket})`);
+      addLog("info", `연결 시도: ${profile.name} (${profile.bucket})`, "system");
       try {
         await invoke("connect_s3", { profileId: profile.id });
         setConnected(true);
         // H-7: 마지막 연결 프로파일 저장
         setLastProfileId(profile.id);
         await invoke("save_last_profile_id", { id: profile.id });
-        addLog("success", `연결 성공: ${profile.bucket} (${profile.region})`);
+        addLog("success", `연결 성공: ${profile.bucket} (${profile.region})`, "system");
       } catch (err) {
         setConnected(false);
         setActiveProfile(null);
-        addLog("error", `연결 실패: ${err}`);
+        addLog("error", `연결 실패: ${err}`, "system");
         throw err;
       } finally {
         setConnecting(false);
@@ -101,7 +101,7 @@ export function useProfile() {
   const disconnect = useCallback(() => {
     setActiveProfile(null);
     setConnected(false);
-    addLog("info", "연결 해제됨");
+    addLog("info", "연결 해제됨", "system");
   }, [setActiveProfile, setConnected, addLog]);
 
   return {

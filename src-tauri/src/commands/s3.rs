@@ -266,11 +266,17 @@ pub async fn list_local_dir(path: String) -> Result<Vec<FileItem>, String> {
     let mut files: Vec<FileItem> = entries
         .filter_map(|e| e.ok())
         .filter_map(|entry| {
-            let meta = entry.metadata().ok()?;
+            let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
                 return None;
             }
+            // M-9: symlink_metadata()로 심볼릭 링크 감지 — 링크는 목록에서 제외
+            let sym_meta = std::fs::symlink_metadata(&path).ok()?;
+            if sym_meta.file_type().is_symlink() {
+                return None;
+            }
+            let meta = entry.metadata().ok()?;
             let last_modified = meta
                 .modified()
                 .ok()
@@ -278,7 +284,7 @@ pub async fn list_local_dir(path: String) -> Result<Vec<FileItem>, String> {
                 .unwrap_or_default();
             Some(FileItem {
                 name,
-                path: entry.path().to_string_lossy().into_owned(),
+                path: path.to_string_lossy().into_owned(),
                 size: if meta.is_file() { meta.len() } else { 0 },
                 last_modified,
                 is_directory: meta.is_dir(),

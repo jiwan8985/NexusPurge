@@ -26,9 +26,9 @@ export function useS3() {
         });
         setRemoteFiles(result.files);
         setRemotePath(prefix);
-        addLog("debug", `S3 목록 로드: ${prefix} (${result.files.length}개)`);
+        addLog("debug", `S3 목록 로드: ${prefix} (${result.files.length}개)`, "system");
       } catch (err) {
-        addLog("error", `S3 목록 로드 실패: ${err}`);
+        addLog("error", `S3 목록 로드 실패: ${err}`, "system");
       } finally {
         setRemoteLoading(false);
       }
@@ -44,9 +44,9 @@ export function useS3() {
           profileId: activeProfile.id,
           keys,
         });
-        addLog("success", `S3 삭제 완료: ${keys.length}개`);
+        addLog("success", `S3 삭제 완료: ${keys.length}개`, "transfer");
       } catch (err) {
-        addLog("error", `S3 삭제 실패: ${err}`);
+        addLog("error", `S3 삭제 실패: ${err}`, "transfer");
         throw err;
       }
     },
@@ -63,7 +63,7 @@ export function useS3() {
         content: new Uint8Array(0),
         contentType: "application/x-directory",
       });
-      addLog("info", `S3 폴더 생성: ${prefix}`);
+      addLog("info", `S3 폴더 생성: ${prefix}`, "transfer");
     },
     [activeProfile, addLog]
   );
@@ -91,9 +91,9 @@ export function useS3() {
           oldKey,
           newKey,
         });
-        addLog("success", `S3 이름 변경: ${oldKey} → ${newKey}`);
+        addLog("success", `S3 이름 변경: ${oldKey} → ${newKey}`, "transfer");
       } catch (err) {
-        addLog("error", `S3 이름 변경 실패: ${err}`);
+        addLog("error", `S3 이름 변경 실패: ${err}`, "transfer");
         throw err;
       }
     },

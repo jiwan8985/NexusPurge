@@ -72,9 +72,8 @@ export default function LogPanel() {
     if (tab === "log") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs.length, tab]);
 
-  const purgeLogs = logs.filter(
-    (log) => log.message.includes("CDN") || log.message.includes("Purge") || log.message.includes("purge")
-  );
+  // M-10: 문자열 검색 대신 category 필드로 필터링
+  const purgeLogs = logs.filter((log) => log.category === "cdn");
 
   const saveLog = () => {
     const lines = logs.map(

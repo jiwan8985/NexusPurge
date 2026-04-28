@@ -495,6 +495,15 @@ async fn collect_local_files(dir: &Path) -> anyhow::Result<Vec<(String, PathBuf)
             .map_err(|e| anyhow::anyhow!("엔트리 읽기 실패: {}", e))?
         {
             let path = entry.path();
+
+            // M-9: symlink_metadata()로 심볼릭 링크 감지 — 순환 링크 방지를 위해 기본 제외
+            let sym_meta = tokio::fs::symlink_metadata(&path).await
+                .map_err(|e| anyhow::anyhow!("심링크 메타데이터 읽기 실패: {}", e))?;
+            if sym_meta.file_type().is_symlink() {
+                tracing::debug!("심볼릭 링크 건너뜀: {}", path.display());
+                continue;
+            }
+
             let meta = entry
                 .metadata()
                 .await

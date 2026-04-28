@@ -98,9 +98,9 @@ export default function RemotePanel() {
         try {
           const url = await getPresignedUrl(file.path, 3600);
           await navigator.clipboard.writeText(url);
-          addLog("success", `Presigned URL 복사 완료: ${file.name}`);
+          addLog("success", `Presigned URL 복사 완료: ${file.name}`, "system");
         } catch (err) {
-          addLog("error", `Presigned URL 생성 실패: ${err}`);
+          addLog("error", `Presigned URL 생성 실패: ${err}`, "system");
         }
       },
       disabled: !isConnected || file.isDirectory,
