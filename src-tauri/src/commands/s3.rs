@@ -5,6 +5,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::adapters::storage::s3::S3Adapter;
+use crate::utils::adapter_cache::AdapterCache;
 use crate::utils::config::{AwsCredentials, ProfileConfig, ProfileStore};
 
 // ─── 동시 파일 전송 상한 (H-2) ───────────────────────────────────────────────
@@ -82,7 +83,10 @@ pub async fn load_profiles(
 pub async fn save_profile(
     profile: ProfileConfig,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    // L-2: 자격증명이 바뀔 수 있으므로 캐시 무효화
+    cache.invalidate(&profile.id).await;
     store.save(profile).await.map_err(|e| e.to_string())
 }
 
@@ -90,7 +94,9 @@ pub async fn save_profile(
 pub async fn delete_profile(
     id: String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    cache.invalidate(&id).await;
     store.delete(&id).await.map_err(|e| e.to_string())
 }
 
@@ -140,13 +146,18 @@ pub async fn list_s3_objects(
     profile_id: String,
     prefix: String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<S3ListResponse, String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    let adapter = cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?;
 
     let result = adapter
@@ -166,13 +177,18 @@ pub async fn delete_s3_objects(
     profile_id: String,
     keys: Vec<String>,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?
         .delete_objects(&keys)
         .await
@@ -186,13 +202,18 @@ pub async fn put_s3_object(
     content:      Vec<u8>,
     content_type: String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?
         .put_object(&key, content, &content_type)
         .await
@@ -201,17 +222,22 @@ pub async fn put_s3_object(
 
 #[tauri::command]
 pub async fn get_presigned_url(
-    profile_id:        String,
-    key:               String,
+    profile_id:         String,
+    key:                String,
     expires_in_seconds: u64,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<String, String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?
         .presign_get(&key, expires_in_seconds)
         .await
@@ -225,13 +251,18 @@ pub async fn rename_s3_object(
     old_key:    String,
     new_key:    String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?
         .rename_object(&old_key, &new_key)
         .await
@@ -373,13 +404,18 @@ pub async fn upload_files(
     cdn_distribution_id: Option<String>,
     cdn_provider:        Option<String>,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    let adapter = cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?;
 
     // H-6: CDN 자격증명 사전 조회 (태스크 외부에서 한 번만 실행)
@@ -406,9 +442,12 @@ pub async fn upload_files(
 
         tasks.spawn(async move {
             let _permit = permit;
-            let id   = item.id.clone();
+            let id    = item.id.clone();
             let app_p = app.clone();
             let id_p  = id.clone();
+
+            // L-4: 전송 시작 시각 기록
+            let start_time = std::time::Instant::now();
 
             let result = adapter
                 .upload_with_progress(
@@ -416,13 +455,19 @@ pub async fn upload_files(
                     &item.remote_path,
                     move |transferred, total| {
                         let progress = if total > 0 { (transferred * 100 / total) as u8 } else { 0 };
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let speed = if elapsed > 0.05 {
+                            (transferred as f64 / elapsed) as u64
+                        } else {
+                            0
+                        };
                         let _ = app_p.emit(
                             "transfer:progress",
                             TransferProgressPayload {
                                 id:                id_p.clone(),
                                 progress,
                                 transferred_bytes: transferred,
-                                speed:             0,
+                                speed,
                                 status:            "uploading".into(),
                             },
                         );

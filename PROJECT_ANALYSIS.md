@@ -1,6 +1,6 @@
 # NexusPurge — 프로젝트 분석 문서
 
-> 최종 업데이트: 2026-04-27
+> 최종 업데이트: 2026-04-28
 
 ---
 
@@ -79,21 +79,23 @@ NexusPurge/
 │       │   ├── RemotePanel.tsx       # S3 탐색 (드롭 타겟)
 │       │   └── Panel.module.css      # 패널 공유 스타일
 │       ├── transfer/
-│       │   ├── TransferButtons.tsx   # ▶ 업로드 / ◀ 다운로드 버튼
-│       │   └── ProgressDialog.tsx    # 전송 진행률 모달
+│       │   ├── TransferButtons.tsx   # ▶ 업로드 / ◀ 다운로드 / ⚖ 미리보기 버튼
+│       │   ├── ProgressDialog.tsx    # 전송 진행률 모달
+│       │   └── SyncPreviewDialog.tsx # 동기화 미리보기 (new/modified/deleted/unchanged 4탭)
 │       ├── log/
-│       │   └── LogPanel.tsx          # 3탭 로그 패널
+│       │   └── LogPanel.tsx          # 3탭 로그 패널 (category 필터링)
 │       ├── modals/
 │       │   └── ProfileModal.tsx      # S3 프로파일 + CDN 설정 CRUD
 │       └── common/
-│           └── ContextMenu.tsx       # 우클릭 컨텍스트 메뉴 (Portal)
+│           ├── ContextMenu.tsx       # 우클릭 컨텍스트 메뉴 (Portal)
+│           └── ConfirmDialog.tsx     # 공용 확인 다이얼로그 (danger 지원)
 │
 └── src-tauri/src/                    # Rust 백엔드
     ├── main.rs                       # Tauri 진입점
-    ├── lib.rs                        # 커맨드 등록, ProfileStore 관리 상태 등록
+    ├── lib.rs                        # 커맨드 등록, ProfileStore + AdapterCache 관리 상태 등록
     ├── commands/
     │   ├── s3.rs                     # 프로파일 CRUD, S3 리스팅, 객체 조작
-    │   ├── sync.rs                   # Smart Sync 플랜, 병렬 업로드/다운로드, 이벤트 emit
+    │   ├── sync.rs                   # Smart Sync 플랜, 병렬 업로드/다운로드, sync_preview, 이벤트 emit
     │   └── cdn.rs                    # CloudFront Invalidation 커맨드
     ├── adapters/
     │   ├── storage/
@@ -106,7 +108,9 @@ NexusPurge/
     └── utils/
         ├── config.rs                 # ProfileStore (JSON + OS 키링)
         ├── sigv4.rs                  # AWS SigV4 자체 구현
-        └── hash.rs                   # MD5 파일 해시 (ETag 비교용)
+        ├── hash.rs                   # MD5 파일 해시 (ETag 비교용)
+        ├── adapter_cache.rs          # AdapterCache (profile_id 키 RwLock HashMap)
+        └── retry.rs                  # is_retryable_status() + 지수 백오프 헬퍼
 ```
 
 ---
@@ -166,6 +170,24 @@ interface SyncPlan {
   toUpload: FileItem[];     // 신규 파일 (S3에 없음)
   toSkip: FileItem[];       // ETag 일치 → 스킵
   toOverwrite: FileItem[];  // ETag 불일치 → 덮어쓰기 + CDN Purge
+}
+```
+
+### 파일 엔트리 (sync_preview용)
+```typescript
+interface FileEntry {
+  localPath: string | null;
+  remoteKey: string;
+  size: number;
+  localMd5: string | null;
+  remoteEtag: string | null;
+}
+
+interface SyncResult {
+  new: FileEntry[];
+  modified: FileEntry[];
+  deleted: FileEntry[];
+  unchanged: FileEntry[];
 }
 ```
 
@@ -269,10 +291,12 @@ interface AppState {
 | `list_s3_objects` | s3.rs | S3 버킷 객체 목록 조회 |
 | `delete_s3_objects` | s3.rs | S3 객체 삭제 |
 | `put_s3_object` | s3.rs | S3 객체 업로드 (폴더 생성용) |
-| `get_presigned_url` | s3.rs | Presigned URL 생성 (1시간) |
+| `get_presigned_url` | s3.rs | Presigned URL 생성 (15분·1시간·24시간 선택) |
+| `rename_s3_object` | s3.rs | S3 객체 이름 변경 (Copy + Delete) |
 | `build_sync_plan` | sync.rs | MD5 기반 동기화 플랜 생성 |
-| `start_uploads` | sync.rs | 병렬 업로드 실행 + 이벤트 emit |
-| `start_downloads` | sync.rs | 병렬 다운로드 실행 + 이벤트 emit |
+| `start_uploads` | sync.rs | 병렬 업로드 실행 + 이벤트 emit + 실시간 속도 계산 |
+| `start_downloads` | sync.rs | 병렬 다운로드 실행 + 이벤트 emit + 실시간 속도 계산 |
+| `sync_preview` | sync.rs | 업로드 실행 없이 new/modified/deleted/unchanged 4분류 미리보기 |
 | `purge_cloudfront` | cdn.rs | CloudFront Invalidation 실행 |
 | `purge_cdn` | cdn.rs | CDN 프로바이더 자동 감지 후 Purge |
 
@@ -287,9 +311,15 @@ interface AppState {
 - [x] S3Adapter — 다운로드, HeadObject, ListObjects
 - [x] ProfileStore — JSON 파일 + OS 키링 보관
 - [x] Smart Sync — toUpload/toSkip/toOverwrite 분류 (병렬 ETag 비교)
-- [x] 전송 이벤트 emit (progress, complete)
+- [x] 전송 이벤트 emit (progress + 실시간 속도, complete)
 - [x] CloudFront Invalidation 어댑터
 - [x] 로컬 디렉터리 조회 커맨드
+- [x] AdapterCache — profile_id 키 RwLock HashMap, save/delete 시 invalidate
+- [x] sync_preview — 업로드 실행 없이 4분류(new/modified/deleted/unchanged) SyncResult 반환
+- [x] Retry 유틸 — 429/500/502/503/504 재시도, 최대 3회 지수 백오프
+- [x] 심볼릭 링크 감지 및 기본 제외 (순환 링크 방지)
+- [x] 다운로드 폴더 선택 다이얼로그 (`@tauri-apps/plugin-dialog`)
+- [x] S3 객체 이름 변경 커맨드 (`rename_s3_object`)
 
 ### 프론트엔드 (React)
 - [x] Zustand 전역 상태 (듀얼 패널, 전송 큐, 로그, 모달)
@@ -297,14 +327,24 @@ interface AppState {
 - [x] LocalPanel — 로컬 FS 탐색, 드래그 소스, 상태 배지
 - [x] RemotePanel — S3 탐색, 드롭 타겟, 컨텍스트 메뉴
 - [x] TitleBar — 커스텀 드래그 리전, 프로파일 드롭다운, 윈도우 컨트롤
-- [x] Toolbar — 연결/해제, 파일 작업 버튼
-- [x] TransferButtons — 업로드/다운로드 트리거
-- [x] ProgressDialog — 파일별 진행률, 속도, 예상 시간
-- [x] LogPanel — 3탭 (작업로그/전송큐/Purge이력), 로그 저장
+- [x] Toolbar — 연결/해제, 파일 작업 버튼 (새 폴더/삭제/이름 변경 연결 완료)
+- [x] TransferButtons — 업로드/다운로드/미리보기 트리거
+- [x] ProgressDialog — 파일별 진행률, 실시간 속도(MB/s), 예상 시간
+- [x] SyncPreviewDialog — new/modified/deleted/unchanged 4탭 미리보기
+- [x] LogPanel — 3탭 (작업로그/전송큐/Purge이력), category 필터링
 - [x] ProfileModal — S3 + CDN 프로파일 CRUD
 - [x] ContextMenu — Portal 기반 우클릭 메뉴
+- [x] ConfirmDialog — 공용 확인 다이얼로그 (danger 스타일 지원)
+- [x] ErrorBoundary — 렌더링 오류 시 재시도 fallback UI
 - [x] 다크/라이트 모드 CSS 토큰 (`prefers-color-scheme`)
-- [x] useTransfer.ts — SyncPlan 상태 배지 연동 (`setSyncPlan`)
+- [x] useTransfer.ts — SyncPlan 배지 연동 + buildPreview() 추가
+- [x] Presigned URL — 15분·1시간·24시간 3가지 만료 옵션
+- [x] 빈 업로드 플랜 조기 종료 ("모든 파일이 최신 상태" 로그)
+
+### 테스트 / CI
+- [x] Vitest + JSDOM 단위 테스트 (`src/test/appStore.test.ts`)
+- [x] Rust 단위 테스트 (`utils/retry.rs` `#[cfg(test)]` 모듈)
+- [x] GitHub Actions CI (`.github/workflows/ci.yml`) — frontend + backend 자동 검증
 
 ---
 
@@ -315,8 +355,6 @@ interface AppState {
 | Akamai CDN Purge | 미구현 (스텁) | `Err("NotImplemented")` 반환 |
 | LG U+ CDN Purge | 미구현 (스텁) | |
 | 효성 ITX CDN Purge | 미구현 (스텁) | |
-| Toolbar 파일 작업 (새 폴더/삭제/이름변경) | UI만 있음, 기능 미연결 | `useS3.createDirectory()` 등 연결 필요 |
-| 다운로드 로컬 경로 선택 | 자동으로 `local.path` 사용 | 저장 위치 다이얼로그 미구현 |
 | 대용량 파일 멀티파트 다운로드 | 단순 GET으로 처리 | |
 | S3 Transfer Acceleration | 미지원 | |
 | 버킷 간 복사 (서버사이드) | 미지원 | |
@@ -334,13 +372,19 @@ interface AppState {
 ### 실행
 ```bash
 # 의존성 설치
-npm install
+pnpm install
 
 # 개발 서버 (핫 리로드)
-npm run tauri dev
+pnpm tauri dev
 
 # 릴리즈 빌드
-npm run tauri build
+pnpm tauri build
+
+# 프론트엔드 단위 테스트
+pnpm test
+
+# Rust 단위 테스트
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 ### 빌드 산출물

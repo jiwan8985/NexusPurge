@@ -1,6 +1,38 @@
 # NexusPurge 테스트 환경 구성 및 테스트 가이드
 
-## 테스트 환경 선택
+## 자동화 테스트 (로컬 실행)
+
+### 프론트엔드 단위 테스트 (Vitest)
+
+```bash
+# 1회 실행
+pnpm test
+
+# 감시 모드 (파일 변경 시 자동 재실행)
+pnpm test:watch
+```
+
+현재 커버리지:
+- `src/test/appStore.test.ts` — Zustand store의 `addLog` (필드 검증, 1000개 상한), `addTransfer`/`updateTransfer` 동작 검증
+
+### Rust 단위 테스트
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+현재 커버리지:
+- `utils/retry.rs` — `retryable_codes_are_recognised` (429/500/502/503/504), `non_retryable_codes_are_rejected` (200/400/401/403/404 등)
+
+### CI (GitHub Actions)
+
+`main` 브랜치 push 및 PR 시 `.github/workflows/ci.yml`이 자동 실행됩니다:
+- **frontend job**: `pnpm typecheck` → `pnpm test` → `pnpm build`
+- **backend job**: `cargo check --release` → `cargo test`
+
+---
+
+## 통합 테스트 환경 선택
 
 | 환경 | 비용 | S3 업로드 | CDN Purge | 멀티파트 | 권장 용도 |
 |------|------|-----------|-----------|----------|-----------|
@@ -284,18 +316,15 @@ echo "Test image placeholder" > C:\test-files\image.png
    ```
 3. 변경된 `hello.txt` 업로드 → `toOverwrite` 분류 확인
 
-**앱의 Sync Preview 확인 방법** (sync_preview invoke):
+**앱의 Sync Preview 확인 방법** (UI 사용):
 
-개발자 도구 콘솔에서:
-```javascript
-const { invoke } = window.__TAURI__.core;
-await invoke("sync_preview", {
-  profileId: "프로파일-ID",
-  localDir: "C:\\test-files",
-  remotePrefix: ""
-});
-// 결과: { new: [], modified: [hello.txt], deleted: [], unchanged: [] }
-```
+1. Local 패널 경로를 `C:\test-files`로 설정
+2. **⚖ 미리보기** 버튼 클릭
+3. SyncPreviewDialog에서 탭별 파일 목록 확인:
+   - **새 파일** 탭: 신규 업로드 예정 파일
+   - **수정됨** 탭: ETag 불일치로 덮어쓰기 예정 파일
+   - **삭제 예정** 탭: 리모트에만 존재하는 파일
+   - **변경 없음** 탭: ETag 일치로 스킵될 파일
 
 **기대 결과**:
 - 동일 파일: `toSkip` → 업로드 생략
@@ -486,14 +515,18 @@ aws s3api abort-multipart-upload \
 ## 빠른 연기 테스트 체크리스트
 
 ```
-[ ] 앱 빌드 성공: npm run tauri dev
+[ ] 자동화 테스트: pnpm test (Vitest 통과)
+[ ] 자동화 테스트: cargo test (Rust 단위 테스트 통과)
+[ ] 앱 빌드 성공: pnpm tauri dev
 [ ] 환경 A (LocalStack) 또는 환경 B (AWS) 선택 및 구성
 [ ] 프로파일 생성 및 연결 성공
 [ ] 소형 파일 업로드 확인
 [ ] Smart Sync: 동일 파일 스킵 확인
 [ ] Smart Sync: 변경 파일 덮어쓰기 확인
+[ ] 미리보기 버튼으로 SyncPreviewDialog 확인 (4탭 동작)
 [ ] 대용량 파일(>10MB) 멀티파트 업로드 확인
-[ ] 파일 다운로드 및 MD5 검증
+[ ] 파일 다운로드 (폴더 선택 다이얼로그 포함) 및 MD5 검증
+[ ] Presigned URL 3가지 만료 옵션 (15분·1시간·24시간) 확인
 [ ] (환경 B만) CDN Purge 자동 실행 확인
 [ ] 파일 삭제 확인
 [ ] 에러 케이스: 잘못된 자격증명으로 연결 시도 → 에러 로그 확인

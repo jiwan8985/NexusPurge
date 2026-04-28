@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../store/appStore";
-import type { TransferItem, SyncPlan } from "../types";
+import type { TransferItem, SyncPlan, SyncResult } from "../types";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -275,5 +275,15 @@ export function useTransfer() {
     setTransferring, setShowProgressDialog, clearRemoteSelection, addLog,
   ]);
 
-  return { startUpload, startDownload, buildSyncPlan };
+  // L-1: 로컬 디렉터리 전체 ↔ S3 prefix 비교 (dry-run)
+  const buildPreview = useCallback(async (): Promise<SyncResult> => {
+    if (!activeProfile) throw new Error("Not connected");
+    return invoke<SyncResult>("sync_preview", {
+      profileId: activeProfile.id,
+      localDir: local.path,
+      remotePrefix: remote.path,
+    });
+  }, [activeProfile, local.path, remote.path]);
+
+  return { startUpload, startDownload, buildSyncPlan, buildPreview };
 }

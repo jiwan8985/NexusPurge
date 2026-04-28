@@ -15,7 +15,8 @@ FTP 스타일 듀얼 패널 UI로 로컬과 S3 버킷을 나란히 탐색하고,
 | **Smart Sync** | MD5(ETag) 비교로 변경된 파일만 전송, 동일 파일 자동 스킵 |
 | **CDN 자동 Purge** | 덮어쓰기 감지 시 CloudFront Invalidation 자동 실행 |
 | **실시간 진행률** | 파일별 전송 속도(MB/s) · 잔여 시간 · 진행 바 표시 |
-| **Presigned URL** | S3 객체에 대한 1시간 임시 공개 URL 생성 · 복사 |
+| **동기화 미리보기** | 업로드 전 신규/수정/삭제/변경없음 4탭으로 변경 내역 미리보기 |
+| **Presigned URL** | S3 객체에 대한 15분·1시간·24시간 임시 공개 URL 생성 · 복사 |
 | **다중 프로필** | 여러 S3 계정/버킷을 프로필로 저장, 빠른 전환 |
 | **보안 자격증명** | SecretAccessKey를 OS 키링(Credential Manager/Keychain)에 암호화 보관 |
 | **가상 스크롤** | 수만 개 파일도 끊김 없이 렌더링 |
@@ -194,18 +195,29 @@ pnpm tauri build
 
 ## CI / CD
 
-`main` 브랜치 push 또는 수동 실행 시 GitHub Actions가 3개 OS에서 동시 빌드합니다.
+`main` 브랜치 push 및 PR 시 GitHub Actions가 자동으로 검증합니다.
+
+**CI 워크플로우** (`.github/workflows/ci.yml`):
 
 ```
-push → main
+push / PR → main
+  ├─ frontend job (ubuntu-latest)
+  │   ├─ pnpm typecheck
+  │   ├─ pnpm test      ← Vitest 단위 테스트
+  │   └─ pnpm build
+  └─ backend job (ubuntu-latest)
+      ├─ cargo check --release
+      └─ cargo test
+```
+
+**릴리즈 빌드** (`.github/workflows/build.yml`):
+
+```
+workflow_dispatch → release_tag 입력
   ├─ windows-latest  →  .msi  +  .exe
   ├─ macos-latest    →  .dmg  +  .app
   └─ ubuntu-latest   →  .AppImage
 ```
-
-워크플로우 파일: [`.github/workflows/build.yml`](.github/workflows/build.yml)
-
-**릴리즈 배포**: Actions 탭 → Build → `workflow_dispatch` → `release_tag` 입력 시 GitHub Draft Release 자동 생성.
 
 ---
 
@@ -217,24 +229,25 @@ NexusPurge/
 │   ├── components/
 │   │   ├── layout/             # TitleBar · Toolbar · StatusBar
 │   │   ├── panels/             # LocalPanel · RemotePanel
-│   │   ├── transfer/           # TransferButtons · ProgressDialog
+│   │   ├── transfer/           # TransferButtons · ProgressDialog · SyncPreviewDialog
 │   │   ├── log/                # LogPanel (3탭)
 │   │   ├── modals/             # ProfileModal
-│   │   └── common/             # ContextMenu
+│   │   └── common/             # ContextMenu · ConfirmDialog · ErrorBoundary
 │   ├── hooks/
-│   │   ├── useTransfer.ts      # 업로드/다운로드 + 이벤트 구독
+│   │   ├── useTransfer.ts      # 업로드/다운로드 + 이벤트 구독 + buildPreview
 │   │   ├── useS3.ts            # S3 CRUD · Presigned URL
 │   │   ├── useProfile.ts       # 프로필 CRUD · 연결
 │   │   └── useVirtualList.ts   # 가상 스크롤 (10,000개+ 성능)
 │   ├── store/appStore.ts       # Zustand 전역 상태
 │   ├── types/index.ts          # 공유 타입 (Rust 구조체와 동기화)
-│   └── styles/                 # CSS 변수 · 전역 스타일
+│   ├── styles/                 # CSS 변수 · 전역 스타일
+│   └── test/                   # Vitest 단위 테스트
 │
 └── src-tauri/src/              # Rust 백엔드
     ├── commands/               # Tauri invoke 핸들러
     ├── adapters/storage/       # S3Adapter (멀티파트)
     ├── adapters/cdn/           # CloudFrontAdapter
-    └── utils/                  # SigV4 · MD5 · ProfileStore
+    └── utils/                  # SigV4 · MD5 · ProfileStore · AdapterCache · Retry
 ```
 
 ---
@@ -252,11 +265,27 @@ NexusPurge/
 
 ---
 
+## 테스트
+
+```bash
+# 프론트엔드 단위 테스트 (Vitest)
+pnpm test
+
+# 프론트엔드 감시 모드
+pnpm test:watch
+
+# Rust 단위 테스트
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+CI는 `.github/workflows/ci.yml`에 정의된 GitHub Actions로 `main` 브랜치 push 및 PR 시 자동 실행됩니다.
+
+---
+
 ## 알려진 제한
 
 - Akamai · LG U+ · 효성 ITX CDN Purge는 스텁 상태 (미구현)
 - 대용량 파일(≥10MB) 다운로드는 단일 GET으로 처리 (멀티파트 다운로드 미지원)
-- Toolbar의 파일 작업 버튼(새 폴더 · 삭제 · 이름 변경)은 UI만 존재, 연결 예정
 
 ---
 

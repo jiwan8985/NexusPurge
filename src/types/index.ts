@@ -140,6 +140,21 @@ export interface SyncPlan {
   toOverwrite: FileItem[];   // ETag 불일치 → 덮어쓰기 후 CDN Purge
 }
 
+export interface FileEntry {
+  localPath: string | null;
+  remoteKey: string;
+  size: number;
+  localMd5: string | null;
+  remoteEtag: string | null;
+}
+
+export interface SyncResult {
+  new: FileEntry[];
+  modified: FileEntry[];
+  deleted: FileEntry[];
+  unchanged: FileEntry[];
+}
+
 // ─── App State ───────────────────────────────────────────────────────────────
 
 export type PanelSide = "local" | "remote";

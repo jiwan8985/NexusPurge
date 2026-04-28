@@ -6,12 +6,15 @@ NexusPurge is a Tauri 2 desktop app with a Vite React frontend and Rust backend.
 
 ## Build, Test, and Development Commands
 
-- `npm install`: install frontend and Tauri CLI dependencies.
-- `npm run dev`: run the Vite frontend only.
-- `npm run build`: type-check TypeScript with `tsc`, then build the web assets.
-- `npm run tauri dev`: run the full desktop app in development mode.
-- `npm run tauri build`: create release bundles under `src-tauri/target/release/bundle/`.
+- `pnpm install`: install frontend and Tauri CLI dependencies.
+- `pnpm run dev`: run the Vite frontend only.
+- `pnpm run build`: type-check TypeScript with `tsc`, then build the web assets.
+- `pnpm test`: run Vitest unit tests (jsdom environment, one-shot).
+- `pnpm test:watch`: run Vitest in watch mode.
+- `pnpm tauri dev`: run the full desktop app in development mode.
+- `pnpm tauri build`: create release bundles under `src-tauri/target/release/bundle/`.
 - `cargo check --manifest-path src-tauri/Cargo.toml`: quickly validate Rust backend compilation.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: run Rust unit tests.
 
 ## Coding Style & Naming Conventions
 
@@ -19,7 +22,11 @@ Use TypeScript, React function components, and CSS Modules (`*.module.css`) for 
 
 ## Testing Guidelines
 
-There is no automated test script configured yet. Before opening a PR, run `npm run build` and `cargo check --manifest-path src-tauri/Cargo.toml`. For integration behavior, follow `TEST_GUIDE.md` with LocalStack or an AWS test bucket, covering profile connection, S3 browse/upload/download, smart sync decisions, and CDN purge where credentials allow. Name future tests after the unit under test, for example `hash_tests.rs` or `useTransfer.test.ts`.
+Before opening a PR, run `pnpm test`, `pnpm build`, and `cargo test --manifest-path src-tauri/Cargo.toml`. These three commands are also enforced by the GitHub Actions CI workflow (`.github/workflows/ci.yml`).
+
+Automated unit tests live in `src/test/` (Vitest + jsdom) and in `#[cfg(test)]` modules inside Rust source files. Name new frontend tests after the unit under test (e.g., `useTransfer.test.ts`) and place them in `src/test/`. Rust tests go in a `mod tests { ... }` block at the bottom of the relevant module.
+
+For integration behavior that cannot be covered by unit tests, follow `TEST_GUIDE.md` with LocalStack or an AWS test bucket, covering profile connection, S3 browse/upload/download, smart sync decisions, sync preview dialog, and CDN purge where credentials allow.
 
 ## Commit & Pull Request Guidelines
 

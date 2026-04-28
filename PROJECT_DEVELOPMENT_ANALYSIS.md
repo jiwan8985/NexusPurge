@@ -70,31 +70,29 @@ src-tauri/src/
 
 ## 6. 개선이 필요한 부분
 
-- 자동화 테스트 스크립트가 아직 구성되어 있지 않다.
-- 일부 기존 문서와 주석에 인코딩이 깨진 한글이 남아 있다.
-- 툴바의 새 폴더, 삭제, 이름 변경 버튼은 UI만 존재하거나 연결 로직이 제한적일 수 있다.
-- CDN 공급자는 CloudFront 중심이며 Akamai, LG U+, Hyosung 등은 확장 지점만 준비된 상태로 보인다.
+- CDN 공급자는 CloudFront 중심이며 Akamai, LG U+, Hyosung 등은 확장 지점만 준비된 상태다.
 - 에러 메시지와 사용자 안내 문구를 전역적으로 정리할 필요가 있다.
-- 프로필 저장, keyring 실패, 권한 오류 같은 운영 예외에 대한 UX 보강이 필요하다.
+- 대용량 파일(≥10MB) 다운로드가 단순 GET으로 처리되어 멀티파트 다운로드 미지원이다.
+- 단위 테스트 커버리지를 늘릴 여지가 있다 (현재 store, retry 모듈 중심).
 
 ## 7. 권장 다음 작업
 
-1. 깨진 주석과 기존 한국어 문서의 UTF-8 인코딩 정리
-2. `npm run test`, Rust unit test, E2E 테스트 스크립트 추가
-3. 툴바 액션 버튼과 실제 S3 command 연결
-4. ProfileModal UI도 동일한 상용 디자인 톤으로 개선
-5. LocalStack 기반 통합 테스트 시나리오 자동화
-6. CloudFront 외 CDN 어댑터 구현 범위 확정
-7. 파일 충돌, 대용량 업로드, 네트워크 중단 시 복구 플로우 강화
+1. Akamai / LG U+ / 효성 ITX CDN 어댑터 실제 구현
+2. 대용량 파일 멀티파트 다운로드 지원 추가
+3. 단위 테스트 커버리지 확대 (useTransfer, useS3, 해시 계산 로직 등)
+4. LocalStack 기반 통합 테스트 시나리오 자동화
+5. 파일 충돌, 대용량 업로드, 네트워크 중단 시 복구 플로우 강화
 
 ## 8. 실행 및 검증 명령
 
 ```bash
-npm install
-npm run dev
-npm run build
-npm run tauri dev
+pnpm install
+pnpm run dev
+pnpm run build
+pnpm test
+pnpm tauri dev
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-현재 프론트엔드 빌드는 `npm run build`로 검증 가능하다. 전체 데스크톱 동작은 `npm run tauri dev`로 확인하고, S3 연동은 `TEST_GUIDE.md`의 LocalStack 또는 AWS 테스트 환경 기준으로 검증하는 것이 적절하다.
+프론트엔드 빌드는 `pnpm build`로, 단위 테스트는 `pnpm test` 및 `cargo test`로 검증한다. 전체 데스크톱 동작은 `pnpm tauri dev`로 확인하고, S3 연동은 `TEST_GUIDE.md`의 LocalStack 또는 AWS 테스트 환경 기준으로 검증하는 것이 적절하다.

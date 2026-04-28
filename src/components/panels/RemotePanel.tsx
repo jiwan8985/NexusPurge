@@ -85,34 +85,36 @@ export default function RemotePanel() {
     pathInputRef.current?.blur();
   };
 
-  const buildMenuItems = (file: FileItem): MenuEntry[] => [
-    {
-      label: file.isDirectory ? "폴더 열기" : "다운로드 선택",
-      action: () => (file.isDirectory ? loadPrefix(file.path) : toggleRemoteSelection(file.path)),
-      disabled: !isConnected,
-    },
-    { divider: true },
-    {
-      label: "Presigned URL 복사",
-      action: async () => {
-        try {
-          const url = await getPresignedUrl(file.path, 3600);
-          await navigator.clipboard.writeText(url);
-          addLog("success", `Presigned URL 복사 완료: ${file.name}`, "system");
-        } catch (err) {
-          addLog("error", `Presigned URL 생성 실패: ${err}`, "system");
-        }
+  const buildMenuItems = (file: FileItem): MenuEntry[] => {
+    const copyPresigned = async (seconds: number, label: string) => {
+      try {
+        const url = await getPresignedUrl(file.path, seconds);
+        await navigator.clipboard.writeText(url);
+        addLog("success", `Presigned URL 복사 완료 (${label}): ${file.name}`, "system");
+      } catch (err) {
+        addLog("error", `Presigned URL 생성 실패: ${err}`, "system");
+      }
+    };
+    const urlDisabled = !isConnected || file.isDirectory;
+    return [
+      {
+        label: file.isDirectory ? "폴더 열기" : "다운로드 선택",
+        action: () => (file.isDirectory ? loadPrefix(file.path) : toggleRemoteSelection(file.path)),
+        disabled: !isConnected,
       },
-      disabled: !isConnected || file.isDirectory,
-    },
-    { divider: true },
-    {
-      label: "삭제",
-      action: () => setDeleteConfirm(file),
-      disabled: !isConnected,
-      danger: true,
-    },
-  ];
+      { divider: true },
+      { label: "URL 복사 (15분)", action: () => copyPresigned(900, "15분"), disabled: urlDisabled },
+      { label: "URL 복사 (1시간)", action: () => copyPresigned(3600, "1시간"), disabled: urlDisabled },
+      { label: "URL 복사 (24시간)", action: () => copyPresigned(86400, "24시간"), disabled: urlDisabled },
+      { divider: true },
+      {
+        label: "삭제",
+        action: () => setDeleteConfirm(file),
+        disabled: !isConnected,
+        danger: true,
+      },
+    ];
+  };
 
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
     useVirtualList(remote.files);

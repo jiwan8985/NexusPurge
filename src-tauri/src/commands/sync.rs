@@ -10,6 +10,7 @@ const MAX_CONCURRENT_FILES: usize = 4;
 
 use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
+use crate::utils::adapter_cache::AdapterCache;
 use crate::utils::config::ProfileStore;
 use crate::utils::hash;
 
@@ -95,13 +96,18 @@ pub async fn build_sync_plan(
     local_paths:   Vec<String>,
     remote_prefix: String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<SyncPlan, String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    let adapter = cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?;
 
     let mut plan = SyncPlan {
@@ -187,10 +193,16 @@ async fn compare_local_remote(
     local_dir:     &str,
     remote_prefix: &str,
     store:         &ProfileStore,
+    cache:         &AdapterCache,
 ) -> anyhow::Result<SyncResult> {
     let (creds, region, bucket, endpoint) =
         store.get_connection_info(profile_id).await?;
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())?;
+
+    let adapter = cache
+        .get_or_create(profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await?;
 
     // ── 로컬 파일 목록 수집 ──────────────────────────────────────────────
     let local_files = collect_local_files(Path::new(local_dir)).await?;
@@ -281,8 +293,9 @@ pub async fn sync_preview(
     local_dir:     String,
     remote_prefix: String,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<SyncResult, String> {
-    compare_local_remote(&profile_id, &local_dir, &remote_prefix, &store)
+    compare_local_remote(&profile_id, &local_dir, &remote_prefix, &*store, &*cache)
         .await
         .map_err(|e| e.to_string())
 }
@@ -298,13 +311,18 @@ pub async fn start_uploads(
     cdn_distribution_id:  Option<String>,
     cdn_provider:         Option<String>,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    let adapter = cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?;
 
     // H-6: CDN 자격증명 사전 조회
@@ -335,6 +353,9 @@ pub async fn start_uploads(
             let app_p = app.clone();
             let id_p  = id.clone();
 
+            // L-4: 전송 시작 시각 기록
+            let start_time = std::time::Instant::now();
+
             let result = adapter
                 .upload_with_progress(
                     &item.local_path,
@@ -345,13 +366,19 @@ pub async fn start_uploads(
                         } else {
                             0
                         };
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let speed = if elapsed > 0.05 {
+                            (transferred as f64 / elapsed) as u64
+                        } else {
+                            0
+                        };
                         let _ = app_p.emit(
                             "transfer:progress",
                             TransferProgressPayload {
                                 id:                id_p.clone(),
                                 progress,
                                 transferred_bytes: transferred,
-                                speed:             0,
+                                speed,
                                 status:            "uploading".into(),
                             },
                         );
@@ -408,13 +435,18 @@ pub async fn start_downloads(
     profile_id: String,
     items:      Vec<DownloadItem>,
     store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    let adapter = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+    let adapter = cache
+        .get_or_create(&profile_id, || {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        })
+        .await
         .map_err(|e| e.to_string())?;
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
@@ -431,6 +463,9 @@ pub async fn start_downloads(
             let app_p = app.clone();
             let id_p  = id.clone();
 
+            // L-4: 전송 시작 시각 기록
+            let start_time = std::time::Instant::now();
+
             let result = adapter
                 .download_with_progress(
                     &item.remote_path,
@@ -441,13 +476,19 @@ pub async fn start_downloads(
                         } else {
                             50
                         };
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let speed = if elapsed > 0.05 {
+                            (transferred as f64 / elapsed) as u64
+                        } else {
+                            0
+                        };
                         let _ = app_p.emit(
                             "transfer:progress",
                             TransferProgressPayload {
                                 id:                id_p.clone(),
                                 progress,
                                 transferred_bytes: transferred,
-                                speed:             0,
+                                speed,
                                 status:            "downloading".into(),
                             },
                         );

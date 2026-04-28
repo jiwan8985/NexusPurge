@@ -3,6 +3,7 @@ mod adapters;
 mod utils;
 
 use commands::{s3, sync, cdn};
+use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,9 +16,11 @@ pub fn run() {
         .init();
 
     let profile_store = ProfileStore::new().expect("ProfileStore 초기화 실패");
+    let adapter_cache = AdapterCache::new();
 
     tauri::Builder::default()
         .manage(profile_store)
+        .manage(adapter_cache)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

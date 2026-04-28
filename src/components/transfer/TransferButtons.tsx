@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
 import ConfirmDialog from "../common/ConfirmDialog";
+import SyncPreviewDialog from "./SyncPreviewDialog";
+import type { SyncResult } from "../../types";
 import styles from "./TransferButtons.module.css";
 
 const LARGE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
@@ -13,17 +15,21 @@ function fmtSize(bytes: number): string {
 }
 
 export default function TransferButtons() {
-  const { isConnected, isTransferring, local, remote } = useAppStore((s) => ({
+  const { isConnected, isTransferring, local, remote, addLog } = useAppStore((s) => ({
     isConnected: s.isConnected,
     isTransferring: s.isTransferring,
     local: s.local,
     remote: s.remote,
+    addLog: s.addLog,
   }));
-  const { startUpload, startDownload } = useTransfer();
+  const { startUpload, startDownload, buildPreview } = useTransfer();
   const [uploadConfirm, setUploadConfirm] = useState<{ totalSize: number; count: number } | null>(null);
+  const [previewResult, setPreviewResult] = useState<SyncResult | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
 
   const canUpload = isConnected && !isTransferring && local.selectedPaths.size > 0;
   const canDownload = isConnected && !isTransferring && remote.selectedPaths.size > 0;
+  const canPreview = isConnected && !isTransferring && !isPreviewing && !!local.path;
 
   const handleUpload = () => {
     // M-4: 100 MB 초과 시 확인 다이얼로그 표시
@@ -33,6 +39,18 @@ export default function TransferButtons() {
       setUploadConfirm({ totalSize, count: selectedFiles.length });
     } else {
       startUpload();
+    }
+  };
+
+  const handlePreview = async () => {
+    setIsPreviewing(true);
+    try {
+      const result = await buildPreview();
+      setPreviewResult(result);
+    } catch (err) {
+      addLog("error", `동기화 미리보기 실패: ${err}`, "system");
+    } finally {
+      setIsPreviewing(false);
     }
   };
 
@@ -46,6 +64,16 @@ export default function TransferButtons() {
       >
         <span className={styles.arrow}>→</span>
         <span className={styles.label}>업로드</span>
+      </button>
+
+      <button
+        className={`${styles.transferBtn} ${styles.preview}`}
+        onClick={handlePreview}
+        disabled={!canPreview}
+        title="로컬 디렉터리와 S3 버킷의 차이를 미리 확인"
+      >
+        <span className={styles.arrow}>{isPreviewing ? "…" : "⚖"}</span>
+        <span className={styles.label}>미리보기</span>
       </button>
 
       <button
@@ -76,6 +104,15 @@ export default function TransferButtons() {
             startUpload();
           }}
           onCancel={() => setUploadConfirm(null)}
+        />
+      )}
+
+      {previewResult && (
+        <SyncPreviewDialog
+          result={previewResult}
+          localPath={local.path}
+          remotePath={remote.path}
+          onClose={() => setPreviewResult(null)}
         />
       )}
     </div>
