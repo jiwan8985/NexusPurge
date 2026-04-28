@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import ErrorBoundary from "./components/ErrorBoundary";
 import TitleBar from "./components/layout/TitleBar";
 import Toolbar from "./components/layout/Toolbar";
 import StatusBar from "./components/layout/StatusBar";
@@ -47,24 +48,26 @@ export default function App() {
   }, [profiles, setActiveProfile, setLastProfileId]);
 
   return (
-    <div className="app-container">
-      <TitleBar />
-      <Toolbar />
+    <ErrorBoundary>
+      <div className="app-container">
+        <TitleBar />
+        <Toolbar />
 
-      <div className="main-content">
-        <div className="panels-row">
-          <LocalPanel />
-          <TransferButtons />
-          <RemotePanel />
+        <div className="main-content">
+          <div className="panels-row">
+            <LocalPanel />
+            <TransferButtons />
+            <RemotePanel />
+          </div>
+
+          {isLogPanelVisible && <LogPanel />}
         </div>
 
-        {isLogPanelVisible && <LogPanel />}
+        <StatusBar />
+
+        {showProgressDialog && <ProgressDialog />}
+        {isProfileModalOpen && <ProfileModal />}
       </div>
-
-      <StatusBar />
-
-      {showProgressDialog && <ProgressDialog />}
-      {isProfileModalOpen && <ProfileModal />}
-    </div>
+    </ErrorBoundary>
   );
 }

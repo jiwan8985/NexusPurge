@@ -3,22 +3,33 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { useS3 } from "../../hooks/useS3";
+import ConfirmDialog from "../common/ConfirmDialog";
 import styles from "./TitleBar.module.css";
 import type { S3Profile } from "../../types";
 
 export default function TitleBar() {
   const appWindow = getCurrentWindow();
-  const { activeProfile, isConnected, isConnecting, openProfileModal } =
+  const { activeProfile, isConnected, isConnecting, isTransferring, openProfileModal } =
     useAppStore((s) => ({
       activeProfile: s.activeProfile,
       isConnected: s.isConnected,
       isConnecting: s.isConnecting,
+      isTransferring: s.isTransferring,
       openProfileModal: s.openProfileModal,
     }));
 
   const { disconnect, connectWithProfile, profiles } = useProfile();
   const { listObjects } = useS3();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  const handleClose = () => {
+    if (isTransferring) {
+      setShowCloseConfirm(true);
+    } else {
+      appWindow.close();
+    }
+  };
 
   const handleConnect = async (profile: S3Profile) => {
     setDropdownOpen(false);
@@ -114,7 +125,7 @@ export default function TitleBar() {
             <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" />
           </svg>
         </button>
-        <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={() => appWindow.close()} aria-label="닫기">
+        <button className={`${styles.controlBtn} ${styles.closeBtn}`} onClick={handleClose} aria-label="닫기">
           <svg width="10" height="10" viewBox="0 0 10 10">
             <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.2" />
           </svg>
@@ -122,6 +133,17 @@ export default function TitleBar() {
       </div>
 
       {dropdownOpen && <div className={styles.ddBackdrop} onClick={() => setDropdownOpen(false)} />}
+
+      {showCloseConfirm && (
+        <ConfirmDialog
+          title="전송 중 종료"
+          message="파일 전송이 진행 중입니다. 지금 종료하면 전송이 중단됩니다. 계속하시겠습니까?"
+          confirmLabel="종료"
+          danger
+          onConfirm={() => appWindow.close()}
+          onCancel={() => setShowCloseConfirm(false)}
+        />
+      )}
     </div>
   );
 }

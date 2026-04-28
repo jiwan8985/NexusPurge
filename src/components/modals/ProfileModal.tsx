@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
+import ConfirmDialog from "../common/ConfirmDialog";
 import type { S3Profile, CdnProvider } from "../../types";
 import styles from "./ProfileModal.module.css";
 
@@ -64,6 +65,7 @@ export default function ProfileModal() {
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleEdit = (profile: S3Profile) => {
     setEditingId(profile.id);
@@ -186,23 +188,48 @@ export default function ProfileModal() {
   const isCloudFront = form.cdnProvider === "cloudfront";
 
   return (
+    <>
+    {deleteConfirmId && (
+      <ConfirmDialog
+        title="프로필 삭제"
+        message={
+          <>
+            <p>
+              <strong>
+                {profiles.find((p) => p.id === deleteConfirmId)?.name}
+              </strong>{" "}
+              프로필을 삭제합니다.
+            </p>
+            <p>저장된 자격증명도 함께 삭제됩니다. 이 작업은 취소할 수 없습니다.</p>
+          </>
+        }
+        confirmLabel="삭제"
+        danger
+        onConfirm={() => {
+          deleteProfile(deleteConfirmId);
+          if (editingId === deleteConfirmId) handleNew();
+          setDeleteConfirmId(null);
+        }}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
+    )}
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeProfileModal()}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <span className={styles.title}>접속 프로파일 관리</span>
+          <span className={styles.title}>접속 프로필 관리</span>
           <button className={styles.closeBtn} onClick={closeProfileModal}>✕</button>
         </div>
 
         <div className={styles.body}>
-          {/* 프로파일 목록 */}
+          {/* 프로필 목록 */}
           <div className={styles.profileList}>
             <div className={styles.sectionHeader}>
-              저장된 프로파일
-              <button className={styles.newBtn} onClick={handleNew}>+ 새 프로파일</button>
+              저장된 프로필
+              <button className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
             </div>
 
             {profiles.length === 0 ? (
-              <div className={styles.empty}>프로파일이 없습니다</div>
+              <div className={styles.empty}>저장된 프로필이 없습니다</div>
             ) : (
               profiles.map((p) => (
                 <div
@@ -219,7 +246,7 @@ export default function ProfileModal() {
                     <button className={styles.connectBtn} onClick={() => handleConnect(p)}>
                       연결
                     </button>
-                    <button className={styles.deleteBtn} onClick={() => deleteProfile(p.id)}>
+                    <button className={styles.deleteBtn} onClick={() => setDeleteConfirmId(p.id)}>
                       삭제
                     </button>
                   </div>
@@ -228,10 +255,10 @@ export default function ProfileModal() {
             )}
           </div>
 
-          {/* 프로파일 편집 폼 */}
+          {/* 프로필 편집 폼 */}
           <form className={styles.form} onSubmit={handleSubmit}>
             <div className={styles.sectionHeader}>
-              {editingId ? "프로파일 편집" : "새 프로파일"}
+              {editingId ? "프로필 편집" : "새 프로필"}
             </div>
 
             {error && <div className={styles.errorMsg}>{error}</div>}
@@ -386,5 +413,6 @@ export default function ProfileModal() {
         </div>
       </div>
     </div>
+    </>
   );
 }

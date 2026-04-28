@@ -4,6 +4,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::utils::config::AwsCredentials;
+use crate::utils::retry::is_retryable_status;
 use crate::utils::sigv4::Signer;
 
 pub struct CloudFrontAdapter {
@@ -64,33 +65,54 @@ impl CloudFrontAdapter {
             region:            "us-east-1",
             service:           "cloudfront",
         };
-        let headers =
-            signer.sign_headers("POST", &url, &[("content-type", "application/xml")], &body);
 
-        let mut req = self
-            .client
-            .post(raw_url)
-            .header("content-type", "application/xml")
-            .body(body);
-        for (k, v) in &headers {
-            req = req.header(k.as_str(), v.as_str());
+        // M-5: 지수 백오프 재시도 (최대 3회) — CloudFront rate limit(429) 대응
+        let mut delay_ms = 500u64;
+        for attempt in 0u32..3 {
+            // SigV4 서명은 타임스탬프 포함이므로 재시도마다 재생성
+            let headers = signer.sign_headers(
+                "POST",
+                &url,
+                &[("content-type", "application/xml")],
+                &body,
+            );
+            let mut req = self
+                .client
+                .post(raw_url.clone())
+                .header("content-type", "application/xml")
+                .body(body.clone());
+            for (k, v) in &headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+
+            match req.send().await {
+                Err(e) if attempt < 2 => {
+                    tracing::warn!("CloudFront Invalidation 네트워크 오류 재시도 {}/3: {}", attempt + 1, e);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2;
+                    continue;
+                }
+                Err(e) => return Err(e).context("CloudFront 요청 실패"),
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    if status.is_success() {
+                        let id = xml_extract(&text, "Id").unwrap_or(caller_ref);
+                        tracing::info!("CloudFront Invalidation 생성: {} (dist={})", id, distribution_id);
+                        return Ok(id);
+                    }
+                    let code = status.as_u16();
+                    if attempt < 2 && is_retryable_status(code) {
+                        tracing::warn!("CloudFront Invalidation 재시도 {}/3: HTTP {}", attempt + 1, code);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        delay_ms *= 2;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!("CloudFront Invalidation 실패 ({}): {}", status, text));
+                }
+            }
         }
-
-        let resp = req.send().await.context("CloudFront 요청 실패")?;
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-
-        if !status.is_success() {
-            return Err(anyhow::anyhow!(
-                "CloudFront Invalidation 실패 ({}): {}",
-                status,
-                text
-            ));
-        }
-
-        let id = xml_extract(&text, "Id").unwrap_or(caller_ref);
-        tracing::info!("CloudFront Invalidation 생성: {} (dist={})", id, distribution_id);
-        Ok(id)
+        unreachable!()
     }
 
     /// CloudFront 배포의 도메인명 조회 (예: d111111abcdef8.cloudfront.net)

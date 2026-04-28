@@ -11,6 +11,7 @@ use crate::adapters::storage::base::{
 };
 use crate::commands::s3::FileItem;
 use crate::utils::config::AwsCredentials;
+use crate::utils::retry::is_retryable_status;
 use crate::utils::sigv4::Signer;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -181,19 +182,38 @@ impl S3Adapter {
         }
 
         let url = Url::parse(&raw).context("URL 파싱 실패")?;
-        let resp = self.signed_get(&url).await?;
-        // C-3 + H-4: HTTP 상태 확인 — 오류 응답을 빈 목록으로 오인하지 않음
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "S3 목록 조회 실패 (HTTP {}): {}",
-                status,
-                body
-            ));
+
+        // M-5: 지수 백오프 재시도 (최대 3회)
+        let mut delay_ms = 500u64;
+        for attempt in 0u32..3 {
+            match self.signed_get(&url).await {
+                Err(e) if attempt < 2 => {
+                    tracing::warn!("목록 조회 네트워크 오류 재시도 {}/3: {}", attempt + 1, e);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2;
+                    continue;
+                }
+                Err(e) => return Err(e.context("HTTP GET 실패")),
+                Ok(resp) => {
+                    // C-3 + H-4: HTTP 상태 확인 — 오류 응답을 빈 목록으로 오인하지 않음
+                    let status = resp.status();
+                    if status.is_success() {
+                        let text = resp.text().await.context("응답 읽기 실패")?;
+                        return parse_list_response(&text);
+                    }
+                    let code = status.as_u16();
+                    if attempt < 2 && is_retryable_status(code) {
+                        tracing::warn!("목록 조회 재시도 {}/3: HTTP {}", attempt + 1, code);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        delay_ms *= 2;
+                        continue;
+                    }
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("S3 목록 조회 실패 (HTTP {}): {}", code, body));
+                }
+            }
         }
-        let text = resp.text().await.context("응답 읽기 실패")?;
-        parse_list_response(&text)
+        unreachable!()
     }
 
     /// C-3: 전체 페이지를 순회해 1000개 초과 오브젝트를 모두 반환
@@ -517,30 +537,49 @@ impl S3Adapter {
         on_progress(0, total);
 
         let data = fs::read(local_path).await.context("파일 읽기 실패")?;
-
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(remote_key)))
             .context("URL 파싱 실패")?;
-        let resp = self.signed_put(&url, data, content_type).await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("업로드 실패 ({}): {}", status, body));
+        // M-5: 지수 백오프 재시도 (최대 3회)
+        let mut delay_ms = 500u64;
+        for attempt in 0u32..3 {
+            match self.signed_put(&url, data.clone(), content_type).await {
+                Err(e) if attempt < 2 => {
+                    tracing::warn!("업로드 네트워크 오류 재시도 {}/3: {}", attempt + 1, e);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2;
+                    continue;
+                }
+                Err(e) => return Err(e.context("HTTP PUT 실패")),
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        let etag = resp
+                            .headers()
+                            .get("etag")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|e| e.trim_matches('"').to_owned());
+                        on_progress(total, total);
+                        return Ok(UploadResult {
+                            key: remote_key.to_owned(),
+                            etag,
+                            size: total,
+                            is_multipart: false,
+                        });
+                    }
+                    let code = status.as_u16();
+                    if attempt < 2 && is_retryable_status(code) {
+                        tracing::warn!("업로드 재시도 {}/3: HTTP {}", attempt + 1, code);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        delay_ms *= 2;
+                        continue;
+                    }
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("업로드 실패 ({}): {}", code, body));
+                }
+            }
         }
-
-        let etag = resp
-            .headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned());
-
-        on_progress(total, total);
-        Ok(UploadResult {
-            key: remote_key.to_owned(),
-            etag,
-            size: total,
-            is_multipart: false,
-        })
+        unreachable!()
     }
 
     /// 슬라이딩 윈도우 방식: 최대 4개 파트를 동시에 업로드
@@ -686,27 +725,45 @@ impl S3Adapter {
         );
         let url = Url::parse(&raw).context("URL 파싱 실패")?;
 
-        let headers = self.signer().sign_headers("PUT", &url, &[], &data);
-        let mut req = self.client.put(url.as_str()).body(data);
-        for (k, v) in &headers {
-            req = req.header(k.as_str(), v.as_str());
+        // M-5: 지수 백오프 재시도 (최대 3회)
+        let mut delay_ms = 500u64;
+        for attempt in 0u32..3 {
+            let headers = self.signer().sign_headers("PUT", &url, &[], &data);
+            let mut req = self.client.put(url.as_str()).body(data.clone());
+            for (k, v) in &headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            match req.send().await {
+                Err(e) if attempt < 2 => {
+                    tracing::warn!("파트 업로드 네트워크 오류 재시도 {}/3 (part {}): {}", attempt + 1, part_number, e);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2;
+                    continue;
+                }
+                Err(e) => return Err(anyhow::anyhow!("HTTP PUT(part) 실패: {}", e)),
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        return resp
+                            .headers()
+                            .get("etag")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|e| e.trim_matches('"').to_owned())
+                            .context("UploadPart ETag 헤더 없음");
+                    }
+                    let code = status.as_u16();
+                    if attempt < 2 && is_retryable_status(code) {
+                        tracing::warn!("파트 업로드 재시도 {}/3 (part {}): HTTP {}", attempt + 1, part_number, code);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        delay_ms *= 2;
+                        continue;
+                    }
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow::anyhow!("UploadPart 실패 (part {}): {}", part_number, body));
+                }
+            }
         }
-
-        let resp = req.send().await.context("HTTP PUT(part) 실패")?;
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "UploadPart 실패 (part {}): {}",
-                part_number,
-                body
-            ));
-        }
-
-        resp.headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned())
-            .context("UploadPart ETag 헤더 없음")
+        unreachable!()
     }
 
     async fn complete_multipart_upload(

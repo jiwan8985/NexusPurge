@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
+import ConfirmDialog from "../common/ConfirmDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
@@ -52,6 +53,7 @@ export default function RemotePanel() {
   const [pathInput, setPathInput] = useState(remote.path);
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
@@ -106,11 +108,7 @@ export default function RemotePanel() {
     { divider: true },
     {
       label: "삭제",
-      action: async () => {
-        if (!confirm(`"${file.name}" 항목을 삭제할까요?`)) return;
-        await deleteObjects([file.path]);
-        await loadPrefix(remote.path);
-      },
+      action: () => setDeleteConfirm(file),
       disabled: !isConnected,
       danger: true,
     },
@@ -248,6 +246,29 @@ export default function RemotePanel() {
           y={ctxMenu.y}
           items={buildMenuItems(ctxMenu.file)}
           onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="항목 삭제"
+          message={
+            <>
+              <p>
+                <strong>{deleteConfirm.name}</strong>을(를) 삭제합니다.
+              </p>
+              <p>S3에서 삭제된 파일은 복구할 수 없습니다.</p>
+            </>
+          }
+          confirmLabel="삭제"
+          danger
+          onConfirm={async () => {
+            const target = deleteConfirm;
+            setDeleteConfirm(null);
+            await deleteObjects([target.path]);
+            await loadPrefix(remote.path);
+          }}
+          onCancel={() => setDeleteConfirm(null)}
         />
       )}
     </div>
