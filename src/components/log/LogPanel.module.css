@@ -221,4 +221,5 @@
 .ts_skipped     { color: var(--color-status-skipped);   }
 .ts_overwriting { color: var(--color-status-overwrite); }
 .ts_complete    { color: var(--color-status-complete);  }
+.ts_canceled    { color: var(--color-status-skipped);   }
 .ts_error       { color: var(--color-status-error);     }

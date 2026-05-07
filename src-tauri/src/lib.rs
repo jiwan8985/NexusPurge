@@ -5,6 +5,7 @@ mod utils;
 use commands::{s3, sync, cdn};
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
+use utils::transfer_control::TransferControl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +22,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(profile_store)
         .manage(adapter_cache)
+        .manage(TransferControl::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -30,6 +32,7 @@ pub fn run() {
             s3::delete_profile,
             s3::connect_s3,
             s3::test_s3_connection,      // H-3
+            s3::cancel_transfer,
             // Settings (H-7)
             s3::save_last_profile_id,
             s3::get_last_profile_id,
@@ -54,6 +57,9 @@ pub fn run() {
             // CDN Purge
             cdn::purge_cloudfront,
             cdn::purge_cdn,
+            cdn::test_cdn_connection,
+            cdn::get_purge_status,
+            cdn::verify_cdn_urls,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

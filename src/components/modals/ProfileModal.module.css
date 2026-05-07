@@ -229,7 +229,7 @@
 
 .fieldset {
   border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--spacing-4) var(--spacing-5);
   display: flex;
   flex-direction: column;
@@ -238,13 +238,26 @@
   box-shadow: var(--shadow-inset);
 }
 
-.fieldset legend {
-  padding: 0 var(--spacing-2);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
+.sectionDetails {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  overflow: hidden;
+}
+
+.sectionDetails summary {
+  cursor: pointer;
+  padding: var(--spacing-3) var(--spacing-5);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-text-secondary);
+  background: rgba(15, 23, 42, 0.55);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.sectionDetails .fieldset {
+  border: 0;
+  border-radius: 0;
 }
 
 .field {
@@ -337,6 +350,32 @@
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   color: var(--color-error);
+}
+
+.infoMsg,
+.warnMsg {
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.infoMsg {
+  color: var(--color-success);
+  background: rgba(34, 197, 94, 0.1);
+  border: var(--border-width) solid rgba(34, 197, 94, 0.28);
+}
+
+.warnMsg {
+  color: var(--color-warning);
+  background: var(--color-warning-muted);
+  border: var(--border-width) solid rgba(217, 119, 6, 0.32);
+}
+
+.helpText {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
 }
 
 .formActions {

@@ -162,6 +162,48 @@ impl CloudFrontAdapter {
 
         xml_extract(dist_block, "DomainName").context("배포 도메인명 파싱 실패")
     }
+
+    pub async fn get_invalidation_status(
+        &self,
+        distribution_id: &str,
+        invalidation_id: &str,
+    ) -> Result<String> {
+        let raw_url = format!(
+            "https://cloudfront.amazonaws.com/2020-05-31/distribution/{}/invalidation/{}",
+            distribution_id, invalidation_id
+        );
+        let url = Url::parse(&raw_url).context("URL 파싱 실패")?;
+
+        let signer = Signer {
+            access_key_id:     &self.creds.access_key_id,
+            secret_access_key: &self.creds.secret_access_key,
+            region:            "us-east-1",
+            service:           "cloudfront",
+        };
+        let headers = signer.sign_headers("GET", &url, &[], b"");
+
+        let mut req = self.client.get(raw_url);
+        for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+
+        let resp = req
+            .send()
+            .await
+            .context("CloudFront GetInvalidation 요청 실패")?;
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(anyhow::anyhow!(
+                "GetInvalidation 실패 ({}): {}",
+                status,
+                text
+            ));
+        }
+
+        xml_extract(&text, "Status").context("Invalidation 상태 파싱 실패")
+    }
 }
 
 fn xml_extract(xml: &str, tag: &str) -> Option<String> {

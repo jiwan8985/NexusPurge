@@ -37,6 +37,7 @@ function TransferRow({ item }: { item: TransferItem }) {
     skipped: "건너뜀",
     overwriting: "교체",
     complete: "완료",
+    canceled: "취소",
     error: "오류",
   };
 

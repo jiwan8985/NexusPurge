@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store/appStore";
 import type { TransferItem } from "../../types";
 import styles from "./ProgressDialog.module.css";
@@ -36,6 +37,7 @@ const STATUS_LABEL: Record<TransferItem["status"], string> = {
   skipped:     "스킵",
   overwriting: "덮어쓰기",
   complete:    "완료",
+  canceled:    "취소됨",
   error:       "오류",
 };
 
@@ -47,6 +49,7 @@ const STATUS_CLS: Record<TransferItem["status"], string> = {
   skipped:     styles.stSkipped,
   overwriting: styles.stOverwrite,
   complete:    styles.stComplete,
+  canceled:    styles.stSkipped,
   error:       styles.stError,
 };
 
@@ -56,16 +59,73 @@ function TransferRow({ item }: { item: TransferItem }) {
     ? fmtEta(item.size - item.transferredBytes, item.speed)
     : null;
 
+  const purgeLabel = (() => {
+    if (item.cdnPurgeStatus === "pending") return "Purge 대기";
+    if (item.cdnPurgeStatus === "inProgress") return "Purge 진행중";
+    if (item.cdnPurgeStatus === "complete") return "Purge 완료";
+    if (item.cdnPurgeStatus === "error") return "Purge 실패";
+    return null;
+  })();
+  const canCancel = item.status === "pending" || item.status === "uploading" || item.status === "downloading" || item.status === "hashing" || item.status === "overwriting";
+
+  const cancel = async () => {
+    await invoke("cancel_transfer", { id: item.id });
+  };
+
   return (
     <div className={styles.tRow}>
       <div className={styles.tTop}>
         <span className={styles.tName}>{item.fileName}</span>
         <span className={`${styles.tStatus} ${STATUS_CLS[item.status]}`}>
           {STATUS_LABEL[item.status]}
-          {item.cdnPurged && " + CDN ✓"}
-          {item.cdnPurgeError && " + CDN ✗"}
         </span>
+        {canCancel && (
+          <button className={styles.cancelBtn} type="button" onClick={cancel}>
+            취소
+          </button>
+        )}
       </div>
+
+      {(purgeLabel || item.cdnUrl || item.cdnVerified !== undefined) && (
+        <div className={styles.tCdnMeta}>
+          {purgeLabel && (
+            <span
+              className={`${styles.cdnBadge} ${
+                item.cdnPurgeStatus === "error" ? styles.cdnError : styles.cdnOk
+              }`}
+              title={item.cdnPurgeError}
+            >
+              {purgeLabel}
+            </span>
+          )}
+          {item.cdnVerified !== undefined && (
+            <span className={`${styles.cdnBadge} ${item.cdnVerified ? styles.cdnOk : styles.cdnWarn}`}>
+              CDN {item.cdnVerified ? "확인" : "미확인"}
+              {item.cdnStatusCode ? ` ${item.cdnStatusCode}` : ""}
+            </span>
+          )}
+          {item.cdnUrl && (
+            <button
+              className={styles.urlBtn}
+              type="button"
+              onClick={() => navigator.clipboard.writeText(item.cdnUrl ?? "")}
+              title={item.cdnUrl}
+            >
+              CDN URL 복사
+            </button>
+          )}
+          {item.cdnUrl && (
+            <button
+              className={styles.urlBtn}
+              type="button"
+              onClick={() => window.open(item.cdnUrl, "_blank", "noopener,noreferrer")}
+              title={item.cdnUrl}
+            >
+              열기
+            </button>
+          )}
+        </div>
+      )}
 
       {isActive && (
         <div className={styles.tMeta}>
@@ -116,6 +176,9 @@ export default function ProgressDialog() {
     : 0;
 
   const eta = fmtEta(summary.totalBytes - summary.txBytes, summary.avgSpeed);
+  const cdnUrls = transfers
+    .filter((item) => item.direction === "upload" && item.cdnUrl && item.status === "complete")
+    .map((item) => item.cdnUrl as string);
 
   return (
     <div className={styles.overlay}>
@@ -149,6 +212,27 @@ export default function ProgressDialog() {
             transfers.map((t) => <TransferRow key={t.id} item={t} />)
           )}
         </div>
+
+        {cdnUrls.length > 0 && (
+          <div className={styles.cdnUrlList}>
+            <div className={styles.cdnUrlHeader}>
+              <span>업로드 CDN URL</span>
+              <button
+                type="button"
+                className={styles.urlBtn}
+                onClick={() => navigator.clipboard.writeText(cdnUrls.join("\n"))}
+              >
+                전체 복사
+              </button>
+            </div>
+            {cdnUrls.slice(0, 6).map((url) => (
+              <div className={styles.cdnUrlRow} key={url} title={url}>{url}</div>
+            ))}
+            {cdnUrls.length > 6 && (
+              <div className={styles.cdnUrlMore}>외 {cdnUrls.length - 6}개</div>
+            )}
+          </div>
+        )}
 
         {/* 액션 버튼 */}
         <div className={styles.actions}>

@@ -11,6 +11,10 @@ export interface S3Profile {
   cdnProvider?: CdnProvider;
   cdnDistributionId?: string;     // CloudFront distribution ID
   cdnDomain?: string;             // CDN 도메인 (Purge URL 구성용)
+  purgeOnNewUpload?: boolean;     // 신규 업로드에도 CDN Purge 수행
+  defaultCacheControl?: string;   // 업로드 기본 Cache-Control
+  contentTypeOverride?: string;   // 비어 있으면 확장자 기반 자동 감지
+  multipartEtagFallback?: boolean; // multipart ETag 불일치 시 크기 fallback 비교
   // H-6: Akamai EdgeGrid 자격증명
   akamaiClientToken?: string;     // Akamai EdgeGrid client token
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
@@ -50,6 +54,7 @@ export type TransferStatus =
   | "skipped"      // ETag 동일 → 스킵
   | "overwriting"  // ETag 다름 → 덮어쓰기
   | "complete"
+  | "canceled"
   | "error";
 
 export interface TransferItem {
@@ -66,6 +71,12 @@ export interface TransferItem {
   error?: string;
   cdnPurged?: boolean;
   cdnPurgeError?: string;
+  cdnPurgeStatus?: "notRequested" | "pending" | "inProgress" | "complete" | "error";
+  cdnInvalidationId?: string;
+  cdnUrl?: string;
+  cdnVerified?: boolean;
+  cdnStatusCode?: number;
+  cdnCheckError?: string;
   startedAt?: string;
   completedAt?: string;
 }
@@ -96,6 +107,31 @@ export interface CdnPurgeResult {
   invalidationId?: string;
   paths: string[];
   purgedAt?: string;
+  error?: string;
+}
+
+export interface CdnConnectionTestResult {
+  success: boolean;
+  provider: CdnProvider;
+  domain?: string;
+  error?: string;
+}
+
+export interface CdnPurgeStatusResult {
+  success: boolean;
+  provider: CdnProvider;
+  status?: string;
+  message?: string;
+  error?: string;
+}
+
+export interface CdnUrlCheck {
+  url: string;
+  ok: boolean;
+  statusCode?: number;
+  etag?: string;
+  lastModified?: string;
+  cacheControl?: string;
   error?: string;
 }
 
@@ -138,6 +174,25 @@ export interface SyncPlan {
   toUpload: FileItem[];
   toSkip: FileItem[];        // ETag 일치 → 스킵
   toOverwrite: FileItem[];   // ETag 불일치 → 덮어쓰기 후 CDN Purge
+  purgeTargets?: string[];
+  compareMode?: "etag" | "etagWithSizeFallback";
+}
+
+export interface SyncPreviewEntry {
+  localPath?: string;
+  remoteKey: string;
+  size: number;
+  localMd5?: string;
+  remoteEtag?: string;
+  remoteSize?: number;
+}
+
+export interface SyncPreviewResult {
+  new: SyncPreviewEntry[];
+  modified: SyncPreviewEntry[];
+  deleted: SyncPreviewEntry[];
+  unchanged: SyncPreviewEntry[];
+  purgeTargets: string[];
 }
 
 export interface FileEntry {

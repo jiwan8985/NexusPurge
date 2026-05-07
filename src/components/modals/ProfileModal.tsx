@@ -1,23 +1,25 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import ConfirmDialog from "../common/ConfirmDialog";
-import type { S3Profile, CdnProvider } from "../../types";
+import type { S3Profile, CdnProvider, CdnConnectionTestResult } from "../../types";
 import styles from "./ProfileModal.module.css";
 
-// H-6: lgu, hyosung 제거 — CloudFront와 Akamai만 지원
 const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "cloudfront", label: "AWS CloudFront" },
   { value: "akamai",     label: "Akamai" },
 ];
 
-const AWS_REGIONS = [
+const REGION_SUGGESTIONS = [
   "ap-northeast-2",
   "ap-northeast-1",
   "ap-southeast-1",
   "us-east-1",
   "us-west-2",
   "eu-west-1",
+  "ap-singapore",
+  "auto",
 ];
 
 interface FormState {
@@ -30,6 +32,10 @@ interface FormState {
   cdnProvider: CdnProvider | "";
   cdnDistributionId: string;
   cdnDomain: string;
+  purgeOnNewUpload: boolean;
+  defaultCacheControl: string;
+  contentTypeOverride: string;
+  multipartEtagFallback: boolean;
   // H-6: Akamai 전용 필드
   akamaiClientToken: string;
   akamaiClientSecret: string;
@@ -44,9 +50,13 @@ const emptyForm = (): FormState => ({
   accessKeyId: "",
   secretAccessKey: "",
   endpoint: "",
-  cdnProvider: "cloudfront",
+  cdnProvider: "",
   cdnDistributionId: "",
   cdnDomain: "",
+  purgeOnNewUpload: false,
+  defaultCacheControl: "",
+  contentTypeOverride: "",
+  multipartEtagFallback: true,
   akamaiClientToken: "",
   akamaiClientSecret: "",
   akamaiAccessToken: "",
@@ -63,13 +73,17 @@ export default function ProfileModal() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [isTestingCdn, setIsTestingCdn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [cdnTestResult, setCdnTestResult] = useState<CdnConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
 
   const handleEdit = (profile: S3Profile) => {
     setEditingId(profile.id);
     setTestResult(null);
+    setCdnTestResult(null);
     setError(null);
     setForm({
       name: profile.name,
@@ -78,9 +92,13 @@ export default function ProfileModal() {
       accessKeyId: profile.accessKeyId,
       secretAccessKey: "",  // 보안상 마스킹
       endpoint: profile.endpoint ?? "",
-      cdnProvider: profile.cdnProvider ?? "cloudfront",
+      cdnProvider: profile.cdnProvider ?? "",
       cdnDistributionId: profile.cdnDistributionId ?? "",
       cdnDomain: profile.cdnDomain ?? "",
+      purgeOnNewUpload: profile.purgeOnNewUpload ?? false,
+      defaultCacheControl: profile.defaultCacheControl ?? "",
+      contentTypeOverride: profile.contentTypeOverride ?? "",
+      multipartEtagFallback: profile.multipartEtagFallback ?? true,
       akamaiClientToken: profile.akamaiClientToken ?? "",
       akamaiClientSecret: "",  // 보안상 마스킹
       akamaiAccessToken: profile.akamaiAccessToken ?? "",
@@ -93,6 +111,7 @@ export default function ProfileModal() {
     setForm(emptyForm());
     setError(null);
     setTestResult(null);
+    setCdnTestResult(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -115,6 +134,10 @@ export default function ProfileModal() {
         cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
         cdnDistributionId: form.cdnDistributionId || undefined,
         cdnDomain: form.cdnDomain || undefined,
+        purgeOnNewUpload: form.purgeOnNewUpload,
+        defaultCacheControl: form.defaultCacheControl || undefined,
+        contentTypeOverride: form.contentTypeOverride || undefined,
+        multipartEtagFallback: form.multipartEtagFallback,
         akamaiClientToken: form.akamaiClientToken || undefined,
         akamaiClientSecret: form.akamaiClientSecret || undefined,
         akamaiAccessToken: form.akamaiAccessToken || undefined,
@@ -147,6 +170,9 @@ export default function ProfileModal() {
     setError(null);
 
     try {
+      if (!isLocalStack && !window.confirm("실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")) {
+        return;
+      }
       if (form.secretAccessKey) {
         // 직접 입력값으로 테스트
         const result = await testConnection({
@@ -160,7 +186,6 @@ export default function ProfileModal() {
       } else if (editingId) {
         // 기존 저장된 자격증명으로 테스트 (connect_s3 재사용)
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
           await invoke("connect_s3", { profileId: editingId });
           setTestResult({ success: true });
         } catch (err) {
@@ -169,6 +194,49 @@ export default function ProfileModal() {
       }
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleTestCdnConnection = async () => {
+    if (!editingId) {
+      setError("CDN 연결 테스트는 프로파일 저장 후 실행할 수 있습니다.");
+      return;
+    }
+    if (!form.cdnProvider) {
+      setError("CDN 제공자를 선택하세요.");
+      return;
+    }
+    if (form.cdnProvider === "cloudfront" && !form.cdnDistributionId) {
+      setError("CloudFront Distribution ID를 입력하세요.");
+      return;
+    }
+    if (form.cdnProvider === "akamai" && !form.cdnDomain) {
+      setError("Akamai CDN 도메인을 입력하세요.");
+      return;
+    }
+
+    setIsTestingCdn(true);
+    setCdnTestResult(null);
+    setError(null);
+
+    try {
+      if (!window.confirm("실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")) {
+        return;
+      }
+      const result = await invoke<CdnConnectionTestResult>("test_cdn_connection", {
+        profileId: editingId,
+        provider: form.cdnProvider,
+        distributionId: form.cdnDistributionId,
+      });
+      setCdnTestResult(result);
+    } catch (err) {
+      setCdnTestResult({
+        success: false,
+        provider: form.cdnProvider as CdnProvider,
+        error: String(err),
+      });
+    } finally {
+      setIsTestingCdn(false);
     }
   };
 
@@ -181,7 +249,16 @@ export default function ProfileModal() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setTestResult(null);
+    setCdnTestResult(null);
     setForm((f) => ({ ...f, [field]: e.target.value }));
+  };
+
+  const setCheckedField = (field: "purgeOnNewUpload" | "multipartEtagFallback") => (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setTestResult(null);
+    setCdnTestResult(null);
+    setForm((f) => ({ ...f, [field]: e.target.checked }));
   };
 
   const isAkamai = form.cdnProvider === "akamai";
@@ -262,10 +339,16 @@ export default function ProfileModal() {
             </div>
 
             {error && <div className={styles.errorMsg}>{error}</div>}
+            <div className={isLocalStack ? styles.infoMsg : styles.warnMsg}>
+              {isLocalStack
+                ? "LocalStack 프로파일은 로컬 테스트로 비용이 발생하지 않습니다."
+                : "실제 AWS/Akamai 프로파일의 연결 테스트와 CDN 테스트는 계정 사용량에 기록될 수 있습니다."}
+            </div>
 
             {/* S3 설정 */}
-            <fieldset className={styles.fieldset}>
-              <legend>S3 설정</legend>
+            <details className={styles.sectionDetails} open>
+              <summary>S3 설정</summary>
+              <fieldset className={styles.fieldset}>
 
               <label className={styles.field}>
                 <span>프로파일 이름 *</span>
@@ -277,11 +360,17 @@ export default function ProfileModal() {
               </label>
               <label className={styles.field}>
                 <span>리전</span>
-                <select value={form.region} onChange={setField("region")}>
-                  {AWS_REGIONS.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                <input
+                  value={form.region}
+                  onChange={setField("region")}
+                  list="region-suggestions"
+                  placeholder="us-east-1 / ap-northeast-2 / auto"
+                />
+                <datalist id="region-suggestions">
+                  {REGION_SUGGESTIONS.map((r) => (
+                    <option key={r} value={r} />
                   ))}
-                </select>
+                </datalist>
               </label>
               <label className={styles.field}>
                 <span>Access Key ID *</span>
@@ -300,6 +389,37 @@ export default function ProfileModal() {
                 <span>커스텀 엔드포인트</span>
                 <input value={form.endpoint} onChange={setField("endpoint")} placeholder="https://s3.example.com" />
               </label>
+              <label className={styles.field}>
+                <span>Cache-Control</span>
+                <input
+                  value={form.defaultCacheControl}
+                  onChange={setField("defaultCacheControl")}
+                  list="cache-control-suggestions"
+                  placeholder="자동 / no-cache / max-age=31536000, immutable"
+                />
+                <datalist id="cache-control-suggestions">
+                  <option value="no-cache" />
+                  <option value="max-age=3600" />
+                  <option value="max-age=86400" />
+                  <option value="max-age=31536000, immutable" />
+                </datalist>
+              </label>
+              <label className={styles.field}>
+                <span>Content-Type override</span>
+                <input
+                  value={form.contentTypeOverride}
+                  onChange={setField("contentTypeOverride")}
+                  placeholder="자동 감지 / text/html / application/json"
+                />
+              </label>
+              <label className={styles.field}>
+                <span>Multipart ETag fallback</span>
+                <input
+                  type="checkbox"
+                  checked={form.multipartEtagFallback}
+                  onChange={setCheckedField("multipartEtagFallback")}
+                />
+              </label>
 
               {/* H-3: 연결 테스트 */}
               <div className={styles.testRow}>
@@ -317,11 +437,13 @@ export default function ProfileModal() {
                   </span>
                 )}
               </div>
-            </fieldset>
+              </fieldset>
+            </details>
 
             {/* CDN 설정 */}
-            <fieldset className={styles.fieldset}>
-              <legend>CDN 설정 (선택)</legend>
+            <details className={styles.sectionDetails} open>
+              <summary>CDN 설정</summary>
+              <fieldset className={styles.fieldset}>
 
               <label className={styles.field}>
                 <span>CDN 제공자</span>
@@ -399,7 +521,46 @@ export default function ProfileModal() {
                   </label>
                 </>
               )}
-            </fieldset>
+
+              {form.cdnProvider && (
+                <div className={styles.testRow}>
+                  <button
+                    type="button"
+                    className={styles.testBtn}
+                    onClick={handleTestCdnConnection}
+                    disabled={isTestingCdn}
+                  >
+                    {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
+                  </button>
+                  {cdnTestResult && (
+                    <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
+                      {cdnTestResult.success
+                        ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
+                        : `✗ ${cdnTestResult.error}`}
+                    </span>
+                  )}
+                </div>
+              )}
+              </fieldset>
+            </details>
+
+            <details className={styles.sectionDetails} open>
+              <summary>Purge 정책</summary>
+              <fieldset className={styles.fieldset}>
+                <label className={styles.field}>
+                  <span>신규 업로드도 Purge</span>
+                  <input
+                    type="checkbox"
+                    checked={form.purgeOnNewUpload}
+                    onChange={setCheckedField("purgeOnNewUpload")}
+                    disabled={!form.cdnProvider}
+                  />
+                  <small className={styles.helpText}>
+                    기본값은 덮어쓰기 파일만 Purge합니다. 이 옵션을 켜면 새 파일도 업로드 직후 CDN 캐시 무효화 대상으로 보냅니다.
+                  </small>
+                </label>
+              </fieldset>
+            </details>
 
             <div className={styles.formActions}>
               <button type="button" onClick={handleNew} className={styles.cancelBtn}>

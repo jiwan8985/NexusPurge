@@ -3,7 +3,7 @@ import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
 import ConfirmDialog from "../common/ConfirmDialog";
 import SyncPreviewDialog from "./SyncPreviewDialog";
-import type { SyncResult } from "../../types";
+import type { SyncPreviewResult } from "../../types";
 import styles from "./TransferButtons.module.css";
 
 const LARGE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
@@ -24,7 +24,7 @@ export default function TransferButtons() {
   }));
   const { startUpload, startDownload, buildPreview } = useTransfer();
   const [uploadConfirm, setUploadConfirm] = useState<{ totalSize: number; count: number } | null>(null);
-  const [previewResult, setPreviewResult] = useState<SyncResult | null>(null);
+  const [previewResult, setPreviewResult] = useState<SyncPreviewResult | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
 
   const canUpload = isConnected && !isTransferring && local.selectedPaths.size > 0;

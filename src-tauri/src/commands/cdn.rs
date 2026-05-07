@@ -1,6 +1,8 @@
+use reqwest::header::{CACHE_CONTROL, ETAG, LAST_MODIFIED, RANGE};
 use serde::Serialize;
 use tauri::State;
 use crate::adapters::cdn;
+use crate::utils::config::CdnCredentials;
 use crate::utils::config::ProfileStore;
 
 #[derive(Debug, Serialize)]
@@ -12,6 +14,37 @@ pub struct CdnPurgeResult {
     pub paths: Vec<String>,
     #[serde(rename = "purgedAt")]
     pub purged_at: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CdnConnectionTestResult {
+    pub success: bool,
+    pub provider: String,
+    pub domain: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CdnPurgeStatusResult {
+    pub success: bool,
+    pub provider: String,
+    pub status: Option<String>,
+    pub message: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CdnUrlCheck {
+    pub url: String,
+    pub ok: bool,
+    #[serde(rename = "statusCode")]
+    pub status_code: Option<u16>,
+    pub etag: Option<String>,
+    #[serde(rename = "lastModified")]
+    pub last_modified: Option<String>,
+    #[serde(rename = "cacheControl")]
+    pub cache_control: Option<String>,
     pub error: Option<String>,
 }
 
@@ -47,6 +80,206 @@ pub async fn purge_cloudfront(
             error: Some(e.to_string()),
         }),
     }
+}
+
+#[tauri::command]
+pub async fn test_cdn_connection(
+    profile_id: String,
+    provider: String,
+    distribution_id: String,
+    store: State<'_, ProfileStore>,
+) -> Result<CdnConnectionTestResult, String> {
+    let result = async {
+        let cdn_creds = store
+            .get_cdn_credentials(&profile_id, &provider)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        match cdn_creds {
+            CdnCredentials::CloudFront(creds) => {
+                if distribution_id.trim().is_empty() {
+                    return Err("CloudFront Distribution ID가 필요합니다".to_string());
+                }
+                let adapter = cdn::cloudfront::CloudFrontAdapter::new(creds)
+                    .map_err(|e| e.to_string())?;
+                let domain = adapter
+                    .get_distribution_domain(&distribution_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Some(domain))
+            }
+            CdnCredentials::Akamai {
+                client_token,
+                client_secret,
+                access_token,
+                host,
+                cdn_domain,
+            } => {
+                if cdn_domain.trim().is_empty() {
+                    return Err("Akamai CDN 도메인이 필요합니다".to_string());
+                }
+                let adapter = cdn::akamai::AkamaiAdapter::new(
+                    client_token,
+                    client_secret,
+                    access_token,
+                    host,
+                )
+                .map_err(|e| e.to_string())?;
+                adapter
+                    .test_fast_purge_access()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Some(cdn_domain))
+            }
+        }
+    }
+    .await;
+
+    match result {
+        Ok(domain) => Ok(CdnConnectionTestResult {
+            success: true,
+            provider,
+            domain,
+            error: None,
+        }),
+        Err(error) => Ok(CdnConnectionTestResult {
+            success: false,
+            provider,
+            domain: None,
+            error: Some(error),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn get_purge_status(
+    profile_id: String,
+    provider: String,
+    distribution_id: String,
+    invalidation_id: String,
+    store: State<'_, ProfileStore>,
+) -> Result<CdnPurgeStatusResult, String> {
+    let result = async {
+        let cdn_creds = store
+            .get_cdn_credentials(&profile_id, &provider)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        match cdn_creds {
+            CdnCredentials::CloudFront(creds) => {
+                if distribution_id.trim().is_empty() {
+                    return Err("CloudFront Distribution ID가 필요합니다".to_string());
+                }
+                if invalidation_id.trim().is_empty() {
+                    return Err("CloudFront Invalidation ID가 필요합니다".to_string());
+                }
+                let adapter = cdn::cloudfront::CloudFrontAdapter::new(creds)
+                    .map_err(|e| e.to_string())?;
+                let status = adapter
+                    .get_invalidation_status(&distribution_id, &invalidation_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((Some(status), None))
+            }
+            CdnCredentials::Akamai { .. } => Ok((
+                Some("Accepted".to_string()),
+                Some("Akamai Fast Purge는 요청 성공 후 별도 Invalidation ID 없이 처리됩니다.".to_string()),
+            )),
+        }
+    }
+    .await;
+
+    match result {
+        Ok((status, message)) => Ok(CdnPurgeStatusResult {
+            success: true,
+            provider,
+            status,
+            message,
+            error: None,
+        }),
+        Err(error) => Ok(CdnPurgeStatusResult {
+            success: false,
+            provider,
+            status: None,
+            message: None,
+            error: Some(error),
+        }),
+    }
+}
+
+#[tauri::command]
+pub async fn verify_cdn_urls(
+    profile_id: String,
+    paths: Vec<String>,
+    store: State<'_, ProfileStore>,
+) -> Result<Vec<CdnUrlCheck>, String> {
+    let profile = store
+        .get_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let cdn_domain = profile
+        .cdn_domain
+        .filter(|domain| !domain.trim().is_empty())
+        .ok_or_else(|| "CDN 도메인이 필요합니다".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .use_native_tls()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut checks = Vec::with_capacity(paths.len());
+    for path in paths {
+        let url = build_cdn_url(&cdn_domain, &path);
+        checks.push(check_cdn_url(&client, url).await);
+    }
+
+    Ok(checks)
+}
+
+fn build_cdn_url(cdn_domain: &str, path: &str) -> String {
+    let domain = cdn_domain
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    let key = path.trim_start_matches('/');
+    format!("https://{}/{}", domain, key)
+}
+
+async fn check_cdn_url(client: &reqwest::Client, url: String) -> CdnUrlCheck {
+    let response = match client.head(&url).send().await {
+        Ok(resp) if resp.status().as_u16() != 405 => Ok(resp),
+        _ => client.get(&url).header(RANGE, "bytes=0-0").send().await,
+    };
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            let headers = resp.headers();
+            CdnUrlCheck {
+                url,
+                ok: status.is_success(),
+                status_code: Some(status.as_u16()),
+                etag: header_to_string(headers.get(ETAG)),
+                last_modified: header_to_string(headers.get(LAST_MODIFIED)),
+                cache_control: header_to_string(headers.get(CACHE_CONTROL)),
+                error: if status.is_success() { None } else { Some(status.to_string()) },
+            }
+        }
+        Err(err) => CdnUrlCheck {
+            url,
+            ok: false,
+            status_code: None,
+            etag: None,
+            last_modified: None,
+            cache_control: None,
+            error: Some(err.to_string()),
+        },
+    }
+}
+
+fn header_to_string(value: Option<&reqwest::header::HeaderValue>) -> Option<String> {
+    value.and_then(|v| v.to_str().ok()).map(ToOwned::to_owned)
 }
 
 /// H-6: 공급자별 CDN Purge — CdnCredentials 기반으로 Akamai 지원

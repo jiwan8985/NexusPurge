@@ -3,6 +3,7 @@ use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::sync::RwLock;
+use url::Url;
 
 const KEYRING_SERVICE: &str = "cdn-upload-tool";
 const PROFILES_FILENAME: &str = "profiles.json";
@@ -27,6 +28,14 @@ pub struct ProfileConfig {
     pub cdn_distribution_id: Option<String>,
     #[serde(rename = "cdnDomain")]
     pub cdn_domain: Option<String>,
+    #[serde(rename = "purgeOnNewUpload", default)]
+    pub purge_on_new_upload: bool,
+    #[serde(rename = "defaultCacheControl")]
+    pub default_cache_control: Option<String>,
+    #[serde(rename = "contentTypeOverride")]
+    pub content_type_override: Option<String>,
+    #[serde(rename = "multipartEtagFallback", default)]
+    pub multipart_etag_fallback: bool,
     // H-6: Akamai EdgeGrid 자격증명 필드
     #[serde(rename = "akamaiClientToken", skip_serializing_if = "Option::is_none")]
     pub akamai_client_token: Option<String>,
@@ -105,6 +114,8 @@ impl ProfileStore {
     }
 
     pub async fn save(&self, mut profile: ProfileConfig) -> Result<()> {
+        validate_profile(&profile)?;
+
         // S3 secret → keyring
         if let Some(secret) = profile.secret_access_key.take() {
             if !secret.is_empty() {
@@ -170,6 +181,15 @@ impl ProfileStore {
             access_key_id: profile.access_key_id.clone(),
             secret_access_key: secret,
         })
+    }
+
+    pub async fn get_profile(&self, profile_id: &str) -> Result<ProfileConfig> {
+        let locked = self.profiles.read().await;
+        locked
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .context("프로파일을 찾을 수 없음")
     }
 
     pub async fn get_connection_info(
@@ -247,5 +267,68 @@ impl ProfileStore {
             .context("설정 파일 읽기 실패")?;
         let settings: AppSettings = serde_json::from_str(&content).unwrap_or_default();
         Ok(settings.last_profile_id)
+    }
+}
+
+fn validate_profile(profile: &ProfileConfig) -> Result<()> {
+    if profile.name.trim().is_empty() {
+        return Err(anyhow::anyhow!("프로파일 이름이 필요합니다"));
+    }
+    if profile.bucket.trim().is_empty() {
+        return Err(anyhow::anyhow!("버킷 이름이 필요합니다"));
+    }
+    if profile.region.trim().is_empty() {
+        return Err(anyhow::anyhow!("리전이 필요합니다"));
+    }
+    if profile.access_key_id.trim().is_empty() {
+        return Err(anyhow::anyhow!("Access Key ID가 필요합니다"));
+    }
+
+    if let Some(endpoint) = profile.endpoint.as_deref().filter(|value| !value.trim().is_empty()) {
+        let url = Url::parse(endpoint).context("S3 Custom Endpoint URL 형식이 올바르지 않습니다")?;
+        match url.scheme() {
+            "http" | "https" => {}
+            _ => return Err(anyhow::anyhow!("S3 Custom Endpoint는 http 또는 https URL이어야 합니다")),
+        }
+        if url.host_str().is_none() {
+            return Err(anyhow::anyhow!("S3 Custom Endpoint에 호스트가 필요합니다"));
+        }
+    }
+
+    match profile.cdn_provider.as_deref().filter(|value| !value.trim().is_empty()) {
+        None => Ok(()),
+        Some("cloudfront") => {
+            if profile
+                .cdn_distribution_id
+                .as_deref()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
+                return Err(anyhow::anyhow!("CloudFront Distribution ID가 필요합니다"));
+            }
+            if profile
+                .cdn_domain
+                .as_deref()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
+                return Err(anyhow::anyhow!("CloudFront CDN 도메인이 필요합니다"));
+            }
+            Ok(())
+        }
+        Some("akamai") => {
+            for (label, value) in [
+                ("Akamai EdgeGrid 호스트", profile.akamai_host.as_deref()),
+                ("Akamai Client Token", profile.akamai_client_token.as_deref()),
+                ("Akamai Access Token", profile.akamai_access_token.as_deref()),
+                ("Akamai CDN 도메인", profile.cdn_domain.as_deref()),
+            ] {
+                if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
+                    return Err(anyhow::anyhow!("{}이 필요합니다", label));
+                }
+            }
+            Ok(())
+        }
+        Some(other) => Err(anyhow::anyhow!("지원하지 않는 CDN Provider: {}", other)),
     }
 }

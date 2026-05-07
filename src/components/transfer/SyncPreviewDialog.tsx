@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { SyncResult, FileEntry } from "../../types";
+import type { SyncPreviewResult, SyncPreviewEntry } from "../../types";
 import styles from "./SyncPreviewDialog.module.css";
 
 function fmtSize(b: number) {
@@ -10,7 +10,7 @@ function fmtSize(b: number) {
   return `${(b / 1073741824).toFixed(2)} GB`;
 }
 
-function baseName(entry: FileEntry): string {
+function baseName(entry: SyncPreviewEntry): string {
   const key = entry.localPath ?? entry.remoteKey;
   return key.replace(/\\/g, "/").split("/").pop() ?? key;
 }
@@ -25,7 +25,7 @@ const TAB_LABEL: Record<Tab, string> = {
 };
 
 interface Props {
-  result: SyncResult;
+  result: SyncPreviewResult;
   localPath: string;
   remotePath: string;
   onClose: () => void;
@@ -41,7 +41,7 @@ export default function SyncPreviewDialog({ result, localPath, remotePath, onClo
     unchanged: result.unchanged.length,
   };
 
-  const entries: FileEntry[] = result[tab];
+  const entries: SyncPreviewEntry[] = result[tab];
 
   return (
     <div className={styles.overlay} onClick={onClose}>

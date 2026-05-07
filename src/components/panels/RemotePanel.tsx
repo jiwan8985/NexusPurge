@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import ConfirmDialog from "../common/ConfirmDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { useAppStore } from "../../store/appStore";
-import type { FileItem } from "../../types";
+import { buildCdnUrl } from "../../utils/cdn";
+import type { CdnUrlCheck, FileItem } from "../../types";
 import styles from "./Panel.module.css";
 
 function fmtSize(bytes: number) {
@@ -48,7 +50,7 @@ export default function RemotePanel() {
     remoteRefreshKey:     s.remoteRefreshKey,
   }));
 
-  const { listObjects, deleteObjects, getPresignedUrl } = useS3();
+  const { listObjects, deleteObjects, getPresignedUrl, renameObject } = useS3();
   const { startUpload } = useTransfer();
   const [pathInput, setPathInput] = useState(remote.path);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -85,6 +87,58 @@ export default function RemotePanel() {
     pathInputRef.current?.blur();
   };
 
+  const copyCdnUrl = async (file: FileItem) => {
+    const url = buildCdnUrl(activeProfile?.cdnDomain, file.path);
+    if (!url) {
+      addLog("warn", "CDN 도메인이 설정되지 않았습니다.", "cdn");
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    addLog("success", `CDN URL 복사 완료: ${file.name}`, "cdn");
+  };
+
+  const openCdnUrl = (file: FileItem) => {
+    const url = buildCdnUrl(activeProfile?.cdnDomain, file.path);
+    if (!url) {
+      addLog("warn", "CDN 도메인이 설정되지 않았습니다.", "cdn");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const verifyCdnUrl = async (file: FileItem) => {
+    if (!activeProfile) return;
+    try {
+      const [check] = await invoke<CdnUrlCheck[]>("verify_cdn_urls", {
+        profileId: activeProfile.id,
+        paths: [file.path],
+      });
+      if (check?.ok) {
+        addLog("success", `CDN 확인 성공: ${file.name} (${check.statusCode})`, "cdn");
+      } else {
+        addLog("warn", `CDN 확인 실패: ${file.name} (${check?.error ?? check?.statusCode ?? "응답 없음"})`, "cdn");
+      }
+    } catch (err) {
+      addLog("error", `CDN 확인 오류: ${err}`, "cdn");
+    }
+  };
+
+  const deleteRemoteFile = async (file: FileItem) => {
+    const purgeNotice = activeProfile?.cdnProvider ? "\n삭제 성공 후 CDN 캐시도 Purge됩니다." : "";
+    if (!confirm(`"${file.name}" 항목을 삭제할까요?${purgeNotice}`)) return;
+    await deleteObjects([file.path]);
+    await loadPrefix(remote.path);
+  };
+
+  const renameRemoteFile = async (file: FileItem) => {
+    const oldName = file.path.replace(/\/$/, "").split("/").pop() ?? file.name;
+    const newName = window.prompt("새 이름을 입력하세요:", oldName);
+    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    const newKey = file.path.replace(/[^/]*\/?$/, newName.trim() + (file.path.endsWith("/") ? "/" : ""));
+    await renameObject(file.path, newKey);
+    await loadPrefix(remote.path);
+  };
+
   const buildMenuItems = (file: FileItem): MenuEntry[] => {
     const copyPresigned = async (seconds: number, label: string) => {
       try {
@@ -106,7 +160,27 @@ export default function RemotePanel() {
       { label: "URL 복사 (15분)", action: () => copyPresigned(900, "15분"), disabled: urlDisabled },
       { label: "URL 복사 (1시간)", action: () => copyPresigned(3600, "1시간"), disabled: urlDisabled },
       { label: "URL 복사 (24시간)", action: () => copyPresigned(86400, "24시간"), disabled: urlDisabled },
+      {
+        label: "CDN URL 복사",
+        action: () => copyCdnUrl(file),
+        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
+      },
+      {
+        label: "CDN URL 열기",
+        action: () => openCdnUrl(file),
+        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
+      },
+      {
+        label: "CDN 반영 확인",
+        action: () => verifyCdnUrl(file),
+        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
+      },
       { divider: true },
+      {
+        label: "이름 변경",
+        action: () => renameRemoteFile(file),
+        disabled: !isConnected,
+      },
       {
         label: "삭제",
         action: () => setDeleteConfirm(file),
@@ -190,7 +264,11 @@ export default function RemotePanel() {
         ) : remote.isLoading ? (
           <div className={styles.placeholder}>S3 객체를 불러오는 중입니다.</div>
         ) : remote.files.length === 0 ? (
-          <div className={styles.placeholder}>버킷 경로가 비어 있습니다.</div>
+          <div className={styles.placeholder}>
+            {activeProfile?.cdnProvider
+              ? "현재 S3 경로가 비어 있습니다. CDN은 업로드 대상이 아니며, 업로드된 S3 객체가 CDN origin으로 제공됩니다."
+              : "현재 S3 경로가 비어 있습니다. CDN을 설정하면 업로드/삭제 후 Purge와 CDN URL 확인을 사용할 수 있습니다."}
+          </div>
         ) : (
           <div style={{ height: totalHeight, position: "relative" }}>
             <div style={{ transform: `translateY(${offsetTop}px)` }}>
@@ -216,6 +294,21 @@ export default function RemotePanel() {
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
+                    }}
+                    tabIndex={0}
+                    onKeyDown={async (event) => {
+                      if (event.key === "Enter") {
+                        file.isDirectory ? await loadPrefix(file.path) : toggleRemoteSelection(file.path);
+                      } else if (event.key === " ") {
+                        event.preventDefault();
+                        toggleRemoteSelection(file.path);
+                      } else if (event.key === "Delete" || event.key === "Backspace") {
+                        event.preventDefault();
+                        await deleteRemoteFile(file);
+                      } else if (event.key === "F2") {
+                        event.preventDefault();
+                        await renameRemoteFile(file);
+                      }
                     }}
                   >
                     <span className={`${styles.col} ${styles.colName}`}>
@@ -260,6 +353,9 @@ export default function RemotePanel() {
                 <strong>{deleteConfirm.name}</strong>을(를) 삭제합니다.
               </p>
               <p>S3에서 삭제된 파일은 복구할 수 없습니다.</p>
+              {activeProfile?.cdnProvider && (
+                <p>삭제에 성공한 S3 객체만 CDN Purge 대상으로 전송됩니다.</p>
+              )}
             </>
           }
           confirmLabel="삭제"

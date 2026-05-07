@@ -180,6 +180,105 @@
   color: var(--color-error);
 }
 
+.tCdnMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-2);
+  min-height: 20px;
+  flex-wrap: wrap;
+}
+
+.cdnBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 var(--spacing-2);
+  border-radius: var(--radius-xs);
+  border: var(--border-width) solid var(--color-border);
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cdnOk {
+  color: var(--color-success);
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.cdnWarn {
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.cdnError {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.urlBtn {
+  height: 22px;
+  padding: 0 var(--spacing-2);
+  border-radius: var(--radius-xs);
+  border: var(--border-width) solid var(--color-border);
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.urlBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.cancelBtn {
+  height: 22px;
+  padding: 0 var(--spacing-2);
+  border-radius: var(--radius-xs);
+  border: var(--border-width) solid rgba(201, 42, 42, 0.45);
+  color: var(--color-error);
+  background: rgba(201, 42, 42, 0.08);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.cancelBtn:hover {
+  background: rgba(201, 42, 42, 0.16);
+}
+
+.cdnUrlList {
+  flex-shrink: 0;
+  padding: var(--spacing-3) var(--spacing-6);
+  border-top: var(--border-width) solid var(--color-border);
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.cdnUrlHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  color: var(--color-text-secondary);
+}
+
+.cdnUrlRow,
+.cdnUrlMore {
+  font-family: var(--font-family-mono);
+  font-size: 10.5px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
 /* ── Status Colors ───────────────────────────────────────────────────────────── */
 .stPending   { color: var(--color-status-pending);   }
 .stActive    { color: var(--color-status-active);    }

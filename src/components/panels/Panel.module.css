@@ -178,6 +178,12 @@
   background: var(--color-bg-hover);
 }
 
+.fileRow:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+  background: var(--color-bg-hover);
+}
+
 .fileRow.selected {
   background: var(--color-bg-selected);
 }
@@ -288,6 +294,12 @@
   color: var(--badge-modified);
   background: var(--badge-modified-bg);
   border-color: var(--badge-modified-border);
+}
+
+.badge_skipped {
+  color: var(--color-text-tertiary);
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.26);
 }
 
 .badge_purge {

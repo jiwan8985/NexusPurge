@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../store/appStore";
-import type { S3ListResponse } from "../types";
+import type { CdnPurgeResult, S3ListResponse } from "../types";
 
 // S3 파일 탐색 및 단순 조작 훅
 // 실제 업로드/다운로드는 useTransfer에서 처리
@@ -40,11 +40,31 @@ export function useS3() {
     async (keys: string[]) => {
       if (!activeProfile) return;
       try {
-        await invoke("delete_s3_objects", {
+        const deletedKeys = await invoke<string[]>("delete_s3_objects", {
           profileId: activeProfile.id,
           keys,
         });
-        addLog("success", `S3 삭제 완료: ${keys.length}개`, "transfer");
+        addLog("success", `S3 삭제 완료: ${deletedKeys.length}개`, "transfer");
+
+        if (activeProfile.cdnProvider && deletedKeys.length > 0) {
+          try {
+            const purgeResult = await invoke<CdnPurgeResult>("purge_cdn", {
+              profileId: activeProfile.id,
+              provider: activeProfile.cdnProvider,
+              distributionId: activeProfile.cdnDistributionId ?? "",
+              paths: deletedKeys,
+            });
+
+            if (purgeResult.success) {
+              const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
+              addLog("success", `삭제 CDN Purge 완료: ${deletedKeys.length}개${id}`, "cdn");
+            } else {
+              addLog("error", `삭제 CDN Purge 실패: ${purgeResult.error}`, "cdn");
+            }
+          } catch (purgeErr) {
+            addLog("error", `삭제 CDN Purge 실패: ${purgeErr}`, "cdn");
+          }
+        }
       } catch (err) {
         addLog("error", `S3 삭제 실패: ${err}`, "transfer");
         throw err;

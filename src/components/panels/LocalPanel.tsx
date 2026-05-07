@@ -6,7 +6,7 @@ import { useAppStore } from "../../store/appStore";
 import type { FileItem } from "../../types";
 import styles from "./Panel.module.css";
 
-type FileStatus = "new" | "modified" | "purge" | null;
+type FileStatus = "new" | "modified" | "skipped" | "purge" | null;
 
 function fmtSize(bytes: number) {
   if (bytes === 0) return "-";
@@ -47,7 +47,8 @@ function StatusBadge({ status }: { status: FileStatus }) {
   const labels: Record<NonNullable<FileStatus>, string> = {
     new: "신규",
     modified: "수정",
-    purge: "교체",
+    skipped: "스킵",
+    purge: "Purge",
   };
   return <span className={`${styles.badge} ${styles[`badge_${status}`]}`}>{labels[status]}</span>;
 }
@@ -65,6 +66,7 @@ export default function LocalPanel() {
   const {
     local,
     syncPlan,
+    activeProfile,
     setLocalPath,
     setLocalFiles,
     setLocalLoading,
@@ -76,6 +78,7 @@ export default function LocalPanel() {
   } = useAppStore((s) => ({
     local:               s.local,
     syncPlan:            s.syncPlan,
+    activeProfile:       s.activeProfile,
     setLocalPath:        s.setLocalPath,
     setLocalFiles:       s.setLocalFiles,
     setLocalLoading:     s.setLocalLoading,
@@ -124,8 +127,13 @@ export default function LocalPanel() {
   const fileStatusMap = (() => {
     const map = new Map<string, FileStatus>();
     if (!syncPlan) return map;
-    for (const file of syncPlan.toUpload) map.set(file.path, "new");
-    for (const file of syncPlan.toOverwrite) map.set(file.path, "purge");
+    for (const file of syncPlan.toSkip) map.set(file.path, "skipped");
+    for (const file of syncPlan.toUpload) {
+      map.set(file.path, activeProfile?.purgeOnNewUpload && activeProfile.cdnProvider ? "purge" : "new");
+    }
+    for (const file of syncPlan.toOverwrite) {
+      map.set(file.path, activeProfile?.cdnProvider ? "purge" : "modified");
+    }
     return map;
   })();
 
@@ -157,6 +165,28 @@ export default function LocalPanel() {
     { divider: true },
     { label: "경로 복사", action: () => navigator.clipboard.writeText(file.path) },
   ];
+
+  const deleteLocalFile = async (file: FileItem) => {
+    if (!window.confirm(`로컬에서 "${file.name}" 항목을 삭제할까요?`)) return;
+    try {
+      await invoke("delete_local_files", { paths: [file.path] });
+      await loadDirectory(local.path);
+    } catch (err) {
+      addLog("error", `로컬 삭제 실패: ${err}`);
+    }
+  };
+
+  const renameLocalFile = async (file: FileItem) => {
+    const oldName = file.path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? file.name;
+    const newName = window.prompt("새 이름을 입력하세요:", oldName);
+    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    try {
+      await invoke("rename_local_file", { oldPath: file.path, newName: newName.trim() });
+      await loadDirectory(local.path);
+    } catch (err) {
+      addLog("error", `로컬 이름 변경 실패: ${err}`);
+    }
+  };
 
   const selectedFiles = local.files.filter((file) => local.selectedPaths.has(file.path));
   const selectedSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
@@ -227,6 +257,21 @@ export default function LocalPanel() {
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
+                    }}
+                    tabIndex={0}
+                    onKeyDown={async (event) => {
+                      if (event.key === "Enter") {
+                        file.isDirectory ? await loadDirectory(file.path) : toggleLocalSelection(file.path);
+                      } else if (event.key === " ") {
+                        event.preventDefault();
+                        toggleLocalSelection(file.path);
+                      } else if (event.key === "Delete" || event.key === "Backspace") {
+                        event.preventDefault();
+                        await deleteLocalFile(file);
+                      } else if (event.key === "F2") {
+                        event.preventDefault();
+                        await renameLocalFile(file);
+                      }
                     }}
                     draggable={!file.isDirectory}
                     onDragStart={(event) => {

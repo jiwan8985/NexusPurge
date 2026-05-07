@@ -1,7 +1,10 @@
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { useS3 } from "../../hooks/useS3";
 import { useLocalFs } from "../../hooks/useLocalFs";
+import type { SyncPreviewResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
 export default function Toolbar() {
@@ -15,6 +18,9 @@ export default function Toolbar() {
     remote,
     triggerLocalRefresh,
     triggerRemoteRefresh,
+    setSyncPreview,
+    setShowSyncPreview,
+    addLog,
   } = useAppStore((s) => ({
     activeProfile:        s.activeProfile,
     isConnected:          s.isConnected,
@@ -25,6 +31,9 @@ export default function Toolbar() {
     remote:               s.remote,
     triggerLocalRefresh:  s.triggerLocalRefresh,
     triggerRemoteRefresh: s.triggerRemoteRefresh,
+    setSyncPreview:       s.setSyncPreview,
+    setShowSyncPreview:   s.setShowSyncPreview,
+    addLog:               s.addLog,
   }));
 
   const { disconnect, connectWithProfile } = useProfile();
@@ -48,12 +57,34 @@ export default function Toolbar() {
     }
   };
 
+  const handleDryRun = async () => {
+    if (!activeProfile || !isConnected) return;
+    try {
+      const preview = await invoke<SyncPreviewResult>("sync_preview", {
+        profileId: activeProfile.id,
+        localDir: local.path,
+        remotePrefix: remote.path,
+      });
+      setSyncPreview(preview);
+      setShowSyncPreview(true);
+      addLog(
+        "info",
+        `Dry-run: 신규 ${preview.new.length}, 수정 ${preview.modified.length}, Purge ${preview.purgeTargets.length}`
+      );
+    } catch (err) {
+      addLog("error", `Dry-run 실패: ${err}`);
+    }
+  };
+
   // H-1: 삭제
   const handleDelete = async () => {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
       if (keys.length === 0) return;
-      if (!window.confirm(`S3에서 ${keys.length}개 항목을 삭제할까요?`)) return;
+      const purgeNotice = activeProfile?.cdnProvider
+        ? "\n삭제 성공한 항목은 CDN 캐시도 Purge됩니다."
+        : "";
+      if (!window.confirm(`S3에서 ${keys.length}개 항목을 삭제할까요?${purgeNotice}`)) return;
       await deleteObjects(keys);
       triggerRemoteRefresh();
     } else {
@@ -99,10 +130,29 @@ export default function Toolbar() {
   const hasLocalSelection  = local.selectedPaths.size > 0;
   const hasSelection       = focusedSide === "remote" ? hasRemoteSelection : hasLocalSelection;
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        openProfileModal();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        focusedSide === "remote" ? triggerRemoteRefresh() : triggerLocalRefresh();
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        void handleDryRun();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
   return (
     <div className={styles.toolbar}>
       <div className={styles.connectionArea}>
-        <button className={styles.toolBtn} onClick={openProfileModal} title="프로필 관리">
+        <button className={styles.toolBtn} onClick={openProfileModal} title="프로필 관리 (Ctrl/Cmd+P)">
           <span className={styles.toolBtnIcon}>●</span>
           프로필
         </button>
@@ -151,6 +201,14 @@ export default function Toolbar() {
           title="선택 항목 이름 변경"
         >
           이름 변경
+        </button>
+        <button
+          className={styles.toolBtn}
+          disabled={!isConnected || !local.path}
+          onClick={handleDryRun}
+          title="업로드 전 변경 사항과 Purge 대상을 미리 봅니다 (Ctrl/Cmd+D)"
+        >
+          미리보기
         </button>
       </div>
 

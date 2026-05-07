@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "../store/appStore";
-import type { TransferItem, SyncPlan, SyncResult } from "../types";
+import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
+import type { CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -19,6 +20,7 @@ interface TransferCompleteEvent {
   status: TransferItem["status"];
   cdnPurged: boolean;
   cdnPurgeError?: string;
+  cdnInvalidationId?: string;
   error?: string;
 }
 
@@ -81,6 +83,14 @@ export function useTransfer() {
             progress: payload.status === "complete" ? 100 : undefined,
             cdnPurged: payload.cdnPurged,
             cdnPurgeError: payload.cdnPurgeError,
+            cdnInvalidationId: payload.cdnInvalidationId,
+            cdnPurgeStatus: payload.cdnPurgeError
+              ? "error"
+              : payload.cdnPurged
+                ? payload.cdnInvalidationId
+                  ? "inProgress"
+                  : "complete"
+                : "notRequested",
             error: payload.error,
             completedAt: new Date().toISOString(),
           });
@@ -94,6 +104,64 @@ export function useTransfer() {
             if (payload.cdnPurgeError) {
               addLog("warn", `CDN Purge 실패: ${payload.cdnPurgeError}`, "cdn");
             }
+
+            const state = useAppStore.getState();
+            const transfer = state.transfers.find((item) => item.id === payload.id);
+            const profile = state.activeProfile;
+            if (profile?.cdnProvider && transfer?.direction === "upload") {
+              invoke<CdnUrlCheck[]>("verify_cdn_urls", {
+                profileId: profile.id,
+                paths: [transfer.remotePath],
+              })
+                .then((checks) => {
+                  const check = checks[0];
+                  if (check?.ok) {
+                    updateTransfer(payload.id, {
+                      cdnVerified: true,
+                      cdnStatusCode: check.statusCode,
+                      cdnCheckError: undefined,
+                    });
+                    state.addLog(
+                      "success",
+                      `CDN 반영 확인: ${transfer.remotePath} (${check.statusCode})`,
+                      "cdn"
+                    );
+                  } else {
+                    updateTransfer(payload.id, {
+                      cdnVerified: false,
+                      cdnStatusCode: check?.statusCode,
+                      cdnCheckError: check?.error ?? "응답 없음",
+                    });
+                    state.addLog(
+                      "warn",
+                      `CDN 반영 미확인: ${transfer.remotePath} (${check?.error ?? check?.statusCode ?? "응답 없음"})`,
+                      "cdn"
+                    );
+                  }
+                })
+                .catch((err) => state.addLog("warn", `CDN 반영 확인 실패: ${err}`, "cdn"));
+
+              if (payload.cdnInvalidationId && profile.cdnProvider === "cloudfront") {
+                invoke<{ success: boolean; status?: string; error?: string }>("get_purge_status", {
+                  profileId: profile.id,
+                  provider: profile.cdnProvider,
+                  distributionId: profile.cdnDistributionId ?? "",
+                  invalidationId: payload.cdnInvalidationId,
+                })
+                  .then((status) => {
+                    updateTransfer(payload.id, {
+                      cdnPurgeStatus: status.status === "Completed" ? "complete" : "inProgress",
+                      cdnPurgeError: status.success ? undefined : status.error,
+                    });
+                  })
+                  .catch((err) => updateTransfer(payload.id, {
+                    cdnPurgeStatus: "error",
+                    cdnPurgeError: String(err),
+                  }));
+              }
+            }
+          } else if (payload.status === "canceled") {
+            addLog("warn", `전송 취소: ${payload.id}`, "transfer");
           } else if (payload.status === "error") {
             addLog("error", `전송 실패 [${payload.id}]: ${payload.error}`, "transfer");
           }
@@ -174,27 +242,40 @@ export function useTransfer() {
       }
 
       // 3. 업로드 대상 Rust에 전달 (병렬 처리)
-      // C-1: toOverwrite 항목에만 isOverwrite: true — 신규 파일 CDN Purge 방지
+      // 기본은 덮어쓰기만 Purge. 프로파일 옵션이 켜진 경우 신규 업로드도 Purge.
       const makeItems = (files: typeof plan.toUpload, isOverwrite: boolean) =>
         files.map((file) => {
           const id = crypto.randomUUID();
+          const remotePath = remote.path + file.name;
+          const cdnUrl = buildCdnUrl(activeProfile.cdnDomain, remotePath) ?? undefined;
+          const cacheControl =
+            activeProfile.defaultCacheControl || defaultCacheControlFor(remotePath) || undefined;
           addTransfer({
             id,
             direction: "upload",
             localPath: file.path,
-            remotePath: remote.path + file.name,
+            remotePath,
             fileName: file.name,
             size: file.size,
             status: "pending",
             progress: 0,
             transferredBytes: 0,
+            cdnPurgeStatus: activeProfile.cdnProvider && isOverwrite ? "pending" : "notRequested",
+            cdnUrl,
             startedAt: new Date().toISOString(),
           });
-          return { id, localPath: file.path, remotePath: remote.path + file.name, isOverwrite };
+          return {
+            id,
+            localPath: file.path,
+            remotePath,
+            isOverwrite,
+            contentTypeOverride: activeProfile.contentTypeOverride,
+            cacheControl,
+          };
         });
 
       const uploadItems = [
-        ...makeItems(plan.toUpload, false),
+        ...makeItems(plan.toUpload, activeProfile.purgeOnNewUpload ?? false),
         ...makeItems(plan.toOverwrite, true),
       ];
 
@@ -276,9 +357,9 @@ export function useTransfer() {
   ]);
 
   // L-1: 로컬 디렉터리 전체 ↔ S3 prefix 비교 (dry-run)
-  const buildPreview = useCallback(async (): Promise<SyncResult> => {
+  const buildPreview = useCallback(async (): Promise<SyncPreviewResult> => {
     if (!activeProfile) throw new Error("Not connected");
-    return invoke<SyncResult>("sync_preview", {
+    return invoke<SyncPreviewResult>("sync_preview", {
       profileId: activeProfile.id,
       localDir: local.path,
       remotePrefix: remote.path,

@@ -119,6 +119,36 @@ impl AkamaiAdapter {
         tracing::info!("Akamai Purge 성공: {} URL", urls.len());
         Ok(())
     }
+
+    pub async fn test_fast_purge_access(&self) -> Result<()> {
+        if self.host.trim().is_empty() {
+            return Err(anyhow::anyhow!("Akamai EdgeGrid 호스트가 필요합니다"));
+        }
+
+        let endpoint = format!("https://{}/ccu/v3/rate-limit-status/url", &self.host);
+        let url = Url::parse(&endpoint).context("Akamai URL 파싱 실패")?;
+        let auth_header = self.sign_request("GET", &url, b"");
+
+        let resp = self
+            .client
+            .get(url.as_str())
+            .header("Authorization", &auth_header)
+            .send()
+            .await
+            .context("Akamai Fast Purge 권한 테스트 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "Akamai Fast Purge 권한 테스트 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 fn base64_encode(input: &[u8]) -> String {
