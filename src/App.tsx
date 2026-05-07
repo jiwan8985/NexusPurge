@@ -12,6 +12,7 @@ import ProgressDialog from "./components/transfer/ProgressDialog";
 import SyncPreviewDialog from "./components/sync/SyncPreviewDialog";
 import LogPanel from "./components/log/LogPanel";
 import ProfileModal from "./components/modals/ProfileModal";
+import SettingsModal from "./components/modals/SettingsModal";
 import { useAppStore } from "./store/appStore";
 import { useProfile } from "./hooks/useProfile";
 
@@ -20,8 +21,10 @@ export default function App() {
   const showProgressDialog = useAppStore((s) => s.showProgressDialog);
   const showSyncPreview    = useAppStore((s) => s.showSyncPreview);
   const isProfileModalOpen = useAppStore((s) => s.isProfileModalOpen);
+  const isSettingsModalOpen = useAppStore((s) => s.isSettingsModalOpen);
   const setActiveProfile   = useAppStore((s) => s.setActiveProfile);
   const setLastProfileId   = useAppStore((s) => s.setLastProfileId);
+  const setLogPanelVisible = useAppStore((s) => s.setLogPanelVisible);
   const { loadProfiles, profiles } = useProfile();
 
   // 앱 준비 후 윈도우 표시 (tauri.conf.json: visible: false)
@@ -32,11 +35,14 @@ export default function App() {
   // 초기 프로파일 로드
   useEffect(() => {
     loadProfiles();
-  }, [loadProfiles]);
+    const showLog = window.localStorage.getItem("nexuspurge.showLogOnStartup");
+    if (showLog === "false") setLogPanelVisible(false);
+  }, [loadProfiles, setLogPanelVisible]);
 
   // H-7: 프로파일 로드 후 마지막 연결 프로파일 복원 (연결은 하지 않음)
   useEffect(() => {
     if (profiles.length === 0) return;
+    if (window.localStorage.getItem("nexuspurge.restoreLastProfile") === "false") return;
     invoke<string | null>("get_last_profile_id")
       .then((lastId) => {
         if (!lastId) return;
@@ -70,6 +76,7 @@ export default function App() {
         {showProgressDialog && <ProgressDialog />}
         {showSyncPreview && <SyncPreviewDialog />}
         {isProfileModalOpen && <ProfileModal />}
+        {isSettingsModalOpen && <SettingsModal />}
       </div>
     </ErrorBoundary>
   );

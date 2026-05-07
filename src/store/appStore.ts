@@ -55,6 +55,7 @@ interface AppState {
 
   // Modal
   isProfileModalOpen: boolean;
+  isSettingsModalOpen: boolean;
 
   // Actions — Profiles
   setProfiles: (profiles: S3Profile[]) => void;
@@ -99,11 +100,14 @@ interface AppState {
   // Actions — Log
   addLog: (level: LogLevel, message: string, category?: LogCategory, metadata?: Record<string, unknown>) => void;
   clearLogs: () => void;
+  setLogPanelVisible: (visible: boolean) => void;
   toggleLogPanel: () => void;
 
   // Actions — Modal
   openProfileModal: () => void;
   closeProfileModal: () => void;
+  openSettingsModal: () => void;
+  closeSettingsModal: () => void;
 }
 
 // ─── Initial Panel State ─────────────────────────────────────────────────────
@@ -155,6 +159,7 @@ export const useAppStore = create<AppState>()(
 
     // ── Modal ─────────────────────────────────────────────────────────────────
     isProfileModalOpen: false,
+    isSettingsModalOpen: false,
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
@@ -240,11 +245,14 @@ export const useAppStore = create<AppState>()(
         ].slice(-1000), // 최대 1000개 유지
       })),
     clearLogs: () => set({ logs: [] }),
+    setLogPanelVisible: (isLogPanelVisible) => set({ isLogPanelVisible }),
     toggleLogPanel: () =>
       set((s) => ({ isLogPanelVisible: !s.isLogPanelVisible })),
 
     // ── Modal Actions ─────────────────────────────────────────────────────────
     openProfileModal: () => set({ isProfileModalOpen: true }),
     closeProfileModal: () => set({ isProfileModalOpen: false }),
+    openSettingsModal: () => set({ isSettingsModalOpen: true }),
+    closeSettingsModal: () => set({ isSettingsModalOpen: false }),
   }))
 );

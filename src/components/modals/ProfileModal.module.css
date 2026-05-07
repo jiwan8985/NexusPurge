@@ -1,6 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
+  padding: var(--spacing-5);
   background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
@@ -22,7 +23,9 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg);
   width: 740px;
-  max-height: 82vh;
+  max-width: min(940px, 100%);
+  height: min(760px, 100%);
+  max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -90,9 +93,16 @@
   border-right: var(--border-width) solid var(--color-border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   flex-shrink: 0;
   background: var(--color-bg-tertiary);
+}
+
+.profileItems {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sectionHeader {
@@ -152,6 +162,8 @@
 .profileInfo {
   flex: 1;
   min-width: 0;
+  display: block;
+  text-align: left;
 }
 
 .profileName {
@@ -220,6 +232,31 @@
 /* ── Form ────────────────────────────────────────────────────────────────────── */
 .form {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.formHeader {
+  display: flex;
+  align-items: center;
+  min-height: 43px;
+  padding: 0 var(--spacing-6);
+  border-bottom: var(--border-width) solid var(--color-border);
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: var(--color-bg-secondary);
+}
+
+.formScroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-5) var(--spacing-6);
   display: flex;
@@ -382,7 +419,10 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--spacing-3);
-  padding-top: var(--spacing-2);
+  padding: var(--spacing-4) var(--spacing-6);
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
 }
 
 .cancelBtn,
@@ -425,4 +465,33 @@
 .saveBtn:disabled {
   opacity: 0.42;
   cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .overlay {
+    padding: var(--spacing-3);
+  }
+
+  .modal {
+    height: calc(100vh - var(--spacing-6));
+    max-height: calc(100vh - var(--spacing-6));
+  }
+
+  .body {
+    flex-direction: column;
+  }
+
+  .profileList {
+    width: 100%;
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .formHeader,
+  .formScroll,
+  .formActions {
+    padding-left: var(--spacing-4);
+    padding-right: var(--spacing-4);
+  }
 }

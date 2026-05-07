@@ -13,6 +13,7 @@ export default function Toolbar() {
     isConnected,
     isConnecting,
     openProfileModal,
+    openSettingsModal,
     focusedSide,
     local,
     remote,
@@ -26,6 +27,7 @@ export default function Toolbar() {
     isConnected:          s.isConnected,
     isConnecting:         s.isConnecting,
     openProfileModal:     s.openProfileModal,
+    openSettingsModal:    s.openSettingsModal,
     focusedSide:          s.focusedSide,
     local:                s.local,
     remote:               s.remote,
@@ -214,7 +216,7 @@ export default function Toolbar() {
 
       <div className={styles.spacer} />
 
-      <button className={styles.toolBtn} title="설정">
+      <button className={styles.toolBtn} onClick={openSettingsModal} title="앱 설정">
         설정
       </button>
     </div>

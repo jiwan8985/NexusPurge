@@ -22,6 +22,9 @@ const REGION_SUGGESTIONS = [
   "auto",
 ];
 
+const shouldConfirmExternalRequests = () =>
+  window.localStorage.getItem("nexuspurge.confirmExternalRequests") !== "false";
+
 interface FormState {
   name: string;
   region: string;
@@ -170,7 +173,11 @@ export default function ProfileModal() {
     setError(null);
 
     try {
-      if (!isLocalStack && !window.confirm("실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")) {
+      if (
+        !isLocalStack &&
+        shouldConfirmExternalRequests() &&
+        !window.confirm("실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")
+      ) {
         return;
       }
       if (form.secretAccessKey) {
@@ -220,7 +227,10 @@ export default function ProfileModal() {
     setError(null);
 
     try {
-      if (!window.confirm("실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")) {
+      if (
+        shouldConfirmExternalRequests() &&
+        !window.confirm("실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")
+      ) {
         return;
       }
       const result = await invoke<CdnConnectionTestResult>("test_cdn_connection", {
@@ -294,7 +304,7 @@ export default function ProfileModal() {
       <div className={styles.modal}>
         <div className={styles.header}>
           <span className={styles.title}>접속 프로필 관리</span>
-          <button className={styles.closeBtn} onClick={closeProfileModal}>✕</button>
+          <button type="button" className={styles.closeBtn} onClick={closeProfileModal}>✕</button>
         </div>
 
         <div className={styles.body}>
@@ -302,48 +312,51 @@ export default function ProfileModal() {
           <div className={styles.profileList}>
             <div className={styles.sectionHeader}>
               저장된 프로필
-              <button className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
+              <button type="button" className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
             </div>
 
-            {profiles.length === 0 ? (
-              <div className={styles.empty}>저장된 프로필이 없습니다</div>
-            ) : (
-              profiles.map((p) => (
-                <div
-                  key={p.id}
-                  className={`${styles.profileItem} ${editingId === p.id ? styles.active : ""}`}
-                >
-                  <div className={styles.profileInfo} onClick={() => handleEdit(p)}>
-                    <span className={styles.profileName}>{p.name}</span>
-                    <span className={styles.profileDetail}>
-                      {p.bucket} · {p.region}
-                    </span>
-                  </div>
-                  <div className={styles.profileActions}>
-                    <button className={styles.connectBtn} onClick={() => handleConnect(p)}>
-                      연결
+            <div className={styles.profileItems}>
+              {profiles.length === 0 ? (
+                <div className={styles.empty}>저장된 프로필이 없습니다</div>
+              ) : (
+                profiles.map((p) => (
+                  <div
+                    key={p.id}
+                    className={`${styles.profileItem} ${editingId === p.id ? styles.active : ""}`}
+                  >
+                    <button type="button" className={styles.profileInfo} onClick={() => handleEdit(p)}>
+                      <span className={styles.profileName}>{p.name}</span>
+                      <span className={styles.profileDetail}>
+                        {p.bucket} · {p.region}
+                      </span>
                     </button>
-                    <button className={styles.deleteBtn} onClick={() => setDeleteConfirmId(p.id)}>
-                      삭제
-                    </button>
+                    <div className={styles.profileActions}>
+                      <button type="button" className={styles.connectBtn} onClick={() => handleConnect(p)}>
+                        연결
+                      </button>
+                      <button type="button" className={styles.deleteBtn} onClick={() => setDeleteConfirmId(p.id)}>
+                        삭제
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
 
           {/* 프로필 편집 폼 */}
           <form className={styles.form} onSubmit={handleSubmit}>
-            <div className={styles.sectionHeader}>
-              {editingId ? "프로필 편집" : "새 프로필"}
+            <div className={styles.formHeader}>
+              <span>{editingId ? "프로필 편집" : "새 프로필"}</span>
             </div>
 
-            {error && <div className={styles.errorMsg}>{error}</div>}
-            <div className={isLocalStack ? styles.infoMsg : styles.warnMsg}>
-              {isLocalStack
-                ? "LocalStack 프로파일은 로컬 테스트로 비용이 발생하지 않습니다."
-                : "실제 AWS/Akamai 프로파일의 연결 테스트와 CDN 테스트는 계정 사용량에 기록될 수 있습니다."}
-            </div>
+            <div className={styles.formScroll}>
+              {error && <div className={styles.errorMsg}>{error}</div>}
+              <div className={isLocalStack ? styles.infoMsg : styles.warnMsg}>
+                {isLocalStack
+                  ? "LocalStack 프로파일은 로컬 테스트로 비용이 발생하지 않습니다."
+                  : "실제 AWS/Akamai 프로파일의 연결 테스트와 CDN 테스트는 계정 사용량에 기록될 수 있습니다."}
+              </div>
 
             {/* S3 설정 */}
             <details className={styles.sectionDetails} open>
@@ -561,6 +574,7 @@ export default function ProfileModal() {
                 </label>
               </fieldset>
             </details>
+            </div>
 
             <div className={styles.formActions}>
               <button type="button" onClick={handleNew} className={styles.cancelBtn}>
