@@ -164,3 +164,16 @@ npm run tauri build
 - Windows: `src-tauri/target/release/bundle/msi/*.msi`
 - macOS: `src-tauri/target/release/bundle/dmg/*.dmg`
 - Linux: `src-tauri/target/release/bundle/appimage/*.AppImage`
+
+---
+
+## 2026-05-21 Meeting Scope Reflection
+
+Current development direction is replacement parity for the existing CDN upload/purge tool:
+
+- Confirm AWS S3 upload/download/delete/mkdir/rename/presigned URL usage as the storage baseline.
+- Confirm CDN provider targets as CloudFront, Akamai, LG U+ CDN, and Hyosung CDN.
+- Keep CloudFront and Akamai behavior intact.
+- Add LG U+ CDN and Hyosung CDN only as configurable providers and backend stubs until API documents and authentication details are provided.
+- Exclude standalone NexusPurge login/account implementation. Prepare only an external-auth adapter boundary.
+- Include operation result/log structures in development scope, while detailed customer-facing reporting, CSV export, audit log, and dashboards remain later work.

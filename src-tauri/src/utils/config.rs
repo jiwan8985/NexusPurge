@@ -9,7 +9,7 @@ const KEYRING_SERVICE: &str = "cdn-upload-tool";
 const PROFILES_FILENAME: &str = "profiles.json";
 const SETTINGS_FILENAME: &str = "settings.json";
 
-// ─── Profile Config ───────────────────────────────────────────────────────────
+// ??? Profile Config ???????????????????????????????????????????????????????????
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileConfig {
@@ -36,24 +36,36 @@ pub struct ProfileConfig {
     pub content_type_override: Option<String>,
     #[serde(rename = "multipartEtagFallback", default)]
     pub multipart_etag_fallback: bool,
-    // H-6: Akamai EdgeGrid 자격증명 필드
+    // H-6: Akamai EdgeGrid ?먭꺽利앸챸 ?꾨뱶
     #[serde(rename = "akamaiClientToken", skip_serializing_if = "Option::is_none")]
     pub akamai_client_token: Option<String>,
-    /// Akamai client secret — keyring에 저장, JSON에는 포함하지 않음
+    /// Akamai client secret ??keyring????? JSON?먮뒗 ?ы븿?섏? ?딆쓬
     #[serde(rename = "akamaiClientSecret", skip_serializing_if = "Option::is_none")]
     pub akamai_client_secret: Option<String>,
     #[serde(rename = "akamaiAccessToken", skip_serializing_if = "Option::is_none")]
     pub akamai_access_token: Option<String>,
-    /// Akamai EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
+    /// Akamai EdgeGrid API ?몄뒪??(e.g. akab-xxxx.luna.akamaiapis.net)
     #[serde(rename = "akamaiHost", skip_serializing_if = "Option::is_none")]
     pub akamai_host: Option<String>,
+    #[serde(rename = "lguplusApiKey", skip_serializing_if = "Option::is_none")]
+    pub lguplus_api_key: Option<String>,
+    #[serde(rename = "lguplusApiSecret", skip_serializing_if = "Option::is_none")]
+    pub lguplus_api_secret: Option<String>,
+    #[serde(rename = "lguplusEndpoint", skip_serializing_if = "Option::is_none")]
+    pub lguplus_endpoint: Option<String>,
+    #[serde(rename = "hyosungApiKey", skip_serializing_if = "Option::is_none")]
+    pub hyosung_api_key: Option<String>,
+    #[serde(rename = "hyosungApiSecret", skip_serializing_if = "Option::is_none")]
+    pub hyosung_api_secret: Option<String>,
+    #[serde(rename = "hyosungEndpoint", skip_serializing_if = "Option::is_none")]
+    pub hyosung_endpoint: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
 }
 
-// ─── Credentials ──────────────────────────────────────────────────────────────
+// ??? Credentials ??????????????????????????????????????????????????????????????
 
 #[derive(Debug, Clone)]
 pub struct AwsCredentials {
@@ -61,20 +73,32 @@ pub struct AwsCredentials {
     pub secret_access_key: String,
 }
 
-/// H-6: CDN 공급자별 자격증명 — Clone 가능하여 async 태스크 간 공유 가능
+/// H-6: CDN 怨듦툒?먮퀎 ?먭꺽利앸챸 ??Clone 媛?ν븯??async ?쒖뒪??媛?怨듭쑀 媛??
 #[derive(Clone)]
 pub enum CdnCredentials {
     CloudFront(AwsCredentials),
     Akamai {
-        client_token:  String,
+        client_token: String,
         client_secret: String,
-        access_token:  String,
-        host:          String, // EdgeGrid API 호스트
-        cdn_domain:    String, // CDN 도메인 (Purge URL 구성용)
+        access_token: String,
+        host: String,
+        cdn_domain: String,
+    },
+    Lguplus {
+        api_key: String,
+        api_secret: String,
+        endpoint: String,
+        cdn_domain: String,
+    },
+    Hyosung {
+        api_key: String,
+        api_secret: String,
+        endpoint: String,
+        cdn_domain: String,
     },
 }
 
-// ─── App Settings ─────────────────────────────────────────────────────────────
+// ??? App Settings ?????????????????????????????????????????????????????????????
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct AppSettings {
@@ -82,7 +106,7 @@ struct AppSettings {
     last_profile_id: Option<String>,
 }
 
-// ─── Profile Store ────────────────────────────────────────────────────────────
+// ??? Profile Store ????????????????????????????????????????????????????????????
 
 pub struct ProfileStore {
     profiles: RwLock<Vec<ProfileConfig>>,
@@ -92,23 +116,32 @@ pub struct ProfileStore {
 impl ProfileStore {
     pub fn new() -> Result<Self> {
         let data_dir = dirs::data_local_dir()
-            .context("data_local_dir 조회 실패")?
+            .context("data_local_dir 議고쉶 ?ㅽ뙣")?
             .join(KEYRING_SERVICE);
-        std::fs::create_dir_all(&data_dir).context("데이터 디렉토리 생성 실패")?;
-        Ok(Self { profiles: RwLock::new(vec![]), data_dir })
+        std::fs::create_dir_all(&data_dir).context("?곗씠???붾젆?좊━ ?앹꽦 ?ㅽ뙣")?;
+        Ok(Self {
+            profiles: RwLock::new(vec![]),
+            data_dir,
+        })
     }
 
-    fn profiles_path(&self) -> PathBuf { self.data_dir.join(PROFILES_FILENAME) }
-    fn settings_path(&self) -> PathBuf { self.data_dir.join(SETTINGS_FILENAME) }
+    fn profiles_path(&self) -> PathBuf {
+        self.data_dir.join(PROFILES_FILENAME)
+    }
+    fn settings_path(&self) -> PathBuf {
+        self.data_dir.join(SETTINGS_FILENAME)
+    }
 
     pub async fn load_all(&self) -> Result<Vec<ProfileConfig>> {
         let path = self.profiles_path();
-        if !path.exists() { return Ok(vec![]); }
+        if !path.exists() {
+            return Ok(vec![]);
+        }
         let content = tokio::fs::read_to_string(&path)
             .await
-            .context("프로파일 파일 읽기 실패")?;
+            .context("?꾨줈?뚯씪 ?뚯씪 ?쎄린 ?ㅽ뙣")?;
         let profiles: Vec<ProfileConfig> =
-            serde_json::from_str(&content).context("프로파일 JSON 파싱 실패")?;
+            serde_json::from_str(&content).context("?꾨줈?뚯씪 JSON ?뚯떛 ?ㅽ뙣")?;
         *self.profiles.write().await = profiles.clone();
         Ok(profiles)
     }
@@ -116,23 +149,41 @@ impl ProfileStore {
     pub async fn save(&self, mut profile: ProfileConfig) -> Result<()> {
         validate_profile(&profile)?;
 
-        // S3 secret → keyring
+        // S3 secret ??keyring
         if let Some(secret) = profile.secret_access_key.take() {
             if !secret.is_empty() {
                 Entry::new(KEYRING_SERVICE, &profile.id)
-                    .context("Keyring entry 생성 실패")?
+                    .context("Keyring entry ?앹꽦 ?ㅽ뙣")?
                     .set_password(&secret)
-                    .context("Keyring 저장 실패")?;
+                    .context("Keyring ????ㅽ뙣")?;
             }
         }
-        // Akamai client secret → keyring (별도 키)
+        // Akamai client secret ??keyring (蹂꾨룄 ??
         if let Some(secret) = profile.akamai_client_secret.take() {
             if !secret.is_empty() {
                 let key = format!("{}_akamai", &profile.id);
                 Entry::new(KEYRING_SERVICE, &key)
-                    .context("Akamai Keyring entry 생성 실패")?
+                    .context("Akamai Keyring entry ?앹꽦 ?ㅽ뙣")?
                     .set_password(&secret)
-                    .context("Akamai Keyring 저장 실패")?;
+                    .context("Akamai Keyring ????ㅽ뙣")?;
+            }
+        }
+        if let Some(secret) = profile.lguplus_api_secret.take() {
+            if !secret.is_empty() {
+                let key = format!("{}_lguplus", &profile.id);
+                Entry::new(KEYRING_SERVICE, &key)
+                    .context("LG U+ Keyring entry creation failed")?
+                    .set_password(&secret)
+                    .context("LG U+ Keyring save failed")?;
+            }
+        }
+        if let Some(secret) = profile.hyosung_api_secret.take() {
+            if !secret.is_empty() {
+                let key = format!("{}_hyosung", &profile.id);
+                Entry::new(KEYRING_SERVICE, &key)
+                    .context("Hyosung Keyring entry creation failed")?
+                    .set_password(&secret)
+                    .context("Hyosung Keyring save failed")?;
             }
         }
 
@@ -143,10 +194,10 @@ impl ProfileStore {
         }
         tokio::fs::write(
             self.profiles_path(),
-            serde_json::to_string_pretty(&*locked).context("JSON 직렬화 실패")?,
+            serde_json::to_string_pretty(&*locked).context("JSON 吏곷젹???ㅽ뙣")?,
         )
         .await
-        .context("프로파일 파일 저장 실패")
+        .context("?꾨줈?뚯씪 ?뚯씪 ????ㅽ뙣")
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
@@ -157,14 +208,22 @@ impl ProfileStore {
         if let Ok(entry) = Entry::new(KEYRING_SERVICE, &akamai_key) {
             let _ = entry.delete_password();
         }
+        let lguplus_key = format!("{}_lguplus", id);
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, &lguplus_key) {
+            let _ = entry.delete_password();
+        }
+        let hyosung_key = format!("{}_hyosung", id);
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, &hyosung_key) {
+            let _ = entry.delete_password();
+        }
         let mut locked = self.profiles.write().await;
         locked.retain(|p| p.id != id);
         tokio::fs::write(
             self.profiles_path(),
-            serde_json::to_string_pretty(&*locked).context("JSON 직렬화 실패")?,
+            serde_json::to_string_pretty(&*locked).context("JSON 吏곷젹???ㅽ뙣")?,
         )
         .await
-        .context("프로파일 파일 저장 실패")
+        .context("?꾨줈?뚯씪 ?뚯씪 ????ㅽ뙣")
     }
 
     pub async fn get_credentials(&self, profile_id: &str) -> Result<AwsCredentials> {
@@ -172,11 +231,11 @@ impl ProfileStore {
         let profile = locked
             .iter()
             .find(|p| p.id == profile_id)
-            .context("프로파일을 찾을 수 없음")?;
+            .context("?꾨줈?뚯씪??李얠쓣 ???놁쓬")?;
         let secret = Entry::new(KEYRING_SERVICE, profile_id)
-            .context("Keyring entry 생성 실패")?
+            .context("Keyring entry ?앹꽦 ?ㅽ뙣")?
             .get_password()
-            .context("Keyring에서 자격증명 로드 실패")?;
+            .context("Keyring?먯꽌 ?먭꺽利앸챸 濡쒕뱶 ?ㅽ뙣")?;
         Ok(AwsCredentials {
             access_key_id: profile.access_key_id.clone(),
             secret_access_key: secret,
@@ -189,7 +248,7 @@ impl ProfileStore {
             .iter()
             .find(|p| p.id == profile_id)
             .cloned()
-            .context("프로파일을 찾을 수 없음")
+            .context("?꾨줈?뚯씪??李얠쓣 ???놁쓬")
     }
 
     pub async fn get_connection_info(
@@ -201,11 +260,16 @@ impl ProfileStore {
         let profile = locked
             .iter()
             .find(|p| p.id == profile_id)
-            .context("프로파일을 찾을 수 없음")?;
-        Ok((creds, profile.region.clone(), profile.bucket.clone(), profile.endpoint.clone()))
+            .context("?꾨줈?뚯씪??李얠쓣 ???놁쓬")?;
+        Ok((
+            creds,
+            profile.region.clone(),
+            profile.bucket.clone(),
+            profile.endpoint.clone(),
+        ))
     }
 
-    /// H-6: CDN 공급자별 자격증명 조회
+    /// H-6: CDN 怨듦툒?먮퀎 ?먭꺽利앸챸 議고쉶
     pub async fn get_cdn_credentials(
         &self,
         profile_id: &str,
@@ -222,19 +286,19 @@ impl ProfileStore {
                     let profile = locked
                         .iter()
                         .find(|p| p.id == profile_id)
-                        .context("프로파일을 찾을 수 없음")?;
+                        .context("?꾨줈?뚯씪??李얠쓣 ???놁쓬")?;
                     (
                         profile.akamai_client_token.clone().unwrap_or_default(),
                         profile.akamai_access_token.clone().unwrap_or_default(),
                         profile.akamai_host.clone().unwrap_or_default(),
                         profile.cdn_domain.clone().unwrap_or_default(),
                     )
-                }; // RwLockReadGuard 해제 후 keyring 호출
+                }; // RwLockReadGuard ?댁젣 ??keyring ?몄텧
                 let akamai_key = format!("{}_akamai", profile_id);
                 let client_secret = Entry::new(KEYRING_SERVICE, &akamai_key)
-                    .context("Akamai Keyring entry 생성 실패")?
+                    .context("Akamai Keyring entry ?앹꽦 ?ㅽ뙣")?
                     .get_password()
-                    .context("Akamai Keyring에서 자격증명 로드 실패")?;
+                    .context("Akamai Keyring?먯꽌 ?먭꺽利앸챸 濡쒕뱶 ?ㅽ뙣")?;
                 Ok(CdnCredentials::Akamai {
                     client_token,
                     client_secret,
@@ -243,28 +307,94 @@ impl ProfileStore {
                     cdn_domain,
                 })
             }
-            other => Err(anyhow::anyhow!("알 수 없는 CDN 공급자: {}", other)),
+            "lguplus" => {
+                let (api_key, endpoint, cdn_domain) = {
+                    let locked = self.profiles.read().await;
+                    let profile = locked
+                        .iter()
+                        .find(|p| p.id == profile_id)
+                        .context("Profile not found")?;
+                    (
+                        profile.lguplus_api_key.clone().unwrap_or_default(),
+                        profile.lguplus_endpoint.clone().unwrap_or_default(),
+                        profile.cdn_domain.clone().unwrap_or_default(),
+                    )
+                };
+                if api_key.trim().is_empty()
+                    || endpoint.trim().is_empty()
+                    || cdn_domain.trim().is_empty()
+                {
+                    return Err(anyhow::anyhow!("LG U+ CDN credentials are incomplete"));
+                }
+                let lguplus_key = format!("{}_lguplus", profile_id);
+                let api_secret = Entry::new(KEYRING_SERVICE, &lguplus_key)
+                    .context("LG U+ Keyring entry creation failed")?
+                    .get_password()
+                    .context("LG U+ Keyring load failed")?;
+                Ok(CdnCredentials::Lguplus {
+                    api_key,
+                    api_secret,
+                    endpoint,
+                    cdn_domain,
+                })
+            }
+            "hyosung" => {
+                let (api_key, endpoint, cdn_domain) = {
+                    let locked = self.profiles.read().await;
+                    let profile = locked
+                        .iter()
+                        .find(|p| p.id == profile_id)
+                        .context("Profile not found")?;
+                    (
+                        profile.hyosung_api_key.clone().unwrap_or_default(),
+                        profile.hyosung_endpoint.clone().unwrap_or_default(),
+                        profile.cdn_domain.clone().unwrap_or_default(),
+                    )
+                };
+                if api_key.trim().is_empty()
+                    || endpoint.trim().is_empty()
+                    || cdn_domain.trim().is_empty()
+                {
+                    return Err(anyhow::anyhow!("Hyosung CDN credentials are incomplete"));
+                }
+                let hyosung_key = format!("{}_hyosung", profile_id);
+                let api_secret = Entry::new(KEYRING_SERVICE, &hyosung_key)
+                    .context("Hyosung Keyring entry creation failed")?
+                    .get_password()
+                    .context("Hyosung Keyring load failed")?;
+                Ok(CdnCredentials::Hyosung {
+                    api_key,
+                    api_secret,
+                    endpoint,
+                    cdn_domain,
+                })
+            }
+            other => Err(anyhow::anyhow!("?????녿뒗 CDN 怨듦툒?? {}", other)),
         }
     }
 
-    /// H-7: 마지막 연결 프로파일 ID 저장
+    /// H-7: 留덉?留??곌껐 ?꾨줈?뚯씪 ID ???
     pub async fn save_last_profile_id(&self, id: &str) -> Result<()> {
-        let settings = AppSettings { last_profile_id: Some(id.to_owned()) };
+        let settings = AppSettings {
+            last_profile_id: Some(id.to_owned()),
+        };
         tokio::fs::write(
             self.settings_path(),
-            serde_json::to_string_pretty(&settings).context("설정 직렬화 실패")?,
+            serde_json::to_string_pretty(&settings).context("?ㅼ젙 吏곷젹???ㅽ뙣")?,
         )
         .await
-        .context("설정 파일 저장 실패")
+        .context("?ㅼ젙 ?뚯씪 ????ㅽ뙣")
     }
 
-    /// H-7: 마지막 연결 프로파일 ID 조회
+    /// H-7: 留덉?留??곌껐 ?꾨줈?뚯씪 ID 議고쉶
     pub async fn get_last_profile_id(&self) -> Result<Option<String>> {
         let path = self.settings_path();
-        if !path.exists() { return Ok(None); }
+        if !path.exists() {
+            return Ok(None);
+        }
         let content = tokio::fs::read_to_string(&path)
             .await
-            .context("설정 파일 읽기 실패")?;
+            .context("?ㅼ젙 ?뚯씪 ?쎄린 ?ㅽ뙣")?;
         let settings: AppSettings = serde_json::from_str(&content).unwrap_or_default();
         Ok(settings.last_profile_id)
     }
@@ -272,30 +402,38 @@ impl ProfileStore {
 
 fn validate_profile(profile: &ProfileConfig) -> Result<()> {
     if profile.name.trim().is_empty() {
-        return Err(anyhow::anyhow!("프로파일 이름이 필요합니다"));
+        return Err(anyhow::anyhow!("Profile name is required"));
     }
     if profile.bucket.trim().is_empty() {
-        return Err(anyhow::anyhow!("버킷 이름이 필요합니다"));
+        return Err(anyhow::anyhow!("Bucket name is required"));
     }
     if profile.region.trim().is_empty() {
-        return Err(anyhow::anyhow!("리전이 필요합니다"));
+        return Err(anyhow::anyhow!("Region is required"));
     }
     if profile.access_key_id.trim().is_empty() {
-        return Err(anyhow::anyhow!("Access Key ID가 필요합니다"));
+        return Err(anyhow::anyhow!("Access Key ID is required"));
     }
 
-    if let Some(endpoint) = profile.endpoint.as_deref().filter(|value| !value.trim().is_empty()) {
-        let url = Url::parse(endpoint).context("S3 Custom Endpoint URL 형식이 올바르지 않습니다")?;
+    if let Some(endpoint) = profile
+        .endpoint
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let url = Url::parse(endpoint).context("S3 custom endpoint URL is invalid")?;
         match url.scheme() {
             "http" | "https" => {}
-            _ => return Err(anyhow::anyhow!("S3 Custom Endpoint는 http 또는 https URL이어야 합니다")),
+            _ => return Err(anyhow::anyhow!("S3 custom endpoint must use http or https")),
         }
         if url.host_str().is_none() {
-            return Err(anyhow::anyhow!("S3 Custom Endpoint에 호스트가 필요합니다"));
+            return Err(anyhow::anyhow!("S3 custom endpoint host is required"));
         }
     }
 
-    match profile.cdn_provider.as_deref().filter(|value| !value.trim().is_empty()) {
+    match profile
+        .cdn_provider
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         None => Ok(()),
         Some("cloudfront") => {
             if profile
@@ -304,7 +442,7 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
                 .map(|value| value.trim().is_empty())
                 .unwrap_or(true)
             {
-                return Err(anyhow::anyhow!("CloudFront Distribution ID가 필요합니다"));
+                return Err(anyhow::anyhow!("CloudFront Distribution ID is required"));
             }
             if profile
                 .cdn_domain
@@ -312,23 +450,53 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
                 .map(|value| value.trim().is_empty())
                 .unwrap_or(true)
             {
-                return Err(anyhow::anyhow!("CloudFront CDN 도메인이 필요합니다"));
+                return Err(anyhow::anyhow!("CloudFront CDN domain is required"));
             }
             Ok(())
         }
         Some("akamai") => {
             for (label, value) in [
-                ("Akamai EdgeGrid 호스트", profile.akamai_host.as_deref()),
-                ("Akamai Client Token", profile.akamai_client_token.as_deref()),
-                ("Akamai Access Token", profile.akamai_access_token.as_deref()),
-                ("Akamai CDN 도메인", profile.cdn_domain.as_deref()),
+                ("Akamai EdgeGrid host", profile.akamai_host.as_deref()),
+                (
+                    "Akamai Client Token",
+                    profile.akamai_client_token.as_deref(),
+                ),
+                (
+                    "Akamai Access Token",
+                    profile.akamai_access_token.as_deref(),
+                ),
+                ("Akamai CDN domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
-                    return Err(anyhow::anyhow!("{}이 필요합니다", label));
+                    return Err(anyhow::anyhow!("{} is required", label));
                 }
             }
             Ok(())
         }
-        Some(other) => Err(anyhow::anyhow!("지원하지 않는 CDN Provider: {}", other)),
+        Some("lguplus") => {
+            for (label, value) in [
+                ("LG U+ CDN API Key", profile.lguplus_api_key.as_deref()),
+                ("LG U+ CDN Endpoint", profile.lguplus_endpoint.as_deref()),
+                ("LG U+ CDN Domain", profile.cdn_domain.as_deref()),
+            ] {
+                if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
+                    return Err(anyhow::anyhow!("{} is required", label));
+                }
+            }
+            Ok(())
+        }
+        Some("hyosung") => {
+            for (label, value) in [
+                ("Hyosung CDN API Key", profile.hyosung_api_key.as_deref()),
+                ("Hyosung CDN Endpoint", profile.hyosung_endpoint.as_deref()),
+                ("Hyosung CDN Domain", profile.cdn_domain.as_deref()),
+            ] {
+                if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
+                    return Err(anyhow::anyhow!("{} is required", label));
+                }
+            }
+            Ok(())
+        }
+        Some(other) => Err(anyhow::anyhow!("Unsupported CDN provider: {}", other)),
     }
 }

@@ -1,8 +1,9 @@
-mod commands;
 mod adapters;
+mod commands;
+mod services;
 mod utils;
 
-use commands::{s3, sync, cdn};
+use commands::{cdn, s3, sync};
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
 use utils::transfer_control::TransferControl;
@@ -31,7 +32,7 @@ pub fn run() {
             s3::save_profile,
             s3::delete_profile,
             s3::connect_s3,
-            s3::test_s3_connection,      // H-3
+            s3::test_s3_connection, // H-3
             s3::cancel_transfer,
             // Settings (H-7)
             s3::save_last_profile_id,
@@ -48,7 +49,7 @@ pub fn run() {
             s3::put_s3_object,
             s3::get_presigned_url,
             s3::upload_files,
-            s3::rename_s3_object,        // H-1
+            s3::rename_s3_object, // H-1
             // Sync & Transfer
             sync::build_sync_plan,
             sync::sync_preview,

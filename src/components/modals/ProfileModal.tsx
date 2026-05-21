@@ -9,6 +9,8 @@ import styles from "./ProfileModal.module.css";
 const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "cloudfront", label: "AWS CloudFront" },
   { value: "akamai",     label: "Akamai" },
+  { value: "lguplus",    label: "LG U+ CDN" },
+  { value: "hyosung",    label: "Hyosung CDN" },
 ];
 
 const REGION_SUGGESTIONS = [
@@ -44,6 +46,12 @@ interface FormState {
   akamaiClientSecret: string;
   akamaiAccessToken: string;
   akamaiHost: string;
+  lguplusApiKey: string;
+  lguplusApiSecret: string;
+  lguplusEndpoint: string;
+  hyosungApiKey: string;
+  hyosungApiSecret: string;
+  hyosungEndpoint: string;
 }
 
 const emptyForm = (): FormState => ({
@@ -64,6 +72,12 @@ const emptyForm = (): FormState => ({
   akamaiClientSecret: "",
   akamaiAccessToken: "",
   akamaiHost: "",
+  lguplusApiKey: "",
+  lguplusApiSecret: "",
+  lguplusEndpoint: "",
+  hyosungApiKey: "",
+  hyosungApiSecret: "",
+  hyosungEndpoint: "",
 });
 
 export default function ProfileModal() {
@@ -106,6 +120,12 @@ export default function ProfileModal() {
       akamaiClientSecret: "",  // 보안상 마스킹
       akamaiAccessToken: profile.akamaiAccessToken ?? "",
       akamaiHost: profile.akamaiHost ?? "",
+      lguplusApiKey: profile.lguplusApiKey ?? "",
+      lguplusApiSecret: "",
+      lguplusEndpoint: profile.lguplusEndpoint ?? "",
+      hyosungApiKey: profile.hyosungApiKey ?? "",
+      hyosungApiSecret: "",
+      hyosungEndpoint: profile.hyosungEndpoint ?? "",
     });
   };
 
@@ -145,6 +165,12 @@ export default function ProfileModal() {
         akamaiClientSecret: form.akamaiClientSecret || undefined,
         akamaiAccessToken: form.akamaiAccessToken || undefined,
         akamaiHost: form.akamaiHost || undefined,
+        lguplusApiKey: form.lguplusApiKey || undefined,
+        lguplusApiSecret: form.lguplusApiSecret || undefined,
+        lguplusEndpoint: form.lguplusEndpoint || undefined,
+        hyosungApiKey: form.hyosungApiKey || undefined,
+        hyosungApiSecret: form.hyosungApiSecret || undefined,
+        hyosungEndpoint: form.hyosungEndpoint || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -217,8 +243,8 @@ export default function ProfileModal() {
       setError("CloudFront Distribution ID를 입력하세요.");
       return;
     }
-    if (form.cdnProvider === "akamai" && !form.cdnDomain) {
-      setError("Akamai CDN 도메인을 입력하세요.");
+    if ((form.cdnProvider === "akamai" || form.cdnProvider === "lguplus" || form.cdnProvider === "hyosung") && !form.cdnDomain) {
+      setError("CDN 도메인을 입력하세요.");
       return;
     }
 
@@ -273,6 +299,8 @@ export default function ProfileModal() {
 
   const isAkamai = form.cdnProvider === "akamai";
   const isCloudFront = form.cdnProvider === "cloudfront";
+  const isLguplus = form.cdnProvider === "lguplus";
+  const isHyosung = form.cdnProvider === "hyosung";
 
   return (
     <>
@@ -526,6 +554,82 @@ export default function ProfileModal() {
                   </label>
                   <label className={styles.field}>
                     <span>CDN 도메인 (Purge URL 기준)</span>
+                    <input
+                      value={form.cdnDomain}
+                      onChange={setField("cdnDomain")}
+                      placeholder="cdn.example.com"
+                    />
+                  </label>
+                </>
+              )}
+
+              {isLguplus && (
+                <>
+                  <label className={styles.field}>
+                    <span>API Key</span>
+                    <input
+                      value={form.lguplusApiKey}
+                      onChange={setField("lguplusApiKey")}
+                      placeholder="LG U+ CDN API key"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API Secret</span>
+                    <input
+                      type="password"
+                      value={form.lguplusApiSecret}
+                      onChange={setField("lguplusApiSecret")}
+                      placeholder={editingId ? "변경하려면 입력" : ""}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Endpoint</span>
+                    <input
+                      value={form.lguplusEndpoint}
+                      onChange={setField("lguplusEndpoint")}
+                      placeholder="https://api.example.com"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인</span>
+                    <input
+                      value={form.cdnDomain}
+                      onChange={setField("cdnDomain")}
+                      placeholder="cdn.example.com"
+                    />
+                  </label>
+                </>
+              )}
+
+              {isHyosung && (
+                <>
+                  <label className={styles.field}>
+                    <span>API Key</span>
+                    <input
+                      value={form.hyosungApiKey}
+                      onChange={setField("hyosungApiKey")}
+                      placeholder="Hyosung CDN API key"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API Secret</span>
+                    <input
+                      type="password"
+                      value={form.hyosungApiSecret}
+                      onChange={setField("hyosungApiSecret")}
+                      placeholder={editingId ? "변경하려면 입력" : ""}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Endpoint</span>
+                    <input
+                      value={form.hyosungEndpoint}
+                      onChange={setField("hyosungEndpoint")}
+                      placeholder="https://api.example.com"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인</span>
                     <input
                       value={form.cdnDomain}
                       onChange={setField("cdnDomain")}

@@ -292,3 +292,14 @@ CI는 `.github/workflows/ci.yml`에 정의된 GitHub Actions로 `main` 브랜치
 ## 라이선스
 
 MIT
+
+---
+
+## 2026-05-21 Development Scope Update
+
+NexusPurge is scoped as a replacement implementation of the existing customer CDN upload and purge tool, not as a broad new feature expansion. The primary storage target is AWS S3. CDN provider support is modeled for AWS CloudFront, Akamai, LG U+ CDN, and Hyosung CDN.
+
+- CloudFront and Akamai remain the implemented purge paths.
+- LG U+ CDN and Hyosung CDN are available in profile configuration and backend credential dispatch, but purge calls intentionally return NotImplemented errors until the customer provides API specifications.
+- External authentication is represented by adapter interfaces only. NexusPurge does not implement its own account database, password login, or standalone login screen.
+- Operation log/result data structures were added for upload/download/delete/mkdir/rename/purge/sync outcomes, retry context, and future JSON/CSV reporting.

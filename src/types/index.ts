@@ -20,6 +20,12 @@ export interface S3Profile {
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
   akamaiAccessToken?: string;     // Akamai EdgeGrid access token
   akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
+  lguplusApiKey?: string;
+  lguplusApiSecret?: string;
+  lguplusEndpoint?: string;
+  hyosungApiKey?: string;
+  hyosungApiSecret?: string;
+  hyosungEndpoint?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,7 +99,7 @@ export interface TransferSummary {
 
 // ─── CDN ─────────────────────────────────────────────────────────────────────
 
-export type CdnProvider = "cloudfront" | "akamai";
+export type CdnProvider = "cloudfront" | "akamai" | "lguplus" | "hyosung";
 
 export interface CdnPurgeRequest {
   provider: CdnProvider;
@@ -123,6 +129,66 @@ export interface CdnPurgeStatusResult {
   status?: string;
   message?: string;
   error?: string;
+}
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  organization?: string;
+  roles: string[];
+}
+
+export interface AuthSession {
+  user: AuthUser;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: string;
+}
+
+export interface AuthAdapter {
+  login(): Promise<AuthSession>;
+  logout(): Promise<void>;
+  refreshToken(session: AuthSession): Promise<AuthSession>;
+  getCurrentSession(): Promise<AuthSession | null>;
+}
+
+export type OperationType = "upload" | "download" | "delete" | "mkdir" | "rename" | "purge" | "sync";
+
+export type OperationStatus = "pending" | "running" | "success" | "failed" | "partial";
+
+export interface FileOperationResult {
+  path: string;
+  operation: OperationType;
+  status: OperationStatus;
+  message?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface CdnOperationPurgeResult {
+  provider: CdnProvider;
+  urls: string[];
+  status: OperationStatus;
+  requestId?: string;
+  taskId?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface OperationLog {
+  id: string;
+  profileId: string;
+  operation: OperationType;
+  status: OperationStatus;
+  bucket?: string;
+  prefix?: string;
+  files: FileOperationResult[];
+  purgeResults: CdnOperationPurgeResult[];
+  startedAt: string;
+  finishedAt?: string;
 }
 
 export interface CdnUrlCheck {

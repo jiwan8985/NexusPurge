@@ -417,3 +417,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 3. `cdn/mod.rs::purge_with_credentials()` match arm 추가
 4. `src/types/index.ts::CdnProvider` union type에 추가
 5. `ProfileModal.tsx::CDN_PROVIDERS` 배열에 추가
+
+---
+
+## 13. 2026-05-21 Scope Alignment
+
+- Storage scope is AWS S3 first. S3-compatible storage remains configurable through custom endpoints but is not the main scope.
+- CDN provider model now includes `cloudfront`, `akamai`, `lguplus`, and `hyosung`.
+- LG U+ CDN and Hyosung CDN have profile fields, credential storage, backend enum variants, dispatch branches, and stub adapters. Their purge APIs are not guessed.
+- Common CDN URL mapping is centralized as `build_cdn_url(cdn_domain, object_path)` / `build_cdn_urls(cdn_domain, paths)`.
+- External auth integration is prepared through frontend `AuthAdapter` contracts and an `ExternalAuthAdapter` stub. Local NexusPurge account/password auth is intentionally excluded.
+- Operation log structures are prepared in frontend services and Rust service scaffolding for per-file results, CDN request/task IDs, failed item retry data, and future CSV export.

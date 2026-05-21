@@ -150,3 +150,32 @@
 
 - [x] 스크린샷 기반 UI 확인
   - 프로파일 모달, 전송 큐, Purge 이력, Dry-run UI를 캡처해 회귀 확인한다.
+
+---
+
+## 2026-05-21 Replacement Scope TODO
+
+### Completed
+
+- [x] Add `lguplus` and `hyosung` to the frontend `CdnProvider` type.
+- [x] Add LG U+ CDN and Hyosung CDN profile UI fields.
+- [x] Add LG U+ CDN and Hyosung CDN credential fields and keyring-backed secrets.
+- [x] Add `LguplusCdnAdapter` and `HyosungCdnAdapter` stubs with explicit NotImplemented errors.
+- [x] Add CDN dispatch branches for LG U+ CDN and Hyosung CDN.
+- [x] Centralize S3 key to CDN URL mapping helper in the Rust CDN module.
+- [x] Add external auth adapter interfaces without implementing local account/password auth.
+- [x] Add operation log/result type and store scaffolding.
+
+### Waiting On Customer Confirmation
+
+- [ ] LG U+ CDN purge API specification and authentication method.
+- [ ] Hyosung CDN purge API specification and authentication method.
+- [ ] Akamai URL purge versus CP Code purge requirement.
+- [ ] S3 bucket/prefix rules per environment.
+- [ ] S3 key to CDN URL mapping rules, including provider-specific prefixes/domains.
+- [ ] Delete-file purge policy.
+- [ ] Wildcard/folder purge support requirements.
+- [ ] Query string purge handling.
+- [ ] Purge completion polling requirement per CDN.
+- [ ] External authentication module API contract and role-to-feature permission mapping.
+- [ ] CSV export, audit log, reporting, admin history, and retry dashboard requirements.
