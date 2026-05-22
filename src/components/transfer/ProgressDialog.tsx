@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
 import type { TransferItem } from "../../types";
 import styles from "./ProgressDialog.module.css";
@@ -69,7 +69,7 @@ function TransferRow({ item }: { item: TransferItem }) {
   const canCancel = item.status === "pending" || item.status === "uploading" || item.status === "downloading" || item.status === "hashing" || item.status === "overwriting";
 
   const cancel = async () => {
-    await invoke("cancel_transfer", { id: item.id });
+    await runtime.invoke("cancel_transfer", { id: item.id });
   };
 
   return (

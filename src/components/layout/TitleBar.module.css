@@ -2,14 +2,24 @@
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  background: rgba(17, 24, 39, 0.92);
+  background: rgba(255, 255, 255, 0.94);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
   position: relative;
   z-index: 100;
   -webkit-app-region: drag;
-  box-shadow: var(--shadow-inset);
+  box-shadow: 0 1px 0 rgba(0, 87, 255, 0.08), var(--shadow-inset);
   backdrop-filter: blur(18px);
+}
+
+.titlebar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-brand-cyan), var(--color-brand-lime));
 }
 
 .left {
@@ -24,14 +34,43 @@
 .brandMark {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--color-accent), #06b6d4);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.32);
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%),
+    linear-gradient(135deg, var(--color-accent) 0%, #008cff 58%, var(--color-brand-cyan) 100%);
+  color: transparent;
+  font-size: 0;
+  font-weight: 900;
+  position: relative;
+  box-shadow: 0 10px 22px rgba(0, 87, 255, 0.28);
+  overflow: hidden;
+}
+
+.brandMark::before,
+.brandMark::after {
+  content: "";
+  position: absolute;
+  background: #fff;
+  border-radius: 1px;
+}
+
+.brandMark::before {
+  width: 5px;
+  height: 18px;
+  left: 8px;
+  top: 6px;
+  box-shadow: 9px 0 0 rgba(255, 255, 255, 0.9);
+}
+
+.brandMark::after {
+  width: 5px;
+  height: 21px;
+  top: 5px;
+  left: 13px;
+  transform: rotate(-32deg);
+  transform-origin: center;
 }
 
 .brandText {
@@ -41,14 +80,15 @@
 }
 
 .appName {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 850;
   color: var(--color-text-primary);
 }
 
 .appSub {
   font-size: 10px;
-  color: var(--color-text-tertiary);
+  color: var(--color-accent);
+  font-weight: 750;
 }
 
 .center {
@@ -69,14 +109,14 @@
   height: 28px;
   max-width: 420px;
   padding: 0 var(--spacing-4);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--color-border);
-  background: rgba(15, 23, 42, 0.58);
+  background: #f7faff;
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
   white-space: nowrap;
-  box-shadow: var(--shadow-inset);
+  box-shadow: var(--shadow-sm);
 }
 
 .profileBtn:hover {
@@ -86,8 +126,8 @@
 }
 
 .profileBtn.connected {
-  border-color: rgba(96, 165, 250, 0.48);
-  background: var(--color-accent-subtle);
+  border-color: rgba(0, 87, 255, 0.32);
+  background: linear-gradient(180deg, #ffffff, #eef5ff);
 }
 
 .connDot {
@@ -134,7 +174,7 @@
   min-width: 280px;
   background: var(--color-bg-elevated);
   border: var(--border-width) solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 200;
   overflow: hidden;
@@ -148,7 +188,7 @@
   text-transform: uppercase;
   color: var(--color-text-tertiary);
   border-bottom: var(--border-width) solid var(--color-border);
-  background: var(--color-bg-tertiary);
+  background: linear-gradient(90deg, rgba(0, 87, 255, 0.08), transparent);
 }
 
 .ddEmpty {
@@ -228,8 +268,8 @@
 }
 
 .controlBtn:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background: rgba(0, 87, 255, 0.08);
+  color: var(--color-accent);
 }
 
 .closeBtn:hover {

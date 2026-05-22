@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
-  background: rgba(8, 13, 26, 0.94);
+  background: #ffffff;
   border-top: var(--border-width) solid var(--color-border);
   padding: 0 var(--spacing-5);
   gap: var(--spacing-4);
@@ -59,6 +59,6 @@
 }
 
 .logToggle:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background: #f2f7ff;
+  color: var(--color-accent);
 }

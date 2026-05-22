@@ -17,6 +17,8 @@ pub struct ProfileConfig {
     pub name: String,
     pub region: String,
     pub bucket: String,
+    #[serde(rename = "basePrefix", skip_serializing_if = "Option::is_none")]
+    pub base_prefix: Option<String>,
     #[serde(rename = "accessKeyId")]
     pub access_key_id: String,
     #[serde(skip_serializing_if = "Option::is_none", rename = "secretAccessKey")]
@@ -59,6 +61,12 @@ pub struct ProfileConfig {
     pub hyosung_api_secret: Option<String>,
     #[serde(rename = "hyosungEndpoint", skip_serializing_if = "Option::is_none")]
     pub hyosung_endpoint: Option<String>,
+    #[serde(rename = "ktApiKey", skip_serializing_if = "Option::is_none")]
+    pub kt_api_key: Option<String>,
+    #[serde(rename = "ktApiSecret", skip_serializing_if = "Option::is_none")]
+    pub kt_api_secret: Option<String>,
+    #[serde(rename = "ktEndpoint", skip_serializing_if = "Option::is_none")]
+    pub kt_endpoint: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
@@ -91,6 +99,12 @@ pub enum CdnCredentials {
         cdn_domain: String,
     },
     Hyosung {
+        api_key: String,
+        api_secret: String,
+        endpoint: String,
+        cdn_domain: String,
+    },
+    Kt {
         api_key: String,
         api_secret: String,
         endpoint: String,
@@ -186,6 +200,15 @@ impl ProfileStore {
                     .context("Hyosung Keyring save failed")?;
             }
         }
+        if let Some(secret) = profile.kt_api_secret.take() {
+            if !secret.is_empty() {
+                let key = format!("{}_kt", &profile.id);
+                Entry::new(KEYRING_SERVICE, &key)
+                    .context("KT Keyring entry creation failed")?
+                    .set_password(&secret)
+                    .context("KT Keyring save failed")?;
+            }
+        }
 
         let mut locked = self.profiles.write().await;
         match locked.iter().position(|p| p.id == profile.id) {
@@ -214,6 +237,10 @@ impl ProfileStore {
         }
         let hyosung_key = format!("{}_hyosung", id);
         if let Ok(entry) = Entry::new(KEYRING_SERVICE, &hyosung_key) {
+            let _ = entry.delete_password();
+        }
+        let kt_key = format!("{}_kt", id);
+        if let Ok(entry) = Entry::new(KEYRING_SERVICE, &kt_key) {
             let _ = entry.delete_password();
         }
         let mut locked = self.profiles.write().await;
@@ -369,6 +396,37 @@ impl ProfileStore {
                     cdn_domain,
                 })
             }
+            "kt" => {
+                let (api_key, endpoint, cdn_domain) = {
+                    let locked = self.profiles.read().await;
+                    let profile = locked
+                        .iter()
+                        .find(|p| p.id == profile_id)
+                        .context("Profile not found")?;
+                    (
+                        profile.kt_api_key.clone().unwrap_or_default(),
+                        profile.kt_endpoint.clone().unwrap_or_default(),
+                        profile.cdn_domain.clone().unwrap_or_default(),
+                    )
+                };
+                if api_key.trim().is_empty()
+                    || endpoint.trim().is_empty()
+                    || cdn_domain.trim().is_empty()
+                {
+                    return Err(anyhow::anyhow!("KT CDN credentials are incomplete"));
+                }
+                let kt_key = format!("{}_kt", profile_id);
+                let api_secret = Entry::new(KEYRING_SERVICE, &kt_key)
+                    .context("KT Keyring entry creation failed")?
+                    .get_password()
+                    .context("KT Keyring load failed")?;
+                Ok(CdnCredentials::Kt {
+                    api_key,
+                    api_secret,
+                    endpoint,
+                    cdn_domain,
+                })
+            }
             other => Err(anyhow::anyhow!("?????녿뒗 CDN 怨듦툒?? {}", other)),
         }
     }
@@ -490,6 +548,18 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
                 ("Hyosung CDN API Key", profile.hyosung_api_key.as_deref()),
                 ("Hyosung CDN Endpoint", profile.hyosung_endpoint.as_deref()),
                 ("Hyosung CDN Domain", profile.cdn_domain.as_deref()),
+            ] {
+                if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
+                    return Err(anyhow::anyhow!("{} is required", label));
+                }
+            }
+            Ok(())
+        }
+        Some("kt") => {
+            for (label, value) in [
+                ("KT CDN API Key", profile.kt_api_key.as_deref()),
+                ("KT CDN Endpoint", profile.kt_endpoint.as_deref()),
+                ("KT CDN Domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));

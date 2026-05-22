@@ -4,7 +4,7 @@
   flex-direction: column;
   min-width: var(--panel-min-width);
   min-height: 0;
-  background: rgba(17, 24, 39, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-xl);
   overflow: hidden;
@@ -18,13 +18,13 @@
   inset: 0;
   border: 2px solid var(--color-accent-hover);
   border-radius: var(--radius-xl);
-  background: rgba(37, 99, 235, 0.09);
+  background: rgba(0, 87, 255, 0.08);
   pointer-events: none;
   z-index: 10;
 }
 
 .header {
-  background: rgba(15, 23, 42, 0.68);
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
 }
@@ -36,7 +36,7 @@
   padding: var(--spacing-4) var(--spacing-5);
   font-size: var(--font-size-xs);
   font-weight: 800;
-  color: var(--color-text-secondary);
+  color: var(--color-accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -68,7 +68,7 @@
   height: 28px;
   border-radius: var(--radius-md);
   color: var(--color-text-tertiary);
-  background: rgba(255, 255, 255, 0.035);
+  background: #ffffff;
   border: var(--border-width) solid var(--color-border);
   display: flex;
   align-items: center;
@@ -78,9 +78,9 @@
 
 .upBtn:hover:not(:disabled),
 .refreshBtn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
+  background: #f2f7ff;
+  color: var(--color-accent);
+  border-color: rgba(0, 87, 255, 0.22);
 }
 
 .pathForm {
@@ -94,7 +94,7 @@
   font-size: var(--font-size-xs);
   font-family: var(--font-family-mono);
   color: var(--color-text-secondary);
-  background: rgba(15, 23, 42, 0.72);
+  background: #f7faff;
   padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
   border: var(--border-width) solid var(--color-border);
@@ -111,13 +111,13 @@
 
 .pathInput:focus {
   border-color: var(--color-border-focus);
-  background: var(--color-accent-subtle);
+  background: #ffffff;
   color: var(--color-text-primary);
 }
 
 .columnHeader {
   height: 30px;
-  background: rgba(30, 41, 59, 0.78);
+  background: linear-gradient(90deg, rgba(0, 87, 255, 0.08), rgba(0, 184, 255, 0.04));
   border-bottom: var(--border-width) solid var(--color-border);
   font-size: var(--font-size-xs);
   font-weight: 800;
@@ -150,9 +150,9 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-lg);
-  background: var(--color-accent-subtle);
-  color: var(--color-accent-hover);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--color-accent), var(--color-brand-cyan));
+  color: #fff;
   font-weight: 800;
 }
 
@@ -170,12 +170,12 @@
 
 .fileRow {
   cursor: pointer;
-  border-bottom: var(--border-width) solid rgba(148, 163, 184, 0.045);
+  border-bottom: var(--border-width) solid rgba(17, 31, 61, 0.05);
   transition: background var(--transition-fast);
 }
 
 .fileRow:hover {
-  background: var(--color-bg-hover);
+  background: #f4f8ff;
 }
 
 .fileRow:focus-visible {
@@ -185,7 +185,7 @@
 }
 
 .fileRow.selected {
-  background: var(--color-bg-selected);
+  background: linear-gradient(90deg, rgba(0, 87, 255, 0.14), rgba(0, 184, 255, 0.06));
 }
 
 .fileRow.selected .fileName {
@@ -260,7 +260,7 @@
   width: 28px;
   height: 16px;
   border-radius: var(--radius-xs);
-  background: rgba(148, 163, 184, 0.12);
+  background: rgba(0, 87, 255, 0.08);
   color: var(--color-text-tertiary);
   font-size: 8px;
   font-weight: 800;
@@ -268,8 +268,8 @@
 }
 
 .folderIcon {
-  background: rgba(59, 130, 246, 0.16);
-  color: #93c5fd;
+  background: rgba(0, 87, 255, 0.13);
+  color: var(--color-accent);
 }
 
 .badge {
@@ -313,7 +313,7 @@
   display: flex;
   align-items: center;
   padding: 0 var(--spacing-5);
-  background: rgba(15, 23, 42, 0.68);
+  background: #fbfdff;
   border-top: var(--border-width) solid var(--color-border);
   font-size: 11px;
   color: var(--color-text-tertiary);

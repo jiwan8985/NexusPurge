@@ -4,11 +4,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 
 // H-2: 동시 파일 전송 상한
 const MAX_CONCURRENT_FILES: usize = 4;
+const MAX_CDN_PURGE_PATHS_PER_REQUEST: usize = 1000;
 
 use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
@@ -426,12 +427,13 @@ pub async fn start_uploads(
 
     // H-2: 동시 실행 제한
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
+    let successful_purge_targets = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {
         let adapter  = adapter.clone();
         let app      = app.clone();
-        let cdn_info = cdn_info.clone();
+        let successful_purge_targets = successful_purge_targets.clone();
         let permit   = semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
@@ -488,33 +490,21 @@ pub async fn start_uploads(
                 Err(e) => ("error".to_string(), Some(e.to_string())),
             };
 
-            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = if result.is_ok() && item.is_overwrite {
-                if let Some((dist, cdn_creds)) = cdn_info.as_ref() {
-                    match crate::adapters::cdn::purge_with_credentials(
-                        dist,
-                        &[item.remote_path.clone()],
-                        cdn_creds.clone(),
-                    )
+            if result.is_ok() && item.is_overwrite {
+                successful_purge_targets
+                    .lock()
                     .await
-                    {
-                        Ok(id)  => (true, None, id),
-                        Err(e) => (false, Some(e.to_string()), None),
-                    }
-                } else {
-                    (false, None, None)
-                }
-            } else {
-                (false, None, None)
-            };
+                    .push((id.clone(), item.remote_path.clone()));
+            }
 
             let _ = app.emit(
                 "transfer:complete",
                 TransferCompletePayload {
                     id: id.clone(),
                     status,
-                    cdn_purged,
-                    cdn_purge_error,
-                    cdn_invalidation_id,
+                    cdn_purged: false,
+                    cdn_purge_error: None,
+                    cdn_invalidation_id: None,
                     error,
                 },
             );
@@ -524,6 +514,38 @@ pub async fn start_uploads(
     }
 
     while tasks.join_next().await.is_some() {}
+
+    let targets = successful_purge_targets.lock().await.clone();
+    if let Some((distribution_id, cdn_creds)) = cdn_info.as_ref() {
+        for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
+            let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
+            let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
+            let purge_result = crate::adapters::cdn::purge_with_credentials(
+                distribution_id,
+                &paths,
+                cdn_creds.clone(),
+            )
+            .await;
+            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = match purge_result {
+                Ok(id) => (true, None, id),
+                Err(err) => (false, Some(err.to_string()), None),
+            };
+
+            for id in ids {
+                let _ = app.emit(
+                    "transfer:complete",
+                    TransferCompletePayload {
+                        id,
+                        status: "complete".to_string(),
+                        cdn_purged,
+                        cdn_purge_error: cdn_purge_error.clone(),
+                        cdn_invalidation_id: cdn_invalidation_id.clone(),
+                        error: None,
+                    },
+                );
+            }
+        }
+    }
     Ok(())
 }
 

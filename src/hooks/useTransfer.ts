@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { saveOperationLog } from "../services/operation-log/operation-log-service";
+import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
 import type { CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
@@ -58,14 +57,14 @@ export function useTransfer() {
     setSyncPlan: s.setSyncPlan,
   }));
 
-  const unlistenRef = useRef<UnlistenFn[]>([]);
+  const unlistenRef = useRef<Array<() => void>>([]);
 
   // Rust 이벤트 리스너 등록
   useEffect(() => {
     const setupListeners = async () => {
-      const unlistenProgress = await listen<TransferProgressEvent>(
+      const unlistenProgress = await runtime.listen<TransferProgressEvent>(
         "transfer:progress",
-        ({ payload }) => {
+        (payload) => {
           updateTransfer(payload.id, {
             progress: payload.progress,
             transferredBytes: payload.transferredBytes,
@@ -75,9 +74,9 @@ export function useTransfer() {
         }
       );
 
-      const unlistenComplete = await listen<TransferCompleteEvent>(
+      const unlistenComplete = await runtime.listen<TransferCompleteEvent>(
         "transfer:complete",
-        ({ payload }) => {
+        (payload) => {
           updateTransfer(payload.id, {
             status: payload.status,
             progress: payload.status === "complete" ? 100 : undefined,
@@ -109,7 +108,7 @@ export function useTransfer() {
             const transfer = state.transfers.find((item) => item.id === payload.id);
             const profile = state.activeProfile;
             if (profile?.cdnProvider && transfer?.direction === "upload") {
-              invoke<CdnUrlCheck[]>("verify_cdn_urls", {
+              runtime.invoke<CdnUrlCheck[]>("verify_cdn_urls", {
                 profileId: profile.id,
                 paths: [transfer.remotePath],
               })
@@ -142,7 +141,7 @@ export function useTransfer() {
                 .catch((err) => state.addLog("warn", `CDN 반영 확인 실패: ${err}`, "cdn"));
 
               if (payload.cdnInvalidationId && profile.cdnProvider === "cloudfront") {
-                invoke<{ success: boolean; status?: string; error?: string }>("get_purge_status", {
+                runtime.invoke<{ success: boolean; status?: string; error?: string }>("get_purge_status", {
                   profileId: profile.id,
                   provider: profile.cdnProvider,
                   distributionId: profile.cdnDistributionId ?? "",
@@ -179,7 +178,7 @@ export function useTransfer() {
   const buildSyncPlan = useCallback(
     async (localPaths: string[], remotePrefix: string): Promise<SyncPlan> => {
       if (!activeProfile) throw new Error("Not connected");
-      return invoke<SyncPlan>("build_sync_plan", {
+      return runtime.invoke<SyncPlan>("build_sync_plan", {
         profileId: activeProfile.id,
         localPaths,
         remotePrefix,
@@ -279,11 +278,46 @@ export function useTransfer() {
         ...makeItems(plan.toOverwrite, true),
       ];
 
-      await invoke("upload_files", {
+      await runtime.invoke("upload_files", {
         profileId: activeProfile.id,
         items: uploadItems,
         cdnDistributionId: activeProfile.cdnDistributionId,
         cdnProvider: activeProfile.cdnProvider,
+      });
+      const finishedAt = new Date().toISOString();
+      const transferState = useAppStore.getState();
+      const uploadTransfers = uploadItems
+        .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
+        .filter((transfer): transfer is TransferItem => Boolean(transfer));
+      const uploadStatus = summarizeTransferStatus(uploadTransfers);
+      void saveOperationLog({
+        id: crypto.randomUUID(),
+        profileId: activeProfile.id,
+        operation: "upload",
+        status: uploadStatus,
+        bucket: activeProfile.bucket,
+        prefix: remote.path,
+        files: uploadTransfers.map((item) => ({
+          path: item.remotePath,
+          operation: "upload",
+          status: item.status === "complete" ? "success" : item.status === "skipped" ? "success" : "failed",
+          error: item.error,
+          startedAt: item.startedAt ?? finishedAt,
+          finishedAt: item.completedAt ?? finishedAt,
+        })),
+        purgeResults: uploadTransfers
+          .filter((item) => item.cdnPurged || item.cdnPurgeError)
+          .map((item) => ({
+            provider: activeProfile.cdnProvider!,
+            urls: [item.remotePath],
+            status: item.cdnPurgeError ? "failed" : "success",
+            requestId: item.cdnInvalidationId,
+            error: item.cdnPurgeError,
+            startedAt: item.startedAt ?? finishedAt,
+            finishedAt: item.completedAt ?? finishedAt,
+          })),
+        startedAt: finishedAt,
+        finishedAt,
       });
 
       clearLocalSelection();
@@ -303,15 +337,13 @@ export function useTransfer() {
     if (!activeProfile || remote.selectedPaths.size === 0) return;
 
     // M-7: 다운로드 대상 폴더 선택 다이얼로그
-    const selectedDir = await open({
-      directory: true,
-      multiple: false,
+    const selectedDir = await runtime.openDirectory({
       defaultPath: local.path || undefined,
       title: "다운로드 폴더 선택",
     });
 
     // 사용자가 취소했을 때
-    if (!selectedDir || typeof selectedDir !== "string") return;
+    if (!selectedDir) return;
 
     setTransferring(true);
     setShowProgressDialog(true);
@@ -340,9 +372,34 @@ export function useTransfer() {
         return { id, remotePath: key, localPath };
       });
 
-      await invoke("start_downloads", {
+      await runtime.invoke("start_downloads", {
         profileId: activeProfile.id,
         items: downloadItems,
+      });
+      const finishedAt = new Date().toISOString();
+      const transferState = useAppStore.getState();
+      const downloadTransfers = downloadItems
+        .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
+        .filter((transfer): transfer is TransferItem => Boolean(transfer));
+      const downloadStatus = summarizeTransferStatus(downloadTransfers);
+      void saveOperationLog({
+        id: crypto.randomUUID(),
+        profileId: activeProfile.id,
+        operation: "download",
+        status: downloadStatus,
+        bucket: activeProfile.bucket,
+        prefix: remote.path,
+        files: downloadTransfers.map((item) => ({
+          path: item.remotePath,
+          operation: "download",
+          status: item.status === "complete" ? "success" : "failed",
+          error: item.error,
+          startedAt: item.startedAt ?? finishedAt,
+          finishedAt: item.completedAt ?? finishedAt,
+        })),
+        purgeResults: [],
+        startedAt: finishedAt,
+        finishedAt,
       });
 
       clearRemoteSelection();
@@ -359,7 +416,7 @@ export function useTransfer() {
   // L-1: 로컬 디렉터리 전체 ↔ S3 prefix 비교 (dry-run)
   const buildPreview = useCallback(async (): Promise<SyncPreviewResult> => {
     if (!activeProfile) throw new Error("Not connected");
-    return invoke<SyncPreviewResult>("sync_preview", {
+    return runtime.invoke<SyncPreviewResult>("sync_preview", {
       profileId: activeProfile.id,
       localDir: local.path,
       remotePrefix: remote.path,
@@ -367,4 +424,11 @@ export function useTransfer() {
   }, [activeProfile, local.path, remote.path]);
 
   return { startUpload, startDownload, buildSyncPlan, buildPreview };
+}
+
+function summarizeTransferStatus(transfers: TransferItem[]): "success" | "failed" | "partial" {
+  if (transfers.length === 0) return "failed";
+  const failed = transfers.filter((item) => item.status === "error" || item.status === "canceled").length;
+  if (failed === 0) return "success";
+  return failed === transfers.length ? "failed" : "partial";
 }

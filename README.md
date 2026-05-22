@@ -303,3 +303,21 @@ NexusPurge is scoped as a replacement implementation of the existing customer CD
 - LG U+ CDN and Hyosung CDN are available in profile configuration and backend credential dispatch, but purge calls intentionally return NotImplemented errors until the customer provides API specifications.
 - External authentication is represented by adapter interfaces only. NexusPurge does not implement its own account database, password login, or standalone login screen.
 - Operation log/result data structures were added for upload/download/delete/mkdir/rename/purge/sync outcomes, retry context, and future JSON/CSV reporting.
+
+---
+
+## 2026-05-22 Performance and Runtime Delivery Update
+
+Large CDN deployments must be handled as bounded batch work, not as one network/API operation per visible UI row.
+
+- Upload/download concurrency remains capped at 4 files to avoid CPU, disk, memory, and network spikes on customer PCs.
+- CDN purge after overwrite is batched after successful uploads, with up to 1000 paths per purge request, instead of creating one purge request per file.
+- UI lists should stay virtualized and logs/transfers should keep bounded retained history for large folders.
+- Hashing and multipart ETag comparison should remain streaming/file-based on the Rust side; do not load large files fully into frontend memory.
+
+Runtime direction:
+
+- Final delivery remains a desktop executable unless the contract changes.
+- PC and Web are now treated as two runtime targets behind a runtime bridge concept.
+- Desktop runtime uses Tauri IPC, local filesystem access, and OS keyring.
+- Web runtime requires a backend API service for S3/CDN operations and cannot use OS keyring or unrestricted local filesystem access directly.

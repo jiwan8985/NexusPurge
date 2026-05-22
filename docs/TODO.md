@@ -179,3 +179,48 @@
 - [ ] Purge completion polling requirement per CDN.
 - [ ] External authentication module API contract and role-to-feature permission mapping.
 - [ ] CSV export, audit log, reporting, admin history, and retry dashboard requirements.
+
+---
+
+## 2026-05-22 Performance / PC-Web TODO
+
+### Completed
+
+- [x] Add runtime capability/limit types for desktop and web targets.
+- [x] Add desktop/web runtime bridge scaffolding.
+- [x] Batch overwrite-triggered CDN purge requests after upload completion.
+- [x] Cap CDN purge batch size at 1000 paths per request.
+
+### Required Before Web Delivery
+
+- [ ] Move all direct Tauri `invoke`/`listen` usage behind `src/services/runtime`.
+- [ ] Define the web backend API contract for profile, S3, CDN, auth, and operation-log calls.
+- [ ] Replace OS keyring dependency with server-side secret storage for web mode.
+- [ ] Define browser upload/download behavior and local-file limitations.
+- [ ] Add large-folder load tests for 10k, 50k, and 100k object listings.
+- [ ] Add memory budget targets for transfer queue, operation logs, and preview results.
+
+---
+
+## 2026-05-22 UploadTool Integration Update
+
+### Completed
+
+- [x] Analyze repository against `docs/UploadTool_Codex_CLI_완전통합_개발지시서.md`.
+- [x] Preserve existing AWS S3, CloudFront, and Akamai behavior.
+- [x] Add KT CDN to frontend/backend provider models.
+- [x] Add KT CDN profile fields and keyring-backed secret handling.
+- [x] Add KT CDN NotImplemented stub adapter and purge dispatch branch.
+- [x] Add profile Base Prefix field and initialize remote path from it on connect.
+- [x] Add `docs/UPLOADTOOL_REPOSITORY_ANALYSIS.md` phase/status summary.
+
+### Remaining
+
+- [x] Wire backend operation log service into Tauri commands.
+- [x] Add automated tests for LG U+/Hyosung/KT NotImplemented behavior.
+- [x] Move frontend Tauri IPC/event/window/dialog calls behind runtime bridge entry points.
+- [x] Persist basic operation logs for upload, download, delete, mkdir, and rename workflows.
+- [ ] Add automated tests for LG U+/Hyosung/KT credential validation.
+- [ ] Confirm Akamai URL purge versus CP Code purge requirement with customer.
+- [ ] Confirm LG U+/Hyosung/KT API specifications before real implementation.
+- [ ] Confirm delete, wildcard, query-string, and purge polling policies before implementation.

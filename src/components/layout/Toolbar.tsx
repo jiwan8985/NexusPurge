@@ -1,9 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { useS3 } from "../../hooks/useS3";
 import { useLocalFs } from "../../hooks/useLocalFs";
+import { runtime } from "../../services/runtime";
 import type { SyncPreviewResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
@@ -62,7 +62,7 @@ export default function Toolbar() {
   const handleDryRun = async () => {
     if (!activeProfile || !isConnected) return;
     try {
-      const preview = await invoke<SyncPreviewResult>("sync_preview", {
+      const preview = await runtime.invoke<SyncPreviewResult>("sync_preview", {
         profileId: activeProfile.id,
         localDir: local.path,
         remotePrefix: remote.path,

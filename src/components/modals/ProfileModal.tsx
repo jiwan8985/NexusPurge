@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
+import { runtime } from "../../services/runtime";
 import ConfirmDialog from "../common/ConfirmDialog";
 import type { S3Profile, CdnProvider, CdnConnectionTestResult } from "../../types";
 import styles from "./ProfileModal.module.css";
@@ -11,6 +11,7 @@ const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "akamai",     label: "Akamai" },
   { value: "lguplus",    label: "LG U+ CDN" },
   { value: "hyosung",    label: "Hyosung CDN" },
+  { value: "kt",         label: "KT CDN" },
 ];
 
 const REGION_SUGGESTIONS = [
@@ -31,6 +32,7 @@ interface FormState {
   name: string;
   region: string;
   bucket: string;
+  basePrefix: string;
   accessKeyId: string;
   secretAccessKey: string;
   endpoint: string;
@@ -52,12 +54,16 @@ interface FormState {
   hyosungApiKey: string;
   hyosungApiSecret: string;
   hyosungEndpoint: string;
+  ktApiKey: string;
+  ktApiSecret: string;
+  ktEndpoint: string;
 }
 
 const emptyForm = (): FormState => ({
   name: "",
   region: "ap-northeast-2",
   bucket: "",
+  basePrefix: "",
   accessKeyId: "",
   secretAccessKey: "",
   endpoint: "",
@@ -78,6 +84,9 @@ const emptyForm = (): FormState => ({
   hyosungApiKey: "",
   hyosungApiSecret: "",
   hyosungEndpoint: "",
+  ktApiKey: "",
+  ktApiSecret: "",
+  ktEndpoint: "",
 });
 
 export default function ProfileModal() {
@@ -106,6 +115,7 @@ export default function ProfileModal() {
       name: profile.name,
       region: profile.region,
       bucket: profile.bucket,
+      basePrefix: profile.basePrefix ?? "",
       accessKeyId: profile.accessKeyId,
       secretAccessKey: "",  // 보안상 마스킹
       endpoint: profile.endpoint ?? "",
@@ -126,6 +136,9 @@ export default function ProfileModal() {
       hyosungApiKey: profile.hyosungApiKey ?? "",
       hyosungApiSecret: "",
       hyosungEndpoint: profile.hyosungEndpoint ?? "",
+      ktApiKey: profile.ktApiKey ?? "",
+      ktApiSecret: "",
+      ktEndpoint: profile.ktEndpoint ?? "",
     });
   };
 
@@ -151,6 +164,7 @@ export default function ProfileModal() {
         name: form.name,
         region: form.region,
         bucket: form.bucket,
+        basePrefix: form.basePrefix || undefined,
         accessKeyId: form.accessKeyId,
         secretAccessKey: form.secretAccessKey,
         endpoint: form.endpoint || undefined,
@@ -171,6 +185,9 @@ export default function ProfileModal() {
         hyosungApiKey: form.hyosungApiKey || undefined,
         hyosungApiSecret: form.hyosungApiSecret || undefined,
         hyosungEndpoint: form.hyosungEndpoint || undefined,
+        ktApiKey: form.ktApiKey || undefined,
+        ktApiSecret: form.ktApiSecret || undefined,
+        ktEndpoint: form.ktEndpoint || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -219,7 +236,7 @@ export default function ProfileModal() {
       } else if (editingId) {
         // 기존 저장된 자격증명으로 테스트 (connect_s3 재사용)
         try {
-          await invoke("connect_s3", { profileId: editingId });
+          await runtime.invoke("connect_s3", { profileId: editingId });
           setTestResult({ success: true });
         } catch (err) {
           setTestResult({ success: false, error: String(err) });
@@ -243,7 +260,7 @@ export default function ProfileModal() {
       setError("CloudFront Distribution ID를 입력하세요.");
       return;
     }
-    if ((form.cdnProvider === "akamai" || form.cdnProvider === "lguplus" || form.cdnProvider === "hyosung") && !form.cdnDomain) {
+    if ((form.cdnProvider === "akamai" || form.cdnProvider === "lguplus" || form.cdnProvider === "hyosung" || form.cdnProvider === "kt") && !form.cdnDomain) {
       setError("CDN 도메인을 입력하세요.");
       return;
     }
@@ -259,7 +276,7 @@ export default function ProfileModal() {
       ) {
         return;
       }
-      const result = await invoke<CdnConnectionTestResult>("test_cdn_connection", {
+      const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
         profileId: editingId,
         provider: form.cdnProvider,
         distributionId: form.cdnDistributionId,
@@ -301,6 +318,7 @@ export default function ProfileModal() {
   const isCloudFront = form.cdnProvider === "cloudfront";
   const isLguplus = form.cdnProvider === "lguplus";
   const isHyosung = form.cdnProvider === "hyosung";
+  const isKt = form.cdnProvider === "kt";
 
   return (
     <>
@@ -412,6 +430,14 @@ export default function ProfileModal() {
                     <option key={r} value={r} />
                   ))}
                 </datalist>
+              </label>
+              <label className={styles.field}>
+                <span>Base Prefix</span>
+                <input
+                  value={form.basePrefix}
+                  onChange={setField("basePrefix")}
+                  placeholder="prod/ / assets/ / optional"
+                />
               </label>
               <label className={styles.field}>
                 <span>Access Key ID *</span>
@@ -625,6 +651,44 @@ export default function ProfileModal() {
                     <input
                       value={form.hyosungEndpoint}
                       onChange={setField("hyosungEndpoint")}
+                      placeholder="https://api.example.com"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인</span>
+                    <input
+                      value={form.cdnDomain}
+                      onChange={setField("cdnDomain")}
+                      placeholder="cdn.example.com"
+                    />
+                  </label>
+                </>
+              )}
+
+              {isKt && (
+                <>
+                  <label className={styles.field}>
+                    <span>API Key</span>
+                    <input
+                      value={form.ktApiKey}
+                      onChange={setField("ktApiKey")}
+                      placeholder="KT CDN API key"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API Secret</span>
+                    <input
+                      type="password"
+                      value={form.ktApiSecret}
+                      onChange={setField("ktApiSecret")}
+                      placeholder={editingId ? "변경하려면 입력" : ""}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Endpoint</span>
+                    <input
+                      value={form.ktEndpoint}
+                      onChange={setField("ktEndpoint")}
                       placeholder="https://api.example.com"
                     />
                   </label>

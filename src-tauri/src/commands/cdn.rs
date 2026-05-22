@@ -142,6 +142,10 @@ pub async fn test_cdn_connection(
                 "Hyosung CDN purge API is not implemented yet. API specification is required."
                     .to_string(),
             ),
+            CdnCredentials::Kt { .. } => Err(
+                "KT CDN purge API is not implemented yet. API specification is required."
+                    .to_string(),
+            ),
         }
     }
     .await;
@@ -210,6 +214,13 @@ pub async fn get_purge_status(
                 Some("NotImplemented".to_string()),
                 Some(
                     "Hyosung CDN purge API is not implemented yet. API specification is required."
+                        .to_string(),
+                ),
+            )),
+            CdnCredentials::Kt { .. } => Ok((
+                Some("NotImplemented".to_string()),
+                Some(
+                    "KT CDN purge API is not implemented yet. API specification is required."
                         .to_string(),
                 ),
             )),

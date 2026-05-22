@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 
 // H-1: 로컬 파일시스템 조작 훅
@@ -9,7 +9,7 @@ export function useLocalFs() {
   const createDir = useCallback(
     async (path: string) => {
       try {
-        await invoke("create_local_dir", { path });
+        await runtime.invoke("create_local_dir", { path });
         addLog("success", `폴더 생성됨: ${path}`);
       } catch (err) {
         addLog("error", `폴더 생성 실패: ${err}`);
@@ -22,7 +22,7 @@ export function useLocalFs() {
   const deleteFiles = useCallback(
     async (paths: string[]) => {
       try {
-        await invoke("delete_local_files", { paths });
+        await runtime.invoke("delete_local_files", { paths });
         addLog("success", `로컬 삭제 완료: ${paths.length}개`);
       } catch (err) {
         addLog("error", `로컬 삭제 실패: ${err}`);
@@ -35,7 +35,7 @@ export function useLocalFs() {
   const renameFile = useCallback(
     async (oldPath: string, newName: string) => {
       try {
-        await invoke("rename_local_file", { oldPath, newName });
+        await runtime.invoke("rename_local_file", { oldPath, newName });
         addLog("success", `이름 변경됨: ${newName}`);
       } catch (err) {
         addLog("error", `이름 변경 실패: ${err}`);

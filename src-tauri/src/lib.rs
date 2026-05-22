@@ -3,7 +3,8 @@ mod commands;
 mod services;
 mod utils;
 
-use commands::{cdn, s3, sync};
+use commands::{cdn, operation_log, s3, sync};
+use services::operation_log::OperationLogService;
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
 use utils::transfer_control::TransferControl;
@@ -19,11 +20,17 @@ pub fn run() {
 
     let profile_store = ProfileStore::new().expect("ProfileStore 초기화 실패");
     let adapter_cache = AdapterCache::new();
+    let operation_log_service = OperationLogService::new(
+        dirs::data_local_dir()
+            .expect("data_local_dir lookup failed")
+            .join("cdn-upload-tool"),
+    );
 
     tauri::Builder::default()
         .manage(profile_store)
         .manage(adapter_cache)
         .manage(TransferControl::default())
+        .manage(operation_log_service)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -61,6 +68,11 @@ pub fn run() {
             cdn::test_cdn_connection,
             cdn::get_purge_status,
             cdn::verify_cdn_urls,
+            // Operation Logs
+            operation_log::save_operation_log,
+            operation_log::list_operation_logs,
+            operation_log::get_operation_log,
+            operation_log::clear_operation_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

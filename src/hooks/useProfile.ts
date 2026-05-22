@@ -1,7 +1,14 @@
 import { useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type { S3Profile } from "../types";
+
+function normalizePrefix(prefix: string | undefined): string {
+  const trimmed = prefix?.trim();
+  if (!trimmed) return "/";
+  const withoutLeadingSlash = trimmed.replace(/^\/+/, "");
+  return withoutLeadingSlash.endsWith("/") ? withoutLeadingSlash : `${withoutLeadingSlash}/`;
+}
 
 export function useProfile() {
   const {
@@ -12,6 +19,7 @@ export function useProfile() {
     profiles,
     setProfiles,
     setLastProfileId,
+    setRemotePath,
   } = useAppStore((s) => ({
     setActiveProfile: s.setActiveProfile,
     setConnected: s.setConnected,
@@ -20,11 +28,12 @@ export function useProfile() {
     profiles: s.profiles,
     setProfiles: s.setProfiles,
     setLastProfileId: s.setLastProfileId,
+    setRemotePath: s.setRemotePath,
   }));
 
   const loadProfiles = useCallback(async () => {
     try {
-      const saved = await invoke<S3Profile[]>("load_profiles");
+      const saved = await runtime.invoke<S3Profile[]>("load_profiles");
       setProfiles(saved);
     } catch (err) {
       addLog("error", `프로필 로드 실패: ${err}`, "profile");
@@ -33,7 +42,7 @@ export function useProfile() {
 
   const saveProfile = useCallback(
     async (profile: S3Profile) => {
-      await invoke("save_profile", { profile });
+      await runtime.invoke("save_profile", { profile });
       await loadProfiles();
       addLog("success", `프로필 저장됨: ${profile.name}`, "profile");
     },
@@ -42,7 +51,7 @@ export function useProfile() {
 
   const deleteProfile = useCallback(
     async (id: string) => {
-      await invoke("delete_profile", { id });
+      await runtime.invoke("delete_profile", { id });
       await loadProfiles();
       addLog("info", "프로필 삭제됨", "profile");
     },
@@ -59,7 +68,7 @@ export function useProfile() {
       endpoint?: string;
     }): Promise<{ success: boolean; error?: string }> => {
       try {
-        await invoke("test_s3_connection", {
+        await runtime.invoke("test_s3_connection", {
           region:    params.region,
           bucket:    params.bucket,
           accessKey: params.accessKey,
@@ -80,11 +89,12 @@ export function useProfile() {
       setActiveProfile(profile);
       addLog("info", `연결 시도: ${profile.name} (${profile.bucket})`, "system");
       try {
-        await invoke("connect_s3", { profileId: profile.id });
+        await runtime.invoke("connect_s3", { profileId: profile.id });
+        setRemotePath(normalizePrefix(profile.basePrefix));
         setConnected(true);
         // H-7: 마지막 연결 프로파일 저장
         setLastProfileId(profile.id);
-        await invoke("save_last_profile_id", { id: profile.id });
+        await runtime.invoke("save_last_profile_id", { id: profile.id });
         addLog("success", `연결 성공: ${profile.bucket} (${profile.region})`, "system");
       } catch (err) {
         setConnected(false);
@@ -95,7 +105,7 @@ export function useProfile() {
         setConnecting(false);
       }
     },
-    [setActiveProfile, setConnected, setConnecting, setLastProfileId, addLog]
+    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, addLog]
   );
 
   const disconnect = useCallback(() => {

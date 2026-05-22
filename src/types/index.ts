@@ -5,6 +5,7 @@ export interface S3Profile {
   name: string;
   region: string;
   bucket: string;
+  basePrefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
   endpoint?: string;              // S3-compatible 서비스용 커스텀 엔드포인트
@@ -26,6 +27,9 @@ export interface S3Profile {
   hyosungApiKey?: string;
   hyosungApiSecret?: string;
   hyosungEndpoint?: string;
+  ktApiKey?: string;
+  ktApiSecret?: string;
+  ktEndpoint?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,7 +103,26 @@ export interface TransferSummary {
 
 // ─── CDN ─────────────────────────────────────────────────────────────────────
 
-export type CdnProvider = "cloudfront" | "akamai" | "lguplus" | "hyosung";
+export type CdnProvider = "cloudfront" | "akamai" | "lguplus" | "hyosung" | "kt";
+
+export type RuntimeTarget = "desktop" | "web";
+
+export type DeliveryMode = "desktop-executable" | "web-hosted";
+
+export interface RuntimeCapabilities {
+  target: RuntimeTarget;
+  deliveryMode: DeliveryMode;
+  canAccessLocalFileSystem: boolean;
+  canUseOsKeyring: boolean;
+  canUseTauriIpc: boolean;
+}
+
+export interface PerformanceLimits {
+  maxConcurrentTransfers: number;
+  maxCdnPurgeUrlsPerRequest: number;
+  maxVisibleTransferRows: number;
+  maxLogEntries: number;
+}
 
 export interface CdnPurgeRequest {
   provider: CdnProvider;

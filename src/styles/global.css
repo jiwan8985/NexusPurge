@@ -17,8 +17,8 @@ body {
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
   background:
-    radial-gradient(circle at top left, rgba(37, 99, 235, 0.15), transparent 34rem),
-    linear-gradient(135deg, #0b1020 0%, var(--color-bg-primary) 48%, #101827 100%);
+    linear-gradient(135deg, rgba(0, 87, 255, 0.14) 0%, transparent 28%),
+    linear-gradient(180deg, #f7faff 0%, var(--color-bg-primary) 42%, #e9f0fb 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   letter-spacing: 0;
@@ -73,7 +73,9 @@ select option { background: var(--color-bg-elevated); }
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.72);
+  background:
+    linear-gradient(90deg, rgba(0, 87, 255, 0.08), transparent 22%, rgba(0, 184, 255, 0.06)),
+    var(--color-bg-primary);
 }
 
 .main-content {

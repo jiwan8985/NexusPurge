@@ -1,6 +1,4 @@
 import { useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import ErrorBoundary from "./components/ErrorBoundary";
 import TitleBar from "./components/layout/TitleBar";
 import Toolbar from "./components/layout/Toolbar";
@@ -15,6 +13,7 @@ import ProfileModal from "./components/modals/ProfileModal";
 import SettingsModal from "./components/modals/SettingsModal";
 import { useAppStore } from "./store/appStore";
 import { useProfile } from "./hooks/useProfile";
+import { runtime } from "./services/runtime";
 
 export default function App() {
   const isLogPanelVisible  = useAppStore((s) => s.isLogPanelVisible);
@@ -29,7 +28,7 @@ export default function App() {
 
   // 앱 준비 후 윈도우 표시 (tauri.conf.json: visible: false)
   useEffect(() => {
-    getCurrentWindow().show();
+    void runtime.showMainWindow();
   }, []);
 
   // 초기 프로파일 로드
@@ -43,7 +42,7 @@ export default function App() {
   useEffect(() => {
     if (profiles.length === 0) return;
     if (window.localStorage.getItem("nexuspurge.restoreLastProfile") === "false") return;
-    invoke<string | null>("get_last_profile_id")
+    runtime.invoke<string | null>("get_last_profile_id")
       .then((lastId) => {
         if (!lastId) return;
         const found = profiles.find((p) => p.id === lastId);

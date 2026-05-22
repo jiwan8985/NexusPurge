@@ -1,14 +1,13 @@
 import { useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { useS3 } from "../../hooks/useS3";
+import { runtime } from "../../services/runtime";
 import ConfirmDialog from "../common/ConfirmDialog";
 import styles from "./TitleBar.module.css";
 import type { S3Profile } from "../../types";
 
 export default function TitleBar() {
-  const appWindow = getCurrentWindow();
   const { activeProfile, isConnected, isConnecting, isTransferring, openProfileModal } =
     useAppStore((s) => ({
       activeProfile: s.activeProfile,
@@ -27,7 +26,7 @@ export default function TitleBar() {
     if (isTransferring) {
       setShowCloseConfirm(true);
     } else {
-      appWindow.close();
+      void runtime.closeWindow();
     }
   };
 
@@ -117,10 +116,10 @@ export default function TitleBar() {
       </div>
 
       <div className={styles.controls}>
-        <button className={styles.controlBtn} onClick={() => appWindow.minimize()} aria-label="최소화">
+        <button className={styles.controlBtn} onClick={() => runtime.minimizeWindow()} aria-label="최소화">
           <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor" /></svg>
         </button>
-        <button className={styles.controlBtn} onClick={() => appWindow.toggleMaximize()} aria-label="최대화">
+        <button className={styles.controlBtn} onClick={() => runtime.toggleMaximizeWindow()} aria-label="최대화">
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
             <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" />
           </svg>
@@ -140,7 +139,7 @@ export default function TitleBar() {
           message="파일 전송이 진행 중입니다. 지금 종료하면 전송이 중단됩니다. 계속하시겠습니까?"
           confirmLabel="종료"
           danger
-          onConfirm={() => appWindow.close()}
+          onConfirm={() => runtime.closeWindow()}
           onCancel={() => setShowCloseConfirm(false)}
         />
       )}

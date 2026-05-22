@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
+import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
 import type { FileItem } from "../../types";
 import styles from "./Panel.module.css";
@@ -100,7 +100,7 @@ export default function LocalPanel() {
     async (path: string) => {
       setLocalLoading(true);
       try {
-        const files = await invoke<FileItem[]>("list_local_dir", { path });
+        const files = await runtime.invoke<FileItem[]>("list_local_dir", { path });
         setLocalFiles(files);
         setLocalPath(path);
         setPathInput(path);
@@ -120,7 +120,7 @@ export default function LocalPanel() {
     if (local.path) {
       loadDirectory(local.path);
     } else {
-      invoke<string>("get_home_dir").then((home) => loadDirectory(home));
+      runtime.invoke<string>("get_home_dir").then((home) => loadDirectory(home));
     }
   }, [localRefreshKey]);
 
@@ -169,7 +169,7 @@ export default function LocalPanel() {
   const deleteLocalFile = async (file: FileItem) => {
     if (!window.confirm(`로컬에서 "${file.name}" 항목을 삭제할까요?`)) return;
     try {
-      await invoke("delete_local_files", { paths: [file.path] });
+      await runtime.invoke("delete_local_files", { paths: [file.path] });
       await loadDirectory(local.path);
     } catch (err) {
       addLog("error", `로컬 삭제 실패: ${err}`);
@@ -181,7 +181,7 @@ export default function LocalPanel() {
     const newName = window.prompt("새 이름을 입력하세요:", oldName);
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
     try {
-      await invoke("rename_local_file", { oldPath: file.path, newName: newName.trim() });
+      await runtime.invoke("rename_local_file", { oldPath: file.path, newName: newName.trim() });
       await loadDirectory(local.path);
     } catch (err) {
       addLog("error", `로컬 이름 변경 실패: ${err}`);

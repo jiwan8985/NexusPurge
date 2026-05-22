@@ -1,9 +1,11 @@
 :root {
-  --color-accent: #2563eb;
-  --color-accent-hover: #3b82f6;
-  --color-accent-active: #1d4ed8;
-  --color-accent-muted: rgba(37, 99, 235, 0.18);
-  --color-accent-subtle: rgba(37, 99, 235, 0.08);
+  --color-accent: #0057ff;
+  --color-accent-hover: #0078ff;
+  --color-accent-active: #003dd6;
+  --color-accent-muted: rgba(0, 87, 255, 0.14);
+  --color-accent-subtle: rgba(0, 87, 255, 0.07);
+  --color-brand-cyan: #00b8ff;
+  --color-brand-lime: #73ff4a;
 
   --color-success: #16a34a;
   --color-success-muted: rgba(22, 163, 74, 0.14);
@@ -13,26 +15,26 @@
   --color-error-muted: rgba(220, 38, 38, 0.14);
   --color-info: #0ea5e9;
 
-  --color-bg-primary: #0f172a;
-  --color-bg-secondary: #111827;
-  --color-bg-tertiary: #182235;
-  --color-bg-elevated: #1f2937;
-  --color-bg-overlay: #263244;
-  --color-bg-hover: rgba(255, 255, 255, 0.06);
-  --color-bg-active: rgba(255, 255, 255, 0.1);
-  --color-bg-selected: rgba(37, 99, 235, 0.22);
-  --color-bg-selected-inactive: rgba(148, 163, 184, 0.12);
+  --color-bg-primary: #eef3fb;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #f5f8fc;
+  --color-bg-elevated: #ffffff;
+  --color-bg-overlay: #e6edf7;
+  --color-bg-hover: rgba(0, 87, 255, 0.055);
+  --color-bg-active: rgba(0, 87, 255, 0.09);
+  --color-bg-selected: rgba(0, 87, 255, 0.13);
+  --color-bg-selected-inactive: rgba(15, 23, 42, 0.06);
 
-  --color-border: rgba(148, 163, 184, 0.16);
-  --color-border-strong: rgba(203, 213, 225, 0.24);
-  --color-border-focus: #60a5fa;
+  --color-border: rgba(17, 31, 61, 0.1);
+  --color-border-strong: rgba(17, 31, 61, 0.18);
+  --color-border-focus: #0078ff;
   --border-width: 1px;
 
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #cbd5e1;
-  --color-text-tertiary: #94a3b8;
-  --color-text-disabled: #64748b;
-  --color-text-link: #93c5fd;
+  --color-text-primary: #101828;
+  --color-text-secondary: #344054;
+  --color-text-tertiary: #667085;
+  --color-text-disabled: #98a2b3;
+  --color-text-link: #0057ff;
   --color-text-on-accent: #ffffff;
 
   --color-status-pending: #94a3b8;
@@ -52,7 +54,7 @@
   --badge-purge-bg: rgba(56, 189, 248, 0.13);
   --badge-purge-border: rgba(56, 189, 248, 0.34);
 
-  --font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-family: "Inter", "Segoe UI", "Pretendard", system-ui, -apple-system, sans-serif;
   --font-family-mono: "Cascadia Code", "Fira Code", Consolas, monospace;
   --font-size-xs: 11px;
   --font-size-sm: 12px;
@@ -78,14 +80,14 @@
   --radius-xs: 3px;
   --radius-sm: 5px;
   --radius-md: 7px;
-  --radius-lg: 8px;
-  --radius-xl: 10px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.28);
-  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.44);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --glow-focus: 0 0 0 3px rgba(96, 165, 250, 0.28);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.08);
+  --shadow-md: 0 18px 36px rgba(16, 24, 40, 0.1);
+  --shadow-lg: 0 26px 72px rgba(16, 24, 40, 0.18);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --glow-focus: 0 0 0 3px rgba(0, 120, 255, 0.24);
   --glow-error: 0 0 0 3px rgba(239, 68, 68, 0.25);
 
   --transition-fast: 90ms cubic-bezier(0.2, 0, 0, 1);
@@ -93,32 +95,12 @@
   --transition-slow: 260ms cubic-bezier(0.2, 0, 0, 1);
 
   --scrollbar-size: 7px;
-  --scrollbar-thumb: rgba(148, 163, 184, 0.24);
+  --scrollbar-thumb: rgba(0, 87, 255, 0.22);
   --scrollbar-track: transparent;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --color-bg-primary: #eef2f7;
-    --color-bg-secondary: #ffffff;
-    --color-bg-tertiary: #f8fafc;
-    --color-bg-elevated: #ffffff;
-    --color-bg-overlay: #e2e8f0;
-    --color-bg-hover: rgba(15, 23, 42, 0.045);
-    --color-bg-active: rgba(15, 23, 42, 0.075);
-    --color-bg-selected: rgba(37, 99, 235, 0.12);
-    --color-bg-selected-inactive: rgba(15, 23, 42, 0.06);
-    --color-border: rgba(15, 23, 42, 0.11);
-    --color-border-strong: rgba(15, 23, 42, 0.18);
-    --color-text-primary: #0f172a;
-    --color-text-secondary: #334155;
-    --color-text-tertiary: #64748b;
-    --color-text-disabled: #94a3b8;
-    --color-text-link: #1d4ed8;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
-    --shadow-md: 0 12px 30px rgba(15, 23, 42, 0.12);
-    --shadow-lg: 0 24px 70px rgba(15, 23, 42, 0.2);
-    --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-    --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+    --scrollbar-thumb: rgba(0, 87, 255, 0.22);
   }
 }

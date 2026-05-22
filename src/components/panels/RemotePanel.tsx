@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import ConfirmDialog from "../common/ConfirmDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
+import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
 import { buildCdnUrl } from "../../utils/cdn";
 import type { CdnUrlCheck, FileItem } from "../../types";
@@ -109,7 +109,7 @@ export default function RemotePanel() {
   const verifyCdnUrl = async (file: FileItem) => {
     if (!activeProfile) return;
     try {
-      const [check] = await invoke<CdnUrlCheck[]>("verify_cdn_urls", {
+      const [check] = await runtime.invoke<CdnUrlCheck[]>("verify_cdn_urls", {
         profileId: activeProfile.id,
         paths: [file.path],
       });

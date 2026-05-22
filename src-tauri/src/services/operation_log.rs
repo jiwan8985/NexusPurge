@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -48,6 +46,10 @@ impl OperationLogService {
         Ok(serde_json::from_str(&content).unwrap_or_default())
     }
 
+    pub async fn get(&self, id: &str) -> Result<Option<OperationLog>> {
+        Ok(self.list_recent().await?.into_iter().find(|log| log.id == id))
+    }
+
     pub async fn save(&self, log: OperationLog) -> Result<()> {
         tokio::fs::create_dir_all(&self.data_dir)
             .await
@@ -64,5 +66,65 @@ impl OperationLogService {
         .context("operation log write failed")
     }
 
+    pub async fn clear(&self) -> Result<()> {
+        let path = self.path();
+        if path.exists() {
+            tokio::fs::remove_file(path)
+                .await
+                .context("operation log clear failed")?;
+        }
+        Ok(())
+    }
+
     // TODO: Add CSV export after report columns are confirmed.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_log(id: &str, started_at: &str) -> OperationLog {
+        OperationLog {
+            id: id.to_string(),
+            profile_id: "profile-1".to_string(),
+            operation: "upload".to_string(),
+            status: "success".to_string(),
+            bucket: Some("bucket".to_string()),
+            prefix: Some("assets/".to_string()),
+            files: vec![],
+            purge_results: vec![],
+            started_at: started_at.to_string(),
+            finished_at: Some(started_at.to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn save_get_list_and_clear_operation_logs() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-operation-log-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+
+        service
+            .save(sample_log("old", "2026-05-22T00:00:00Z"))
+            .await
+            .unwrap();
+        service
+            .save(sample_log("new", "2026-05-22T00:01:00Z"))
+            .await
+            .unwrap();
+
+        let logs = service.list_recent().await.unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].id, "new");
+
+        let found = service.get("old").await.unwrap().unwrap();
+        assert_eq!(found.profile_id, "profile-1");
+
+        service.clear().await.unwrap();
+        assert!(service.list_recent().await.unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
 }

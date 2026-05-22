@@ -2,6 +2,7 @@ pub mod akamai;
 pub mod base;
 pub mod cloudfront;
 pub mod hyosung;
+pub mod kt;
 pub mod lguplus;
 pub mod mock;
 
@@ -81,6 +82,17 @@ pub async fn purge_with_credentials(
             adapter.purge_urls(&urls).await?;
             Ok(None)
         }
+        CdnCredentials::Kt {
+            api_key,
+            api_secret,
+            endpoint,
+            cdn_domain,
+        } => {
+            let adapter = kt::KtCdnAdapter::new(api_key, api_secret, endpoint);
+            let urls = build_cdn_urls(&cdn_domain, paths);
+            adapter.purge_urls(&urls).await?;
+            Ok(None)
+        }
     }
 }
 
@@ -103,4 +115,86 @@ pub fn build_cdn_urls(cdn_domain: &str, paths: &[String]) -> Vec<String> {
 
 fn retry_delay(attempt: usize) -> Duration {
     Duration::from_millis(250 * 2_u64.pow(attempt as u32))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_cdn_url_normalizes_scheme_domain_and_path() {
+        assert_eq!(
+            build_cdn_url("https://cdn.example.com/", "/assets/app.js"),
+            "https://cdn.example.com/assets/app.js"
+        );
+        assert_eq!(
+            build_cdn_url("http://cdn.example.com/base", "assets/app.js"),
+            "https://cdn.example.com/base/assets/app.js"
+        );
+    }
+
+    #[tokio::test]
+    async fn kt_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
+        let result = purge_with_credentials(
+            "",
+            &["assets/app.js".to_string()],
+            CdnCredentials::Kt {
+                api_key: "key".to_string(),
+                api_secret: "secret".to_string(),
+                endpoint: "https://api.example.com".to_string(),
+                cdn_domain: "cdn.example.com".to_string(),
+            },
+        )
+        .await;
+
+        let err = result.expect_err("KT provider should fail until the real API is implemented");
+        assert!(
+            err.to_string()
+                .contains("KT CDN purge API is not implemented yet")
+        );
+    }
+
+    #[tokio::test]
+    async fn lguplus_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
+        let result = purge_with_credentials(
+            "",
+            &["assets/app.js".to_string()],
+            CdnCredentials::Lguplus {
+                api_key: "key".to_string(),
+                api_secret: "secret".to_string(),
+                endpoint: "https://api.example.com".to_string(),
+                cdn_domain: "cdn.example.com".to_string(),
+            },
+        )
+        .await;
+
+        let err =
+            result.expect_err("LG U+ provider should fail until the real API is implemented");
+        assert!(
+            err.to_string()
+                .contains("LG U+ CDN purge API is not implemented yet")
+        );
+    }
+
+    #[tokio::test]
+    async fn hyosung_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
+        let result = purge_with_credentials(
+            "",
+            &["assets/app.js".to_string()],
+            CdnCredentials::Hyosung {
+                api_key: "key".to_string(),
+                api_secret: "secret".to_string(),
+                endpoint: "https://api.example.com".to_string(),
+                cdn_domain: "cdn.example.com".to_string(),
+            },
+        )
+        .await;
+
+        let err =
+            result.expect_err("Hyosung provider should fail until the real API is implemented");
+        assert!(
+            err.to_string()
+                .contains("Hyosung CDN purge API is not implemented yet")
+        );
+    }
 }
