@@ -3,6 +3,8 @@
 export interface S3Profile {
   id: string;
   name: string;
+  scope?: ProfileScope;
+  permissions?: ProfilePermissions;
   region: string;
   bucket: string;
   basePrefix?: string;
@@ -10,9 +12,15 @@ export interface S3Profile {
   secretAccessKey: string;
   endpoint?: string;              // S3-compatible 서비스용 커스텀 엔드포인트
   cdnProvider?: CdnProvider;
+  cdnProviders?: CdnProviderConfig[];
   cdnDistributionId?: string;     // CloudFront distribution ID
   cdnDomain?: string;             // CDN 도메인 (Purge URL 구성용)
   purgeOnNewUpload?: boolean;     // 신규 업로드에도 CDN Purge 수행
+  purgePolicy?: PurgePolicy;
+  uploadPolicy?: UploadPolicy;
+  metadataPolicy?: UploadMetadataPolicy;
+  logShipping?: LogShippingConfig;
+  authBinding?: ExternalAuthBinding;
   defaultCacheControl?: string;   // 업로드 기본 Cache-Control
   contentTypeOverride?: string;   // 비어 있으면 확장자 기반 자동 감지
   multipartEtagFallback?: boolean; // multipart ETag 불일치 시 크기 fallback 비교
@@ -32,6 +40,20 @@ export interface S3Profile {
   ktEndpoint?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ProfileScope = "project" | "user";
+
+export type ProfilePermissionRole = "admin" | "operator" | "viewer";
+
+export interface ProfilePermissions {
+  role: ProfilePermissionRole;
+  canImport: boolean;
+  canRemove: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canPurge: boolean;
+  canManageSecrets: boolean;
 }
 
 // ─── File System ─────────────────────────────────────────────────────────────
@@ -105,6 +127,69 @@ export interface TransferSummary {
 
 export type CdnProvider = "cloudfront" | "akamai" | "lguplus" | "hyosung" | "kt";
 
+export interface CdnProviderConfig {
+  provider: CdnProvider;
+  displayName?: string;
+  enabled: boolean;
+  distributionId?: string;
+  domain?: string;
+}
+
+export type PurgeMode = "manual" | "automatic";
+export type PurgeSelectionMode = "all" | "individual" | "partial";
+export type OverwritePolicy = "overwrite" | "skip";
+
+export interface PurgeBatchPolicy {
+  batchSize: number;
+  warningThreshold: number;
+  notRecommendedThreshold: number;
+}
+
+export interface PurgePolicy {
+  mode: PurgeMode;
+  requireApprovalBeforeAutomaticPurge: boolean;
+  requireLargePurgeWarning: boolean;
+  selectionMode: PurgeSelectionMode;
+  overwritePolicy: OverwritePolicy;
+  batch: PurgeBatchPolicy;
+}
+
+export interface UploadPolicy {
+  overwritePolicy: OverwritePolicy;
+  batchSize: number;
+}
+
+export interface UploadMetadataPolicy {
+  autoApply: boolean;
+  contentType?: string;
+  cacheControl?: string;
+  customHeaders: Record<string, string>;
+  userMetadata: Record<string, string>;
+  allowManualRetryOnFailure: boolean;
+}
+
+export interface RetryPolicy {
+  enabled: boolean;
+  maxAttempts: number;
+  backoffMs: number;
+}
+
+export interface LogShippingConfig {
+  enabled: boolean;
+  bucket?: string;
+  prefix?: string;
+  includeOperations: OperationType[];
+  format: "json";
+  retry: RetryPolicy;
+}
+
+export interface ExternalAuthBinding {
+  provider: "ai-lb" | "external";
+  keyRef?: string;
+  sessionRef?: string;
+  requiredRoles?: string[];
+}
+
 export type RuntimeTarget = "desktop" | "web";
 
 export type DeliveryMode = "desktop-executable" | "web-hosted";
@@ -128,6 +213,7 @@ export interface CdnPurgeRequest {
   provider: CdnProvider;
   distributionId: string;
   paths: string[];
+  policy?: PurgePolicy;
 }
 
 export interface CdnPurgeResult {
@@ -167,6 +253,7 @@ export interface AuthSession {
   accessToken: string;
   refreshToken?: string;
   expiresAt?: string;
+  provider?: "ai-lb" | "external";
 }
 
 export interface AuthAdapter {
@@ -210,8 +297,27 @@ export interface OperationLog {
   prefix?: string;
   files: FileOperationResult[];
   purgeResults: CdnOperationPurgeResult[];
+  metadataFailures?: MetadataFailureLog[];
+  logShipping?: LogShippingState;
   startedAt: string;
   finishedAt?: string;
+}
+
+export interface MetadataFailureLog {
+  path: string;
+  headers: Record<string, string>;
+  metadata: Record<string, string>;
+  error: string;
+  retryable: boolean;
+}
+
+export interface LogShippingState {
+  targetBucket?: string;
+  targetPrefix?: string;
+  status: "pending" | "success" | "failed";
+  attempts: number;
+  nextRetryAt?: string;
+  error?: string;
 }
 
 export interface CdnUrlCheck {
@@ -252,6 +358,8 @@ export interface S3UploadRequest {
   remotePath: string;
   contentType?: string;
   metadata?: Record<string, string>;
+  headers?: Record<string, string>;
+  retryMetadataFailure?: boolean;
 }
 
 export interface S3DownloadRequest {
@@ -265,6 +373,7 @@ export interface SyncPlan {
   toOverwrite: FileItem[];   // ETag 불일치 → 덮어쓰기 후 CDN Purge
   purgeTargets?: string[];
   compareMode?: "etag" | "etagWithSizeFallback";
+  purgePolicy?: PurgePolicy;
 }
 
 export interface SyncPreviewEntry {

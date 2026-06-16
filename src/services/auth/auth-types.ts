@@ -1,1 +1,8 @@
-export type { AuthAdapter, AuthSession, AuthUser } from "../../types";
+export type {
+  AuthAdapter,
+  AuthSession,
+  AuthUser,
+  ExternalAuthBinding,
+  ProfilePermissionRole,
+  ProfilePermissions,
+} from "../../types";

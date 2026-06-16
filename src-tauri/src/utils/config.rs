@@ -15,6 +15,10 @@ const SETTINGS_FILENAME: &str = "settings.json";
 pub struct ProfileConfig {
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ProfileScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<ProfilePermissions>,
     pub region: String,
     pub bucket: String,
     #[serde(rename = "basePrefix", skip_serializing_if = "Option::is_none")]
@@ -26,12 +30,24 @@ pub struct ProfileConfig {
     pub endpoint: Option<String>,
     #[serde(rename = "cdnProvider")]
     pub cdn_provider: Option<String>,
+    #[serde(default, rename = "cdnProviders", skip_serializing_if = "Vec::is_empty")]
+    pub cdn_providers: Vec<CdnProviderConfig>,
     #[serde(rename = "cdnDistributionId")]
     pub cdn_distribution_id: Option<String>,
     #[serde(rename = "cdnDomain")]
     pub cdn_domain: Option<String>,
     #[serde(rename = "purgeOnNewUpload", default)]
     pub purge_on_new_upload: bool,
+    #[serde(default, rename = "purgePolicy", skip_serializing_if = "Option::is_none")]
+    pub purge_policy: Option<PurgePolicy>,
+    #[serde(default, rename = "uploadPolicy", skip_serializing_if = "Option::is_none")]
+    pub upload_policy: Option<UploadPolicy>,
+    #[serde(default, rename = "metadataPolicy", skip_serializing_if = "Option::is_none")]
+    pub metadata_policy: Option<UploadMetadataPolicy>,
+    #[serde(default, rename = "logShipping", skip_serializing_if = "Option::is_none")]
+    pub log_shipping: Option<LogShippingConfig>,
+    #[serde(default, rename = "authBinding", skip_serializing_if = "Option::is_none")]
+    pub auth_binding: Option<ExternalAuthBinding>,
     #[serde(rename = "defaultCacheControl")]
     pub default_cache_control: Option<String>,
     #[serde(rename = "contentTypeOverride")]
@@ -71,6 +87,160 @@ pub struct ProfileConfig {
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileScope {
+    Project,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfilePermissionRole {
+    Admin,
+    Operator,
+    Viewer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfilePermissions {
+    pub role: ProfilePermissionRole,
+    pub can_import: bool,
+    pub can_remove: bool,
+    pub can_create: bool,
+    pub can_edit: bool,
+    pub can_purge: bool,
+    pub can_manage_secrets: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CdnProviderConfig {
+    pub provider: String,
+    #[serde(default, rename = "displayName", skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, rename = "distributionId", skip_serializing_if = "Option::is_none")]
+    pub distribution_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PurgeMode {
+    Manual,
+    Automatic,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PurgeSelectionMode {
+    All,
+    Individual,
+    Partial,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OverwritePolicy {
+    Overwrite,
+    Skip,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgeBatchPolicy {
+    #[serde(rename = "batchSize")]
+    pub batch_size: usize,
+    #[serde(rename = "warningThreshold")]
+    pub warning_threshold: usize,
+    #[serde(rename = "notRecommendedThreshold")]
+    pub not_recommended_threshold: usize,
+}
+
+impl Default for PurgeBatchPolicy {
+    fn default() -> Self {
+        Self {
+            batch_size: 1000,
+            warning_threshold: 5000,
+            not_recommended_threshold: 10000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PurgePolicy {
+    pub mode: PurgeMode,
+    #[serde(rename = "requireApprovalBeforeAutomaticPurge")]
+    pub require_approval_before_automatic_purge: bool,
+    #[serde(rename = "requireLargePurgeWarning")]
+    pub require_large_purge_warning: bool,
+    #[serde(rename = "selectionMode")]
+    pub selection_mode: PurgeSelectionMode,
+    #[serde(rename = "overwritePolicy")]
+    pub overwrite_policy: OverwritePolicy,
+    #[serde(default)]
+    pub batch: PurgeBatchPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadPolicy {
+    #[serde(rename = "overwritePolicy")]
+    pub overwrite_policy: OverwritePolicy,
+    #[serde(rename = "batchSize")]
+    pub batch_size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadMetadataPolicy {
+    #[serde(rename = "autoApply")]
+    pub auto_apply: bool,
+    #[serde(default, rename = "contentType", skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default, rename = "cacheControl", skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<String>,
+    #[serde(default, rename = "customHeaders")]
+    pub custom_headers: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "userMetadata")]
+    pub user_metadata: std::collections::HashMap<String, String>,
+    #[serde(rename = "allowManualRetryOnFailure")]
+    pub allow_manual_retry_on_failure: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub enabled: bool,
+    #[serde(rename = "maxAttempts")]
+    pub max_attempts: usize,
+    #[serde(rename = "backoffMs")]
+    pub backoff_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogShippingConfig {
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[serde(default, rename = "includeOperations")]
+    pub include_operations: Vec<String>,
+    pub format: String,
+    pub retry: RetryPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalAuthBinding {
+    pub provider: String,
+    #[serde(default, rename = "keyRef", skip_serializing_if = "Option::is_none")]
+    pub key_ref: Option<String>,
+    #[serde(default, rename = "sessionRef", skip_serializing_if = "Option::is_none")]
+    pub session_ref: Option<String>,
+    #[serde(default, rename = "requiredRoles")]
+    pub required_roles: Vec<String>,
 }
 
 // ??? Credentials ??????????????????????????????????????????????????????????????
@@ -161,7 +331,21 @@ impl ProfileStore {
     }
 
     pub async fn save(&self, mut profile: ProfileConfig) -> Result<()> {
+        normalize_profile_inputs(&mut profile);
         validate_profile(&profile)?;
+        let has_secret_input = profile
+            .secret_access_key
+            .as_deref()
+            .map(|value| !value.is_empty())
+            .unwrap_or(false);
+        let has_saved_secret = Entry::new(KEYRING_SERVICE, &profile.id)
+            .ok()
+            .and_then(|entry| entry.get_password().ok())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        if !has_secret_input && !has_saved_secret {
+            return Err(anyhow::anyhow!("Secret Access Key is required"));
+        }
 
         // S3 secret ??keyring
         if let Some(secret) = profile.secret_access_key.take() {
@@ -569,4 +753,20 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
         }
         Some(other) => Err(anyhow::anyhow!("Unsupported CDN provider: {}", other)),
     }
+}
+
+fn normalize_profile_inputs(profile: &mut ProfileConfig) {
+    profile.name = profile.name.trim().to_owned();
+    profile.region = profile.region.trim().to_owned();
+    profile.bucket = profile.bucket.trim().to_owned();
+    profile.access_key_id = profile.access_key_id.trim().to_owned();
+    profile.secret_access_key = profile
+        .secret_access_key
+        .take()
+        .map(|value| value.trim().to_owned());
+    profile.endpoint = profile
+        .endpoint
+        .take()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty());
 }

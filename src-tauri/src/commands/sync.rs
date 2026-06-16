@@ -71,6 +71,12 @@ pub struct UploadItem {
     pub content_type_override: Option<String>,
     #[serde(rename = "cacheControl")]
     pub cache_control: Option<String>,
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "retryMetadataFailure")]
+    pub retry_metadata_failure: bool,
     /// true인 경우에만 업로드 완료 후 CDN Purge를 수행한다.
     #[serde(default, rename = "isOverwrite")]
     pub is_overwrite: bool,
@@ -125,8 +131,9 @@ pub async fn build_sync_plan(
         .map_err(|e| e.to_string())?;
 
     let adapter = cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -260,8 +267,9 @@ async fn compare_local_remote(
         store.get_connection_info(profile_id).await?;
 
     let adapter = cache
-        .get_or_create(profile_id, || {
+        .get_or_create(profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await?;
     let profile = store.get_profile(profile_id).await?;
@@ -407,8 +415,9 @@ pub async fn start_uploads(
         .map_err(|e| e.to_string())?;
 
     let adapter = cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -565,8 +574,9 @@ pub async fn start_downloads(
         .map_err(|e| e.to_string())?;
 
     let adapter = cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?;

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use tokio::sync::RwLock;
 use crate::adapters::storage::s3::S3Adapter;
 
@@ -13,11 +14,14 @@ impl AdapterCache {
     }
 
     /// 캐시 히트 시 기존 어댑터 반환, 미스 시 factory로 생성 후 캐싱
-    pub async fn get_or_create(
+    pub async fn get_or_create<Fut>(
         &self,
         profile_id: &str,
-        factory: impl FnOnce() -> anyhow::Result<S3Adapter>,
-    ) -> anyhow::Result<S3Adapter> {
+        factory: impl FnOnce() -> Fut,
+    ) -> anyhow::Result<S3Adapter>
+    where
+        Fut: Future<Output = anyhow::Result<S3Adapter>>,
+    {
         {
             let map = self.inner.read().await;
             if let Some(adapter) = map.get(profile_id) {
@@ -28,7 +32,7 @@ impl AdapterCache {
         if let Some(adapter) = map.get(profile_id) {
             return Ok(adapter.clone());
         }
-        let adapter = factory()?;
+        let adapter = factory().await?;
         map.insert(profile_id.to_owned(), adapter.clone());
         Ok(adapter)
     }

@@ -28,6 +28,9 @@ const REGION_SUGGESTIONS = [
 const shouldConfirmExternalRequests = () =>
   window.localStorage.getItem("nexuspurge.confirmExternalRequests") !== "false";
 
+const normalizeAccessKeyId = (value: string) => value.trim();
+const normalizeSecretAccessKey = (value: string) => value.trim();
+
 interface FormState {
   name: string;
   region: string;
@@ -100,7 +103,7 @@ export default function ProfileModal() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isTestingCdn, setIsTestingCdn] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; error?: string; warnings?: string[] } | null>(null);
   const [cdnTestResult, setCdnTestResult] = useState<CdnConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -152,6 +155,8 @@ export default function ProfileModal() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const accessKeyId = normalizeAccessKeyId(form.accessKeyId);
+    const secretAccessKey = normalizeSecretAccessKey(form.secretAccessKey);
     if (!form.name || !form.bucket || !form.accessKeyId) {
       setError("이름, 버킷, Access Key는 필수입니다.");
       return;
@@ -165,9 +170,9 @@ export default function ProfileModal() {
         region: form.region,
         bucket: form.bucket,
         basePrefix: form.basePrefix || undefined,
-        accessKeyId: form.accessKeyId,
-        secretAccessKey: form.secretAccessKey,
-        endpoint: form.endpoint || undefined,
+        accessKeyId,
+        secretAccessKey,
+        endpoint: form.endpoint.trim() || undefined,
         cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
         cdnDistributionId: form.cdnDistributionId || undefined,
         cdnDomain: form.cdnDomain || undefined,
@@ -201,6 +206,8 @@ export default function ProfileModal() {
 
   /** H-3: 저장 없이 입력값으로 연결 테스트 */
   const handleTestConnection = async () => {
+    const accessKeyId = normalizeAccessKeyId(form.accessKeyId);
+    const secretAccessKey = normalizeSecretAccessKey(form.secretAccessKey);
     if (!form.bucket || !form.accessKeyId) {
       setError("버킷과 Access Key는 필수입니다.");
       return;
@@ -223,21 +230,22 @@ export default function ProfileModal() {
       ) {
         return;
       }
-      if (form.secretAccessKey) {
+      if (secretAccessKey) {
         // 직접 입력값으로 테스트
         const result = await testConnection({
           region:    form.region,
           bucket:    form.bucket,
-          accessKey: form.accessKeyId,
-          secretKey: form.secretAccessKey,
-          endpoint:  form.endpoint || undefined,
+          basePrefix: form.basePrefix,
+          accessKey: accessKeyId,
+          secretKey: secretAccessKey,
+          endpoint:  form.endpoint.trim() || undefined,
         });
         setTestResult(result);
       } else if (editingId) {
         // 기존 저장된 자격증명으로 테스트 (connect_s3 재사용)
         try {
-          await runtime.invoke("connect_s3", { profileId: editingId });
-          setTestResult({ success: true });
+          const result = await runtime.invoke<{ success: boolean; warnings: string[] }>("connect_s3", { profileId: editingId });
+          setTestResult(result);
         } catch (err) {
           setTestResult({ success: false, error: String(err) });
         }
@@ -499,9 +507,14 @@ export default function ProfileModal() {
                   {isTesting ? "테스트 중..." : "연결 테스트"}
                 </button>
                 {testResult && (
+                  <>
                   <span className={testResult.success ? styles.testOk : styles.testFail}>
                     {testResult.success ? "✓ 연결 성공" : `✗ ${testResult.error}`}
                   </span>
+                  {testResult.success && testResult.warnings?.length ? (
+                    <span className={styles.warnMsg}>{testResult.warnings.join(" / ")}</span>
+                  ) : null}
+                  </>
                 )}
               </div>
               </fieldset>

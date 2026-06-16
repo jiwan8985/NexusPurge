@@ -1,4 +1,10 @@
 use anyhow::{Context, Result};
+use aws_config::{BehaviorVersion, Region};
+use aws_credential_types::Credentials;
+use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::Client as AwsS3Client;
+use aws_smithy_runtime_api::client::result::SdkError;
+use aws_smithy_types::error::metadata::ProvideErrorMetadata;
 use reqwest::Client;
 use std::path::Path;
 use std::time::Duration;
@@ -15,20 +21,21 @@ use crate::utils::config::AwsCredentials;
 use crate::utils::retry::is_retryable_status;
 use crate::utils::sigv4::Signer;
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ?�?�?� Constants ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
-/// 이 크기 이상이면 멀티파트 업로드로 전환
+/// ???�기 ?�상?�면 멀?�파???�로?�로 ?�환
 pub const MULTIPART_THRESHOLD: u64 = 10 * 1024 * 1024; // 10 MB
-/// 파트당 크기 (S3 최소 5 MB, 마지막 파트 제외)
+/// ?�트???�기 (S3 최소 5 MB, 마�?�??�트 ?�외)
 pub const PART_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-/// 동시 파트 업로드 수
+/// ?�시 ?�트 ?�로????
 const MAX_CONCURRENT_PARTS: usize = 4;
 
-// ─── S3Adapter ────────────────────────────────────────────────────────────────
+// ?�?�?� S3Adapter ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
 #[derive(Clone)]
 pub struct S3Adapter {
     client:   Client,
+    sdk_client: AwsS3Client,
     endpoint: String, // "https://s3.{region}.amazonaws.com" or custom
     bucket:   String,
     region:   String,
@@ -36,36 +43,77 @@ pub struct S3Adapter {
 }
 
 impl S3Adapter {
-    pub fn new(
+    pub async fn new(
         region:   &str,
         bucket:   &str,
         creds:    &AwsCredentials,
         endpoint: Option<&str>,
     ) -> Result<Self> {
+        let normalized_region = region.trim().to_owned();
+        let normalized_bucket = bucket.trim().trim_matches('/').to_owned();
+        let normalized_access_key = normalize_access_key_id(&creds.access_key_id);
+        let normalized_secret_key = normalize_secret_access_key(&creds.secret_access_key);
+        if normalized_access_key.is_empty() {
+            return Err(anyhow::anyhow!("Access Key ID is required"));
+        }
+        if normalized_secret_key.is_empty() {
+            return Err(anyhow::anyhow!("Secret Access Key is required"));
+        }
+
         let client = Client::builder()
             .use_native_tls()
             .build()
-            .context("HTTP 클라이언트 생성 실패")?;
+            .context("HTTP ?�라?�언???�성 ?�패")?;
 
-        let ep = endpoint
-            .map(|s| s.trim_end_matches('/').to_owned())
-            .unwrap_or_else(|| format!("https://s3.{}.amazonaws.com", region));
+        let custom_endpoint = endpoint
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|s| s.trim_end_matches('/').to_owned());
+        let ep = custom_endpoint
+            .clone()
+            .unwrap_or_else(|| format!("https://s3.{}.amazonaws.com", normalized_region));
+
+        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(normalized_region.clone()))
+            .credentials_provider(Credentials::new(
+                normalized_access_key.clone(),
+                normalized_secret_key.clone(),
+                None,
+                None,
+                "nexuspurge-static-form-credentials",
+            ))
+            .load()
+            .await;
+        let mut s3_config_builder =
+            aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(false);
+        if let Some(endpoint_url) = custom_endpoint {
+            s3_config_builder = s3_config_builder.endpoint_url(endpoint_url);
+        }
+        let sdk_client = AwsS3Client::from_conf(s3_config_builder.build());
 
         Ok(Self {
             client,
+            sdk_client,
             endpoint: ep,
-            bucket: bucket.to_owned(),
-            region: region.to_owned(),
-            creds: creds.clone(),
+            bucket: normalized_bucket,
+            region: normalized_region,
+            creds: AwsCredentials {
+                access_key_id: normalized_access_key,
+                secret_access_key: normalized_secret_key,
+            },
         })
     }
 
     fn signer(&self) -> Signer<'_> {
+        self.signer_for("s3")
+    }
+
+    fn signer_for(&self, service: &'static str) -> Signer<'_> {
         Signer {
             access_key_id:     &self.creds.access_key_id,
             secret_access_key: &self.creds.secret_access_key,
             region:            &self.region,
-            service:           "s3",
+            service,
         }
     }
 
@@ -73,7 +121,46 @@ impl S3Adapter {
         format!("{}/{}", self.endpoint, self.bucket)
     }
 
-    // ── Signed HTTP Helpers ───────────────────────────────────────────────────
+    fn sdk_failure<E, R>(
+        &self,
+        operation: &str,
+        key: Option<&str>,
+        err: &SdkError<E, R>,
+    ) -> anyhow::Error
+    where
+        E: ProvideErrorMetadata,
+    {
+        let code = sdk_error_code(err);
+        let user_message = if code == "SignatureDoesNotMatch" {
+            "Secret Access Key 불일�??�는 ?�명 ?�성 ?�류?�니?? 같�? Access Key/Secret?�로 AWS CLI PutObject�?먼�? ?�인?�세??"
+        } else {
+            operation
+        };
+        tracing::error!(
+            "S3 {} failed: access_key_id={}, region={}, bucket={}, key={}, api={}, aws_error_code={}, error={}",
+            operation,
+            mask_access_key_id(&self.creds.access_key_id),
+            self.region,
+            self.bucket,
+            key.unwrap_or("-"),
+            operation,
+            code,
+            err
+        );
+        anyhow::anyhow!(
+            "S3 {} ?�패: {} (access_key_id={}, region={}, bucket={}, key={}, api={}, aws_error_code={})",
+            operation,
+            user_message,
+            mask_access_key_id(&self.creds.access_key_id),
+            self.region,
+            self.bucket,
+            key.unwrap_or("-"),
+            operation,
+            code
+        )
+    }
+
+    // ?�?� Signed HTTP Helpers ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
     async fn signed_get(&self, url: &Url) -> Result<reqwest::Response> {
         let headers = self.signer().sign_headers("GET", url, &[], b"");
@@ -92,10 +179,10 @@ impl S3Adapter {
                     last_err = Some(err);
                     tokio::time::sleep(retry_delay(attempt)).await;
                 }
-                Err(err) => return Err(err).context("HTTP GET 실패"),
+                Err(err) => return Err(err).context("HTTP GET ?�패"),
             }
         }
-        Err(last_err.expect("retry error")).context("HTTP GET 실패")
+        Err(last_err.expect("retry error")).context("HTTP GET ?�패")
     }
 
     async fn signed_head(&self, url: &Url) -> Result<reqwest::Response> {
@@ -115,10 +202,10 @@ impl S3Adapter {
                     last_err = Some(err);
                     tokio::time::sleep(retry_delay(attempt)).await;
                 }
-                Err(err) => return Err(err).context("HTTP HEAD 실패"),
+                Err(err) => return Err(err).context("HTTP HEAD ?�패"),
             }
         }
-        Err(last_err.expect("retry error")).context("HTTP HEAD 실패")
+        Err(last_err.expect("retry error")).context("HTTP HEAD ?�패")
     }
 
     async fn signed_put(
@@ -155,10 +242,10 @@ impl S3Adapter {
                     last_err = Some(err);
                     tokio::time::sleep(retry_delay(attempt)).await;
                 }
-                Err(err) => return Err(err).context("HTTP PUT 실패"),
+                Err(err) => return Err(err).context("HTTP PUT ?�패"),
             }
         }
-        Err(last_err.expect("retry error")).context("HTTP PUT 실패")
+        Err(last_err.expect("retry error")).context("HTTP PUT ?�패")
     }
 
     async fn signed_post(
@@ -195,10 +282,10 @@ impl S3Adapter {
                     last_err = Some(err);
                     tokio::time::sleep(retry_delay(attempt)).await;
                 }
-                Err(err) => return Err(err).context("HTTP POST 실패"),
+                Err(err) => return Err(err).context("HTTP POST ?�패"),
             }
         }
-        Err(last_err.expect("retry error")).context("HTTP POST 실패")
+        Err(last_err.expect("retry error")).context("HTTP POST ?�패")
     }
 
     async fn signed_delete(&self, url: &Url) -> Result<reqwest::Response> {
@@ -218,31 +305,300 @@ impl S3Adapter {
                     last_err = Some(err);
                     tokio::time::sleep(retry_delay(attempt)).await;
                 }
-                Err(err) => return Err(err).context("HTTP DELETE 실패"),
+                Err(err) => return Err(err).context("HTTP DELETE ?�패"),
             }
         }
-        Err(last_err.expect("retry error")).context("HTTP DELETE 실패")
+        Err(last_err.expect("retry error")).context("HTTP DELETE ?�패")
     }
 
-    // ── Public Operations ─────────────────────────────────────────────────────
+    // ?�?� Public Operations ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
-    pub async fn verify_access(&self) -> Result<()> {
+    pub async fn verify_access(&self, base_prefix: &str) -> Result<Vec<String>> {
+        self.test_connection(base_prefix).await
+    }
+
+    pub async fn test_connection(&self, base_prefix: &str) -> Result<Vec<String>> {
+        let prefix = normalize_base_prefix(base_prefix);
+        let test_key = if prefix.is_empty() {
+            ".nexuspurge-connection-test.txt".to_owned()
+        } else {
+            format!("{}/.nexuspurge-connection-test.txt", prefix)
+        };
+        let mut warnings = Vec::new();
+
+        self.test_sts_get_caller_identity().await?;
+
+        if let Err(err) = self.test_head_bucket().await {
+            let head_err = err.to_string();
+            match self.test_get_bucket_location().await {
+                Ok(()) => {}
+                Err(location_err) => warnings.push(format!(
+                    "HeadBucket/GetBucketLocation 경고: {} / {}",
+                    head_err, location_err
+                )),
+            }
+        }
+
+        if let Err(err) = self.test_list_objects_v2(&prefix).await {
+            let message = err.to_string();
+            if message.contains("AccessDenied") || message.contains("HTTP 403") {
+                warnings.push(format!("목록 조회 권한 ?�음: {}", message));
+            } else {
+                warnings.push(format!("ListObjectsV2 경고: {}", message));
+            }
+        }
+
+        self.test_put_object(&test_key).await?;
+
+        if let Err(err) = self.test_delete_object(&test_key).await {
+            warnings.push(format!("DeleteObject 경고: {}", err));
+        }
+
+        Ok(warnings)
+    }
+
+    async fn test_sts_get_caller_identity(&self) -> Result<()> {
+        let body = b"Action=GetCallerIdentity&Version=2011-06-15".to_vec();
+        let url = Url::parse(&self.sts_url()).context("STS URL ?�성 ?�패")?;
+        let headers = self.signer_for("sts").sign_headers(
+            "POST",
+            &url,
+            &[("content-type", "application/x-www-form-urlencoded")],
+            &body,
+        );
+        let mut req = self
+            .client
+            .post(url.as_str())
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(body);
+        for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req
+            .send()
+            .await
+            .context("STS GetCallerIdentity ?�패: HTTP ?�청 ?�패")?;
+        self.ensure_success("STS GetCallerIdentity", None, resp).await
+    }
+
+    async fn test_head_bucket(&self) -> Result<()> {
+        self.sdk_client
+            .head_bucket()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("HeadBucket", None, &err))?;
+        return Ok(());
+
+        let url = Url::parse(&self.bucket_url()).context("HeadBucket URL ?�성 ?�패")?;
+        let resp = self.signed_head(&url).await.context(format!(
+            "S3 HeadBucket ?�패: bucket={}, region={}",
+            self.bucket, self.region
+        ))?;
+        self.ensure_success("S3 HeadBucket", None, resp).await
+    }
+
+    async fn test_get_bucket_location(&self) -> Result<()> {
+        let url = Url::parse(&format!("{}/?location", self.bucket_url()))
+            .context("GetBucketLocation URL ?�성 ?�패")?;
+        let resp = self.signed_get(&url).await.context(format!(
+            "S3 GetBucketLocation ?�패: bucket={}, region={}",
+            self.bucket, self.region
+        ))?;
+        self.ensure_success("S3 GetBucketLocation", None, resp).await
+    }
+
+    async fn test_list_objects_v2(&self, prefix: &str) -> Result<()> {
+        self.sdk_client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(prefix)
+            .max_keys(1)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("ListObjectsV2", Some(prefix), &err))?;
+        return Ok(());
+
+        let encoded_prefix = percent_encoding::utf8_percent_encode(
+            prefix,
+            percent_encoding::NON_ALPHANUMERIC,
+        )
+        .to_string()
+        .replace("%2F", "/");
+        let url = Url::parse(&format!(
+            "{}/?list-type=2&prefix={}&max-keys=1",
+            self.bucket_url(),
+            encoded_prefix
+        ))
+        .context("ListObjectsV2 URL ?�성 ?�패")?;
+        let resp = self.signed_get(&url).await.context(format!(
+            "S3 ListObjectsV2 ?�패: bucket={}, key={}, region={}",
+            self.bucket, prefix, self.region
+        ))?;
+        self.ensure_success("S3 ListObjectsV2", Some(prefix), resp).await
+    }
+
+    async fn test_put_object(&self, key: &str) -> Result<()> {
+        self.sdk_client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .body(ByteStream::from_static(b"NexusPurge connection test\n"))
+            .content_type("text/plain; charset=utf-8")
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("PutObject", Some(key), &err))?;
+        return Ok(());
+
+        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
+            .context("PutObject URL ?�성 ?�패")?;
+        let resp = self
+            .signed_put(
+                &url,
+                b"NexusPurge connection test\n".to_vec(),
+                "text/plain; charset=utf-8",
+                None,
+            )
+            .await
+            .context(format!(
+                "S3 PutObject ?�패: bucket={}, key={}, region={}",
+                self.bucket, key, self.region
+            ))?;
+        self.ensure_success("S3 PutObject", Some(key), resp).await
+    }
+
+    async fn test_delete_object(&self, key: &str) -> Result<()> {
+        self.sdk_client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("DeleteObject", Some(key), &err))?;
+        return Ok(());
+
+        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
+            .context("DeleteObject URL ?�성 ?�패")?;
+        let resp = self.signed_delete(&url).await.context(format!(
+            "S3 DeleteObject ?�패: bucket={}, key={}, region={}",
+            self.bucket, key, self.region
+        ))?;
+        self.ensure_success("S3 DeleteObject", Some(key), resp).await
+    }
+
+    async fn ensure_success(
+        &self,
+        operation: &str,
+        key: Option<&str>,
+        resp: reqwest::Response,
+    ) -> Result<()> {
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        let body = resp.text().await.unwrap_or_default();
+        let code = aws_error_code(&body).unwrap_or_else(|| format!("HTTP {}", status));
+        Err(anyhow::anyhow!(
+            "{} ?�패: {} (bucket={}, key={}, region={}){}",
+            operation,
+            code,
+            self.bucket,
+            key.unwrap_or("-"),
+            self.region,
+            if body.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", compact_error_body(&body))
+            }
+        ))
+    }
+
+    fn sts_url(&self) -> String {
+        if self.endpoint.contains("localhost") || self.endpoint.contains("127.0.0.1") {
+            return self.endpoint.clone();
+        }
+        format!("https://sts.{}.amazonaws.com", self.region)
+    }
+
+    #[allow(dead_code)]
+    async fn verify_list_access(&self) -> Result<()> {
         let url =
             Url::parse(&format!("{}/?list-type=2&max-keys=1", self.bucket_url()))
-                .context("URL 파싱 실패")?;
+                .context("URL ?�싱 ?�패")?;
         let resp = self.signed_get(&url).await?;
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("버킷 접근 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("버킷 ?�근 ?�패: HTTP {}", resp.status()));
         }
         Ok(())
     }
 
-    /// 단일 페이지 목록 조회 (내부용)
+    /// ?�일 ?�이지 목록 조회 (?��???
     async fn list_objects_page(
         &self,
         prefix: &str,
         continuation_token: Option<&str>,
     ) -> Result<ListResult> {
+        let mut request = self
+            .sdk_client
+            .list_objects_v2()
+            .bucket(&self.bucket)
+            .prefix(prefix)
+            .delimiter("/")
+            .max_keys(1000);
+        if let Some(token) = continuation_token {
+            request = request.continuation_token(token);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("ListObjectsV2", Some(prefix), &err))?;
+
+        let mut files = Vec::new();
+        for common_prefix in response.common_prefixes() {
+            if let Some(prefix) = common_prefix.prefix() {
+                let name = prefix
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(prefix)
+                    .to_owned();
+                files.push(FileItem {
+                    name,
+                    path: prefix.to_owned(),
+                    size: 0,
+                    last_modified: String::new(),
+                    is_directory: true,
+                    etag: None,
+                    content_type: None,
+                });
+            }
+        }
+        for object in response.contents() {
+            if let Some(key) = object.key() {
+                let name = key.rsplit('/').next().unwrap_or(key).to_owned();
+                if !name.is_empty() {
+                    files.push(FileItem {
+                        name,
+                        path: key.to_owned(),
+                        size: object.size().unwrap_or(0).max(0) as u64,
+                        last_modified: object
+                            .last_modified()
+                            .map(|value| value.to_string())
+                            .unwrap_or_default(),
+                        is_directory: false,
+                        etag: object.e_tag().map(|value| value.trim_matches('"').to_owned()),
+                        content_type: None,
+                    });
+                }
+            }
+        }
+
+        return Ok(ListResult {
+            files,
+            next_token: response.next_continuation_token().map(ToOwned::to_owned),
+            is_truncated: response.is_truncated().unwrap_or(false),
+        });
+
         let encoded_prefix = percent_encoding::utf8_percent_encode(
             prefix,
             percent_encoding::NON_ALPHANUMERIC,
@@ -264,42 +620,42 @@ impl S3Adapter {
             raw.push_str(&format!("&continuation-token={}", encoded_token));
         }
 
-        let url = Url::parse(&raw).context("URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
 
-        // M-5: 지수 백오프 재시도 (최대 3회)
+        // M-5: 지??백오???�시??(최�? 3??
         let mut delay_ms = 500u64;
         for attempt in 0u32..3 {
             match self.signed_get(&url).await {
                 Err(e) if attempt < 2 => {
-                    tracing::warn!("목록 조회 네트워크 오류 재시도 {}/3: {}", attempt + 1, e);
+                    tracing::warn!("목록 조회 ?�트?�크 ?�류 ?�시??{}/3: {}", attempt + 1, e);
                     tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     delay_ms *= 2;
                     continue;
                 }
-                Err(e) => return Err(e.context("HTTP GET 실패")),
+                Err(e) => return Err(e.context("HTTP GET ?�패")),
                 Ok(resp) => {
-                    // C-3 + H-4: HTTP 상태 확인 — 오류 응답을 빈 목록으로 오인하지 않음
+                    // C-3 + H-4: HTTP ?�태 ?�인 ???�류 ?�답??�?목록?�로 ?�인?��? ?�음
                     let status = resp.status();
                     if status.is_success() {
-                        let text = resp.text().await.context("응답 읽기 실패")?;
+                        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
                         return parse_list_response(&text);
                     }
                     let code = status.as_u16();
                     if attempt < 2 && is_retryable_status(code) {
-                        tracing::warn!("목록 조회 재시도 {}/3: HTTP {}", attempt + 1, code);
+                        tracing::warn!("목록 조회 ?�시??{}/3: HTTP {}", attempt + 1, code);
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                         delay_ms *= 2;
                         continue;
                     }
                     let body = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("S3 목록 조회 실패 (HTTP {}): {}", code, body));
+                    return Err(anyhow::anyhow!("S3 목록 조회 ?�패 (HTTP {}): {}", code, body));
                 }
             }
         }
         unreachable!()
     }
 
-    /// C-3: 전체 페이지를 순회해 1000개 초과 오브젝트를 모두 반환
+    /// C-3: ?�체 ?�이지�??�회??1000�?초과 ?�브?�트�?모두 반환
     pub async fn list_objects_all(&self, prefix: &str) -> Result<ListResult> {
         let mut files = Vec::new();
         let mut token: Option<String> = None;
@@ -316,23 +672,23 @@ impl S3Adapter {
         Ok(ListResult { files, next_token: None, is_truncated: false })
     }
 
-    /// 오브젝트 목록 (기존 FileItem 타입, 하위 호환용) — 내부적으로 전체 페이지 조회
+    /// ?�브?�트 목록 (기존 FileItem ?�?? ?�위 ?�환?? ???��??�으�??�체 ?�이지 조회
     pub async fn list_objects_raw(&self, prefix: &str) -> Result<ListResult> {
         self.list_objects_all(prefix).await
     }
 
-    /// ETag만 반환 (sync 플랜 비교용)
+    /// ETag�?반환 (sync ?�랜 비교??
     #[allow(dead_code)]
     pub async fn head_object_etag(&self, key: &str) -> Result<Option<String>> {
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
         let resp = self.signed_head(&url).await?;
 
         if resp.status().as_u16() == 404 {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
         }
 
         let etag = resp
@@ -346,14 +702,14 @@ impl S3Adapter {
 
     pub async fn head_object_meta(&self, key: &str) -> Result<Option<ObjectMeta>> {
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
         let resp = self.signed_head(&url).await?;
 
         if resp.status().as_u16() == 404 {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
         }
 
         let headers = resp.headers();
@@ -389,6 +745,18 @@ impl S3Adapter {
         if keys.is_empty() {
             return Ok(vec![]);
         }
+        let mut deleted = Vec::with_capacity(keys.len());
+        for key in keys {
+            self.sdk_client
+                .delete_object()
+                .bucket(&self.bucket)
+                .key(key)
+                .send()
+                .await
+                .map_err(|err| self.sdk_failure("DeleteObject", Some(key), &err))?;
+            deleted.push(key.clone());
+        }
+        return Ok(deleted);
 
         let items: String = keys
             .iter()
@@ -404,7 +772,7 @@ impl S3Adapter {
 
         let content_md5 = base64_md5(&body);
         let url = Url::parse(&format!("{}/?delete", self.bucket_url()))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
 
         let headers =
             self.signer()
@@ -420,10 +788,10 @@ impl S3Adapter {
             req = req.header(k.as_str(), v.as_str());
         }
 
-        let resp = req.send().await.context("HTTP POST(delete) 실패")?;
+        let resp = req.send().await.context("HTTP POST(delete) ?�패")?;
         if !resp.status().is_success() {
             return Err(anyhow::anyhow!(
-                "DeleteObjects 실패: HTTP {}",
+                "DeleteObjects ?�패: HTTP {}",
                 resp.status()
             ));
         }
@@ -434,7 +802,7 @@ impl S3Adapter {
             .collect::<Vec<_>>();
         if !failed_keys.is_empty() && failed_keys.len() == keys.len() {
             return Err(anyhow::anyhow!(
-                "DeleteObjects 실패: {}",
+                "DeleteObjects ?�패: {}",
                 failed_keys.join(", ")
             ));
         }
@@ -452,17 +820,28 @@ impl S3Adapter {
     }
 
     pub async fn put_object(&self, key: &str, data: Vec<u8>, content_type: &str) -> Result<()> {
+        self.sdk_client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .body(ByteStream::from(data.clone()))
+            .content_type(content_type)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("PutObject", Some(key), &err))?;
+        return Ok(());
+
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
         let resp = self.signed_put(&url, data, content_type, None).await?;
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("PutObject 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("PutObject ?�패: HTTP {}", resp.status()));
         }
         Ok(())
     }
 
-    /// 파일 업로드. 10 MB 이상은 자동으로 멀티파트 업로드.
-    /// on_progress(transferred, total) 콜백으로 진행률 전달
+    /// ?�일 ?�로?? 10 MB ?�상?� ?�동?�로 멀?�파???�로??
+    /// on_progress(transferred, total) 콜백?�로 진행�??�달
     pub async fn upload_with_progress(
         &self,
         local_path: &str,
@@ -483,7 +862,7 @@ impl S3Adapter {
     ) -> Result<UploadResult> {
         let metadata = fs::metadata(local_path)
             .await
-            .context("파일 메타데이터 읽기 실패")?;
+            .context("?�일 메�??�이???�기 ?�패")?;
         let total = metadata.len();
         let content_type = content_type_override
             .filter(|value| !value.trim().is_empty())
@@ -518,7 +897,7 @@ impl S3Adapter {
         }
     }
 
-    /// 스트리밍 다운로드
+    /// ?�트리밍 ?�운로드
     pub async fn download_with_progress(
         &self,
         remote_key: &str,
@@ -540,11 +919,11 @@ impl S3Adapter {
         use tokio::io::AsyncWriteExt;
 
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(remote_key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
         let resp = self.signed_get(&url).await?;
 
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("GetObject 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("GetObject ?�패: HTTP {}", resp.status()));
         }
 
         let total = resp
@@ -557,34 +936,34 @@ impl S3Adapter {
         if let Some(parent) = Path::new(local_path).parent() {
             fs::create_dir_all(parent)
                 .await
-                .context("디렉토리 생성 실패")?;
+                .context("?�렉?�리 ?�성 ?�패")?;
         }
 
         let mut file = fs::File::create(local_path)
             .await
-            .context("파일 생성 실패")?;
+            .context("?�일 ?�성 ?�패")?;
         let mut stream = resp.bytes_stream();
         let mut received: u64 = 0;
 
         while let Some(chunk) = stream.next().await {
             if is_cancelled() {
-                return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+                return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
             }
-            let chunk = chunk.context("다운로드 스트림 오류")?;
-            file.write_all(&chunk).await.context("파일 쓰기 실패")?;
+            let chunk = chunk.context("?�운로드 ?�트�??�류")?;
+            file.write_all(&chunk).await.context("?�일 ?�기 ?�패")?;
             received += chunk.len() as u64;
             on_progress(received, total);
         }
 
-        file.flush().await.context("파일 flush 실패")?;
+        file.flush().await.context("?�일 flush ?�패")?;
         Ok(())
     }
 
-    /// S3 오브젝트 이름 변경 (CopyObject → DeleteObject)
+    /// S3 ?�브?�트 ?�름 변�?(CopyObject ??DeleteObject)
     pub async fn rename_object(&self, src_key: &str, dst_key: &str) -> Result<()> {
         let copy_source = format!("/{}/{}", self.bucket, encode_key(src_key));
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(dst_key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
 
         let headers = self.signer().sign_headers(
             "PUT",
@@ -605,15 +984,15 @@ impl S3Adapter {
             req = req.header(k.as_str(), v.as_str());
         }
 
-        let resp = req.send().await.context("CopyObject HTTP PUT 실패")?;
+        let resp = req.send().await.context("CopyObject HTTP PUT ?�패")?;
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("CopyObject 실패: {}", body));
+            return Err(anyhow::anyhow!("CopyObject ?�패: {}", body));
         }
 
         self.delete_objects(&[src_key.to_owned()])
             .await
-            .context("원본 오브젝트 삭제 실패")?;
+            .context("?�본 ?�브?�트 ??�� ?�패")?;
         Ok(())
     }
 
@@ -641,7 +1020,7 @@ impl S3Adapter {
             expires_in_seconds
         );
 
-        let url = Url::parse(&raw).context("Presign URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("Presign URL ?�싱 ?�패")?;
         let canonical_query = {
             let mut pairs: Vec<(String, String)> = url
                 .query_pairs()
@@ -717,7 +1096,7 @@ impl S3Adapter {
         Ok(format!("{}&X-Amz-Signature={}", raw, signature))
     }
 
-    // ── Multipart Upload Internals ────────────────────────────────────────────
+    // ?�?� Multipart Upload Internals ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
     async fn upload_single(
         &self,
@@ -729,33 +1108,32 @@ impl S3Adapter {
         on_progress: impl Fn(u64, u64) -> bool,
     ) -> Result<UploadResult> {
         if !on_progress(0, total) {
-            return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+            return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
         }
 
-        let data = fs::read(local_path).await.context("파일 읽기 실패")?;
+        let data = fs::read(local_path).await.context("?�일 ?�기 ?�패")?;
         if !on_progress(0, total) {
-            return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+            return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
         }
 
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(remote_key)))
-            .context("URL 파싱 실패")?;
-        let resp = self
-            .signed_put(&url, data, content_type, cache_control)
-            .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("업로드 실패 ({}): {}", status, body));
+                let mut request = self
+            .sdk_client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(remote_key)
+            .body(ByteStream::from(data))
+            .content_type(content_type);
+        if let Some(value) = cache_control {
+            request = request.cache_control(value);
         }
-
-        let etag = resp
-            .headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned());
+        let response = request
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("PutObject", Some(remote_key), &err))?;
+        let etag = response.e_tag().map(|value| value.trim_matches('"').to_owned());
 
         if !on_progress(total, total) {
-            return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+            return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
         }
         Ok(UploadResult {
             key: remote_key.to_owned(),
@@ -765,8 +1143,8 @@ impl S3Adapter {
         })
     }
 
-    /// 슬라이딩 윈도우 방식: 최대 4개 파트를 동시에 업로드
-    /// 최대 메모리 사용량 = MAX_CONCURRENT_PARTS × PART_SIZE = 40 MB
+    /// ?�라?�딩 ?�도??방식: 최�? 4�??�트�??�시???�로??
+    /// 최�? 메모�??�용??= MAX_CONCURRENT_PARTS × PART_SIZE = 40 MB
     async fn upload_multipart(
         &self,
         local_path: &str,
@@ -777,7 +1155,7 @@ impl S3Adapter {
         on_progress: impl Fn(u64, u64) -> bool,
     ) -> Result<UploadResult> {
         if !on_progress(0, total) {
-            return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+            return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
         }
 
         let upload_id = self
@@ -786,7 +1164,7 @@ impl S3Adapter {
 
         let mut file = fs::File::open(local_path)
             .await
-            .context("파일 열기 실패")?;
+            .context("?�일 ?�기 ?�패")?;
 
         let mut part_num: u32 = 1;
         let mut all_etags: Vec<(u32, String)> = Vec::new();
@@ -795,20 +1173,20 @@ impl S3Adapter {
         loop {
             if !on_progress(transferred, total) {
                 let _ = self.abort_multipart_upload(remote_key, &upload_id).await;
-                return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+                return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
             }
-            // 파트 배치 읽기 (최대 MAX_CONCURRENT_PARTS 개)
+            // ?�트 배치 ?�기 (최�? MAX_CONCURRENT_PARTS �?
             let mut batch: Vec<(u32, Vec<u8>)> = Vec::new();
             while batch.len() < MAX_CONCURRENT_PARTS {
                 let mut chunk = vec![0u8; PART_SIZE];
                 let mut filled = 0;
 
-                // 부분 읽기 처리: PART_SIZE 또는 EOF 까지 채움
+                // 부�??�기 처리: PART_SIZE ?�는 EOF 까�? 채�?
                 while filled < PART_SIZE {
                     let n = file
                         .read(&mut chunk[filled..])
                         .await
-                        .context("파일 읽기 실패")?;
+                        .context("?�일 ?�기 ?�패")?;
                     if n == 0 {
                         break; // EOF
                     }
@@ -816,7 +1194,7 @@ impl S3Adapter {
                 }
 
                 if filled == 0 {
-                    break; // 배치 내 EOF
+                    break; // 배치 ??EOF
                 }
                 chunk.truncate(filled);
                 batch.push((part_num, chunk));
@@ -824,10 +1202,10 @@ impl S3Adapter {
             }
 
             if batch.is_empty() {
-                break; // 파일 끝
+                break; // ?�일 ??
             }
 
-            // 배치 병렬 업로드
+            // 배치 병렬 ?�로??
             let mut tasks: JoinSet<Result<(u32, String, u64)>> = JoinSet::new();
             for (num, data) in batch {
                 let adapter = self.clone();
@@ -847,23 +1225,23 @@ impl S3Adapter {
                         transferred += bytes;
                         if !on_progress(transferred, total) {
                             let _ = self.abort_multipart_upload(remote_key, &upload_id).await;
-                            return Err(anyhow::anyhow!("작업이 취소되었습니다"));
+                            return Err(anyhow::anyhow!("?�업??취소?�었?�니??));
                         }
                         all_etags.push((num, etag));
                     }
                     Ok(Err(e)) => {
                         let _ = self.abort_multipart_upload(remote_key, &upload_id).await;
-                        return Err(e.context("파트 업로드 실패"));
+                        return Err(e.context("?�트 ?�로???�패"));
                     }
                     Err(join_err) => {
                         let _ = self.abort_multipart_upload(remote_key, &upload_id).await;
-                        return Err(anyhow::anyhow!("파트 업로드 태스크 패닉: {}", join_err));
+                        return Err(anyhow::anyhow!("?�트 ?�로???�스???�닉: {}", join_err));
                     }
                 }
             }
         }
 
-        // 파트 번호 순으로 정렬 후 완료
+        // ?�트 번호 ?�으�??�렬 ???�료
         all_etags.sort_by_key(|(n, _)| *n);
         let final_etag = match self
             .complete_multipart_upload(remote_key, &upload_id, &all_etags)
@@ -891,18 +1269,18 @@ impl S3Adapter {
         cache_control: Option<&str>,
     ) -> Result<String> {
         let raw = format!("{}/{}?uploads", self.bucket_url(), encode_key(key));
-        let url = Url::parse(&raw).context("URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
         let resp = self
             .signed_post(&url, vec![], content_type, cache_control)
             .await?;
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("InitiateMultipartUpload 실패: {}", body));
+            return Err(anyhow::anyhow!("InitiateMultipartUpload ?�패: {}", body));
         }
 
-        let text = resp.text().await.context("응답 읽기 실패")?;
-        xml_extract(&text, "UploadId").context("UploadId 파싱 실패")
+        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
+        xml_extract(&text, "UploadId").context("UploadId ?�싱 ?�패")
     }
 
     async fn upload_part(
@@ -919,9 +1297,9 @@ impl S3Adapter {
             part_number,
             upload_id
         );
-        let url = Url::parse(&raw).context("URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
 
-        // M-5: 지수 백오프 재시도 (최대 3회)
+        // M-5: 지??백오???�시??(최�? 3??
         let mut delay_ms = 500u64;
         for attempt in 0u32..3 {
             let headers = self.signer().sign_headers("PUT", &url, &[], &data);
@@ -931,12 +1309,12 @@ impl S3Adapter {
             }
             match req.send().await {
                 Err(e) if attempt < 2 => {
-                    tracing::warn!("파트 업로드 네트워크 오류 재시도 {}/3 (part {}): {}", attempt + 1, part_number, e);
+                    tracing::warn!("?�트 ?�로???�트?�크 ?�류 ?�시??{}/3 (part {}): {}", attempt + 1, part_number, e);
                     tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     delay_ms *= 2;
                     continue;
                 }
-                Err(e) => return Err(anyhow::anyhow!("HTTP PUT(part) 실패: {}", e)),
+                Err(e) => return Err(anyhow::anyhow!("HTTP PUT(part) ?�패: {}", e)),
                 Ok(resp) => {
                     let status = resp.status();
                     if status.is_success() {
@@ -945,17 +1323,17 @@ impl S3Adapter {
                             .get("etag")
                             .and_then(|v| v.to_str().ok())
                             .map(|e| e.trim_matches('"').to_owned())
-                            .context("UploadPart ETag 헤더 없음");
+                            .context("UploadPart ETag ?�더 ?�음");
                     }
                     let code = status.as_u16();
                     if attempt < 2 && is_retryable_status(code) {
-                        tracing::warn!("파트 업로드 재시도 {}/3 (part {}): HTTP {}", attempt + 1, part_number, code);
+                        tracing::warn!("?�트 ?�로???�시??{}/3 (part {}): HTTP {}", attempt + 1, part_number, code);
                         tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                         delay_ms *= 2;
                         continue;
                     }
                     let body = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("UploadPart 실패 (part {}): {}", part_number, body));
+                    return Err(anyhow::anyhow!("UploadPart ?�패 (part {}): {}", part_number, body));
                 }
             }
         }
@@ -1015,20 +1393,20 @@ impl S3Adapter {
             encode_key(key),
             upload_id
         );
-        let url = Url::parse(&raw).context("URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
         let resp = self
             .signed_post(&url, body, "application/xml", None)
             .await?;
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("CompleteMultipartUpload 실패: {}", body));
+            return Err(anyhow::anyhow!("CompleteMultipartUpload ?�패: {}", body));
         }
 
-        let text = resp.text().await.context("응답 읽기 실패")?;
+        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
         xml_extract(&text, "ETag")
             .map(|e| e.trim_matches('"').to_owned())
-            .context("CompleteMultipartUpload ETag 파싱 실패")
+            .context("CompleteMultipartUpload ETag ?�싱 ?�패")
     }
 
     async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<()> {
@@ -1038,13 +1416,13 @@ impl S3Adapter {
             encode_key(key),
             upload_id
         );
-        let url = Url::parse(&raw).context("URL 파싱 실패")?;
+        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
         let resp = self.signed_delete(&url).await?;
 
-        // 404는 이미 완료 또는 존재하지 않음 — 무시
+        // 404???��? ?�료 ?�는 존재?��? ?�음 ??무시
         if !resp.status().is_success() && resp.status().as_u16() != 404 {
             return Err(anyhow::anyhow!(
-                "AbortMultipartUpload 실패: {}",
+                "AbortMultipartUpload ?�패: {}",
                 resp.status()
             ));
         }
@@ -1052,7 +1430,7 @@ impl S3Adapter {
     }
 }
 
-// ─── StorageAdapter Trait Impl ────────────────────────────────────────────────
+// ?�?�?� StorageAdapter Trait Impl ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
 impl StorageAdapter for S3Adapter {
     async fn list_objects(&self, prefix: &str) -> Result<Vec<RemoteFile>> {
@@ -1076,8 +1454,8 @@ impl StorageAdapter for S3Adapter {
         key: &str,
         tx: tokio::sync::mpsc::UnboundedSender<Progress>,
     ) -> Result<UploadResult> {
-        let local_str = local.to_str().context("유효하지 않은 파일 경로")?;
-        // tx.send() 는 언바운드 채널로 절대 블로킹되지 않음
+        let local_str = local.to_str().context("?�효?��? ?��? ?�일 경로")?;
+        // tx.send() ???�바?�드 채널�??��? 블로?�되지 ?�음
         self.upload_with_progress(local_str, key, move |transferred, total| {
             let _ = tx.send(Progress { transferred, total });
             true
@@ -1091,7 +1469,7 @@ impl StorageAdapter for S3Adapter {
         local: &Path,
         tx: tokio::sync::mpsc::UnboundedSender<Progress>,
     ) -> Result<()> {
-        let local_str = local.to_str().context("유효하지 않은 파일 경로")?;
+        let local_str = local.to_str().context("?�효?��? ?��? ?�일 경로")?;
         self.download_with_progress(key, local_str, move |transferred, total| {
             let _ = tx.send(Progress { transferred, total });
         })
@@ -1109,14 +1487,14 @@ impl StorageAdapter for S3Adapter {
 
     async fn head_object(&self, key: &str) -> Result<ObjectMeta> {
         let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL 파싱 실패")?;
+            .context("URL ?�싱 ?�패")?;
         let resp = self.signed_head(&url).await?;
 
         if resp.status().as_u16() == 404 {
-            return Err(anyhow::anyhow!("오브젝트 없음: {}", key));
+            return Err(anyhow::anyhow!("?�브?�트 ?�음: {}", key));
         }
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject 실패: HTTP {}", resp.status()));
+            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
         }
 
         let headers = resp.headers();
@@ -1149,12 +1527,12 @@ impl StorageAdapter for S3Adapter {
     }
 }
 
-// ─── XML Parsing ──────────────────────────────────────────────────────────────
+// ?�?�?� XML Parsing ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
 fn parse_list_response(xml: &str) -> Result<ListResult> {
     let mut files: Vec<FileItem> = vec![];
 
-    // 폴더 (CommonPrefixes)
+    // ?�더 (CommonPrefixes)
     let mut search = xml;
     while let Some(start) = search.find("<CommonPrefixes>") {
         let rest = &search[start + "<CommonPrefixes>".len()..];
@@ -1182,7 +1560,7 @@ fn parse_list_response(xml: &str) -> Result<ListResult> {
         }
     }
 
-    // 파일 (Contents)
+    // ?�일 (Contents)
     let mut search = xml;
     while let Some(start) = search.find("<Contents>") {
         let rest = &search[start + "<Contents>".len()..];
@@ -1242,7 +1620,7 @@ fn xml_tag_values(xml: &str, tag: &str) -> Vec<String> {
     values
 }
 
-/// H-5: XML entity 디코딩 — &amp; &lt; &gt; &quot; &apos;
+/// H-5: XML entity ?�코????&amp; &lt; &gt; &quot; &apos;
 fn xml_unescape(s: &str) -> String {
     s.replace("&amp;", "&")
      .replace("&lt;", "<")
@@ -1268,6 +1646,62 @@ fn encode_key(key: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
+}
+
+fn normalize_base_prefix(prefix: &str) -> String {
+    prefix.trim().trim_matches('/').to_owned()
+}
+
+fn normalize_access_key_id(value: &str) -> String {
+    value.trim().to_owned()
+}
+
+fn normalize_secret_access_key(value: &str) -> String {
+    value.trim().to_owned()
+}
+
+fn mask_access_key_id(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= 8 {
+        return "*".repeat(chars.len().max(1));
+    }
+    let first = chars.iter().take(4).collect::<String>();
+    let last = chars
+        .iter()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    format!("{}****{}", first, last)
+}
+
+fn sdk_error_code<E, R>(err: &SdkError<E, R>) -> String
+where
+    E: ProvideErrorMetadata,
+{
+    err.as_service_error()
+        .and_then(|service_error| service_error.code())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "Unknown".to_owned())
+}
+
+fn aws_error_code(body: &str) -> Option<String> {
+    xml_extract(body, "Code").or_else(|| {
+        let trimmed = body.trim();
+        if trimmed.is_empty() {
+            None
+        } else if trimmed.len() <= 80 && !trimmed.contains('<') {
+            Some(trimmed.to_owned())
+        } else {
+            None
+        }
+    })
+}
+
+fn compact_error_body(body: &str) -> String {
+    body.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn should_retry_status(status: reqwest::StatusCode) -> bool {

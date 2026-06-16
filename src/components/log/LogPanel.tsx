@@ -67,6 +67,7 @@ export default function LogPanel() {
   }));
 
   const [tab, setTab] = useState<Tab>("log");
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -76,12 +77,54 @@ export default function LogPanel() {
   // M-10: 문자열 검색 대신 category 필드로 필터링
   const purgeLogs = logs.filter((log) => log.category === "cdn");
 
+  const formatLogs = () =>
+    logs
+      .map(
+        (log) =>
+          `[${new Date(log.timestamp).toLocaleString("ko-KR")}] [${log.level.toUpperCase()}] ${log.message}`
+      )
+      .join("\n");
+
+  const copyTextFallback = (text: string) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (!copied) throw new Error("copy failed");
+  };
+
+  const copyLog = async () => {
+    const text = formatLogs();
+    if (!text) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        copyTextFallback(text);
+      }
+      setCopyStatus("copied");
+    } catch {
+      try {
+        copyTextFallback(text);
+        setCopyStatus("copied");
+      } catch {
+        setCopyStatus("failed");
+      }
+    }
+
+    window.setTimeout(() => setCopyStatus("idle"), 1500);
+  };
+
   const saveLog = () => {
-    const lines = logs.map(
-      (log) =>
-        `[${new Date(log.timestamp).toLocaleString("ko-KR")}] [${log.level.toUpperCase()}] ${log.message}`
-    );
-    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([formatLogs()], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -115,6 +158,9 @@ export default function LogPanel() {
         </div>
 
         <div className={styles.headerActions}>
+          <button className={styles.actionBtn} onClick={copyLog} title="Copy logs" disabled={logs.length === 0}>
+            {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}
+          </button>
           <button className={styles.actionBtn} onClick={saveLog} title="로그 파일 저장">
             저장
           </button>

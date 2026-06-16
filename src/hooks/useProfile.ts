@@ -3,6 +3,11 @@ import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type { S3Profile } from "../types";
 
+type S3ConnectionTestResult = {
+  success: boolean;
+  warnings: string[];
+};
+
 function normalizePrefix(prefix: string | undefined): string {
   const trimmed = prefix?.trim();
   if (!trimmed) return "/";
@@ -63,19 +68,21 @@ export function useProfile() {
     async (params: {
       region: string;
       bucket: string;
+      basePrefix?: string;
       accessKey: string;
       secretKey: string;
       endpoint?: string;
-    }): Promise<{ success: boolean; error?: string }> => {
+    }): Promise<{ success: boolean; error?: string; warnings?: string[] }> => {
       try {
-        await runtime.invoke("test_s3_connection", {
-          region:    params.region,
-          bucket:    params.bucket,
-          accessKey: params.accessKey,
-          secretKey: params.secretKey,
-          endpoint:  params.endpoint ?? null,
+        const result = await runtime.invoke<S3ConnectionTestResult>("test_s3_connection", {
+          region:     params.region,
+          bucket:     params.bucket,
+          basePrefix: params.basePrefix ?? null,
+          accessKey:  params.accessKey,
+          secretKey:  params.secretKey,
+          endpoint:   params.endpoint ?? null,
         });
-        return { success: true };
+        return { success: true, warnings: result.warnings };
       } catch (err) {
         return { success: false, error: String(err) };
       }
@@ -89,12 +96,13 @@ export function useProfile() {
       setActiveProfile(profile);
       addLog("info", `연결 시도: ${profile.name} (${profile.bucket})`, "system");
       try {
-        await runtime.invoke("connect_s3", { profileId: profile.id });
+        const result = await runtime.invoke<S3ConnectionTestResult>("connect_s3", { profileId: profile.id });
         setRemotePath(normalizePrefix(profile.basePrefix));
         setConnected(true);
         // H-7: 마지막 연결 프로파일 저장
         setLastProfileId(profile.id);
         await runtime.invoke("save_last_profile_id", { id: profile.id });
+        result.warnings.forEach((warning) => addLog("warn", warning, "system"));
         addLog("success", `연결 성공: ${profile.bucket} (${profile.region})`, "system");
       } catch (err) {
         setConnected(false);

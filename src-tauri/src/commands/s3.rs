@@ -51,6 +51,12 @@ pub struct UploadFileItem {
     pub content_type_override: Option<String>,
     #[serde(rename = "cacheControl")]
     pub cache_control: Option<String>,
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "retryMetadataFailure")]
+    pub retry_metadata_failure: bool,
     /// true → 기존 파일 덮어쓰기, CDN Purge 트리거
     #[serde(rename = "isOverwrite")]
     pub is_overwrite: bool,
@@ -77,6 +83,12 @@ struct TransferCompletePayload {
     #[serde(rename = "cdnInvalidationId")]
     cdn_invalidation_id: Option<String>,
     error:           Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct S3ConnectionTestResult {
+    pub success: bool,
+    pub warnings: Vec<String>,
 }
 
 // ─── Profile Commands ─────────────────────────────────────────────────────────
@@ -121,17 +133,25 @@ pub async fn cancel_transfer(id: String, control: State<'_, TransferControl>) ->
 pub async fn connect_s3(
     profile_id: String,
     store: State<'_, ProfileStore>,
-) -> Result<(), String> {
+) -> Result<S3ConnectionTestResult, String> {
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
-
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
-        .map_err(|e| e.to_string())?
-        .verify_access()
+    let profile = store
+        .get_profile(&profile_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let base_prefix = profile.base_prefix.as_deref().unwrap_or("");
+
+    let warnings = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+        .await
+        .map_err(|e| e.to_string())?
+        .verify_access(base_prefix)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(S3ConnectionTestResult { success: true, warnings })
 }
 
 /// H-3: 프로필 저장 없이 입력값으로 직접 연결 테스트
@@ -139,19 +159,34 @@ pub async fn connect_s3(
 pub async fn test_s3_connection(
     region:     String,
     bucket:     String,
+    base_prefix: Option<String>,
     access_key: String,
     secret_key: String,
     endpoint:   Option<String>,
-) -> Result<(), String> {
+) -> Result<S3ConnectionTestResult, String> {
     let creds = AwsCredentials {
-        access_key_id: access_key,
-        secret_access_key: secret_key,
+        access_key_id: access_key.trim().to_owned(),
+        secret_access_key: secret_key.trim().to_owned(),
     };
-    S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
-        .map_err(|e| e.to_string())?
-        .verify_access()
+    if creds.access_key_id.is_empty() {
+        return Err("Access Key ID is required".to_string());
+    }
+    if creds.secret_access_key.is_empty() {
+        return Err("Secret Access Key is required".to_string());
+    }
+    let region = region.trim().to_owned();
+    let bucket = bucket.trim().to_owned();
+    let endpoint = endpoint
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty());
+    let warnings = S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?
+        .verify_access(base_prefix.as_deref().unwrap_or(""))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(S3ConnectionTestResult { success: true, warnings })
 }
 
 // ─── S3 Object Operations ─────────────────────────────────────────────────────
@@ -169,8 +204,9 @@ pub async fn list_s3_objects(
         .map_err(|e| e.to_string())?;
 
     let adapter = cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -200,8 +236,9 @@ pub async fn delete_s3_objects(
         .map_err(|e| e.to_string())?;
 
     cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?
@@ -225,8 +262,9 @@ pub async fn put_s3_object(
         .map_err(|e| e.to_string())?;
 
     cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?
@@ -249,8 +287,9 @@ pub async fn get_presigned_url(
         .map_err(|e| e.to_string())?;
 
     cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?
@@ -274,8 +313,9 @@ pub async fn rename_s3_object(
         .map_err(|e| e.to_string())?;
 
     cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?
@@ -427,8 +467,9 @@ pub async fn upload_files(
         .map_err(|e| e.to_string())?;
 
     let adapter = cache
-        .get_or_create(&profile_id, || {
+        .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
         })
         .await
         .map_err(|e| e.to_string())?;

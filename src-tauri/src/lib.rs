@@ -3,7 +3,9 @@ mod commands;
 mod services;
 mod utils;
 
-use commands::{cdn, operation_log, s3, sync};
+use commands::{auth, cdn, log_shipping, operation_log, s3, sync};
+use services::auth::ExternalAuthAdapter;
+use services::log_shipping::LogShippingService;
 use services::operation_log::OperationLogService;
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
@@ -31,6 +33,8 @@ pub fn run() {
         .manage(adapter_cache)
         .manage(TransferControl::default())
         .manage(operation_log_service)
+        .manage(ExternalAuthAdapter)
+        .manage(LogShippingService::new())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -73,6 +77,13 @@ pub fn run() {
             operation_log::list_operation_logs,
             operation_log::get_operation_log,
             operation_log::clear_operation_logs,
+            // External Auth Stub
+            auth::external_auth_login,
+            auth::external_auth_logout,
+            auth::external_auth_refresh,
+            auth::external_auth_current_session,
+            // Customer S3 Log Shipping Stub
+            log_shipping::ship_operation_log_to_customer_s3,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

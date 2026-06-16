@@ -16,10 +16,39 @@ pub struct OperationLog {
     pub files: Vec<serde_json::Value>,
     #[serde(rename = "purgeResults")]
     pub purge_results: Vec<serde_json::Value>,
+    #[serde(default, rename = "metadataFailures")]
+    pub metadata_failures: Vec<MetadataFailureLog>,
+    #[serde(default, rename = "logShipping", skip_serializing_if = "Option::is_none")]
+    pub log_shipping: Option<LogShippingState>,
     #[serde(rename = "startedAt")]
     pub started_at: String,
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetadataFailureLog {
+    pub path: String,
+    #[serde(default)]
+    pub headers: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    pub metadata: serde_json::Map<String, serde_json::Value>,
+    pub error: String,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogShippingState {
+    #[serde(default, rename = "targetBucket", skip_serializing_if = "Option::is_none")]
+    pub target_bucket: Option<String>,
+    #[serde(default, rename = "targetPrefix", skip_serializing_if = "Option::is_none")]
+    pub target_prefix: Option<String>,
+    pub status: String,
+    pub attempts: usize,
+    #[serde(default, rename = "nextRetryAt", skip_serializing_if = "Option::is_none")]
+    pub next_retry_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 pub struct OperationLogService {
@@ -93,6 +122,8 @@ mod tests {
             prefix: Some("assets/".to_string()),
             files: vec![],
             purge_results: vec![],
+            metadata_failures: vec![],
+            log_shipping: None,
             started_at: started_at.to_string(),
             finished_at: Some(started_at.to_string()),
         }
