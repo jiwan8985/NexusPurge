@@ -26,6 +26,7 @@ Commands:
   check               Run pnpm build and cargo test
   cargo-check         Run cargo check for the Tauri backend
   cargo-test          Run cargo test for the Tauri backend
+  aws-check           Validate AWS identity and S3/CloudFront permissions
   localstack          Run the LocalStack integration script
   clean-logs          Remove managed log and pid files
   help                Show this help
@@ -35,6 +36,7 @@ Examples:
   ./scripts/nexus.sh tauri
   ./scripts/nexus.sh logs tauri -f
   ./scripts/nexus.sh stop all
+  ./scripts/nexus.sh aws-check --bucket my-bucket --region ap-northeast-2 --write-probe
 EOF
 }
 
@@ -252,6 +254,9 @@ case "$command" in
     ;;
   cargo-test)
     run_in_root cargo test --manifest-path src-tauri/Cargo.toml
+    ;;
+  aws-check)
+    run_in_root bash scripts/aws-permission-check.sh "$@"
     ;;
   localstack)
     run_in_root bash scripts/localstack-integration.sh

@@ -20,6 +20,7 @@ chmod +x scripts/nexus.sh
 .\scripts\nexus.ps1 tauri
 .\scripts\nexus.ps1 logs tauri -f
 .\scripts\nexus.ps1 stop all
+.\scripts\nexus.ps1 aws-check -Bucket my-bucket -Region ap-northeast-2 -WriteProbe
 ```
 
 If script execution is blocked on Windows, run the script with a process-scoped
@@ -47,5 +48,35 @@ powershell -ExecutionPolicy Bypass -File .\scripts\nexus.ps1 help
 | `check` | Run `pnpm run build` and Rust backend tests. |
 | `cargo-check` | Run Rust backend compilation checks. |
 | `cargo-test` | Run Rust backend tests. |
+| `aws-check` | Validate AWS identity and S3/CloudFront permissions. |
 | `localstack` | Run the LocalStack integration script. |
 | `clean-logs` | Remove managed helper logs and pid files. |
+
+## AWS/S3 Permission Check
+
+The AWS check scripts use the AWS CLI and do not read app profiles or stored
+secrets. Configure credentials through the normal AWS CLI mechanisms first:
+environment variables, `aws configure`, SSO, or `--profile`.
+
+PowerShell:
+
+```powershell
+.\scripts\nexus.ps1 aws-check -Bucket my-bucket -Region ap-northeast-2
+.\scripts\nexus.ps1 aws-check -Bucket my-bucket -Profile dev -Prefix static -WriteProbe
+.\scripts\nexus.ps1 aws-check -Bucket my-bucket -CloudFrontDistributionId E1234567890
+```
+
+Bash:
+
+```bash
+./scripts/nexus.sh aws-check --bucket my-bucket --region ap-northeast-2
+./scripts/nexus.sh aws-check --bucket my-bucket --profile dev --prefix static --write-probe
+./scripts/nexus.sh aws-check --bucket my-bucket --cloudfront-distribution-id E1234567890
+```
+
+Default checks are read-only: `sts:GetCallerIdentity`, `s3:HeadBucket`,
+`s3:GetBucketLocation`, and `s3:ListBucket`. Add `-WriteProbe` or
+`--write-probe` to verify `s3:PutObject`, `s3:GetObject` metadata access, and
+`s3:DeleteObject` using a temporary object. CloudFront invalidation is skipped
+by default because it creates a real invalidation; opt in with
+`-CreateInvalidationProbe` or `--create-invalidation-probe`.
