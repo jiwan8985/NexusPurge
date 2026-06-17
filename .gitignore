@@ -31,6 +31,7 @@ src-tauri/target/
 Thumbs.db
 
 # Logs
+.logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
