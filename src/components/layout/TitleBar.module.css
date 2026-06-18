@@ -2,93 +2,55 @@
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--color-bg-base);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
   position: relative;
   z-index: 100;
   -webkit-app-region: drag;
-  box-shadow: 0 1px 0 rgba(0, 87, 255, 0.08), var(--shadow-inset);
-  backdrop-filter: blur(18px);
-}
-
-.titlebar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: linear-gradient(90deg, var(--color-accent), var(--color-brand-cyan), var(--color-brand-lime));
 }
 
 .left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: 0 var(--spacing-6);
+  gap: var(--spacing-4);
+  padding: 0 var(--spacing-5);
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
 
 .brandMark {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%),
-    linear-gradient(135deg, var(--color-accent) 0%, #008cff 58%, var(--color-brand-cyan) 100%);
-  color: transparent;
-  font-size: 0;
-  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  font-size: 13px;
+  font-weight: 800;
   position: relative;
-  box-shadow: 0 10px 22px rgba(0, 87, 255, 0.28);
   overflow: hidden;
-}
-
-.brandMark::before,
-.brandMark::after {
-  content: "";
-  position: absolute;
-  background: #fff;
-  border-radius: 1px;
-}
-
-.brandMark::before {
-  width: 5px;
-  height: 18px;
-  left: 8px;
-  top: 6px;
-  box-shadow: 9px 0 0 rgba(255, 255, 255, 0.9);
-}
-
-.brandMark::after {
-  width: 5px;
-  height: 21px;
-  top: 5px;
-  left: 13px;
-  transform: rotate(-32deg);
-  transform-origin: center;
 }
 
 .brandText {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0px;
 }
 
 .appName {
-  font-size: 15px;
-  font-weight: 850;
+  font-size: 14px;
+  font-weight: 700;
   color: var(--color-text-primary);
+  letter-spacing: -0.01em;
 }
 
 .appSub {
   font-size: 10px;
-  color: var(--color-accent);
-  font-weight: 750;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
 }
 
 .center {
@@ -106,17 +68,16 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  height: 28px;
+  height: 30px;
   max-width: 420px;
   padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
   border: var(--border-width) solid var(--color-border);
-  background: #f7faff;
-  font-size: var(--font-size-xs);
+  background: var(--color-bg-subtle);
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  transition: all var(--transition-fast);
   white-space: nowrap;
-  box-shadow: var(--shadow-sm);
 }
 
 .profileBtn:hover {
@@ -126,13 +87,14 @@
 }
 
 .profileBtn.connected {
-  border-color: rgba(0, 87, 255, 0.32);
-  background: linear-gradient(180deg, #ffffff, #eef5ff);
+  border-color: var(--color-accent-muted);
+  background: var(--color-accent-subtle);
+  color: var(--color-text-primary);
 }
 
 .connDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--color-text-disabled);
   flex-shrink: 0;
@@ -140,25 +102,25 @@
 
 .connDot.on {
   background: var(--color-success);
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.72);
+  box-shadow: 0 0 8px var(--color-success-muted);
 }
 
 .profileLabel {
-  font-weight: 700;
-  color: var(--color-text-primary);
+  font-weight: 600;
 }
 
 .bucketLabel {
-  max-width: 190px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .caret {
   color: var(--color-text-tertiary);
+  font-size: 10px;
   transition: transform var(--transition-fast);
 }
 
@@ -174,26 +136,23 @@
   min-width: 280px;
   background: var(--color-bg-elevated);
   border: var(--border-width) solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   z-index: 200;
   overflow: hidden;
+  padding: var(--spacing-2);
 }
 
 .ddHeader {
-  padding: var(--spacing-4) var(--spacing-5);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  padding: var(--spacing-3) var(--spacing-4);
+  font-size: 11px;
+  font-weight: 600;
   color: var(--color-text-tertiary);
-  border-bottom: var(--border-width) solid var(--color-border);
-  background: linear-gradient(90deg, rgba(0, 87, 255, 0.08), transparent);
 }
 
 .ddEmpty {
   padding: var(--spacing-5);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--color-text-disabled);
   text-align: center;
 }
@@ -203,8 +162,9 @@
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  padding: var(--spacing-4) var(--spacing-5);
+  padding: var(--spacing-3) var(--spacing-4);
   color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
   text-align: left;
   gap: var(--spacing-1);
@@ -215,17 +175,17 @@
 }
 
 .ddActive {
-  color: var(--color-accent-hover);
+  color: var(--color-accent);
   background: var(--color-accent-subtle);
 }
 
 .ddName {
   font-size: var(--font-size-sm);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .ddMeta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
 }
@@ -233,7 +193,7 @@
 .ddDivider {
   height: var(--border-width);
   background: var(--color-border);
-  margin: var(--spacing-1) 0;
+  margin: var(--spacing-2) 0;
 }
 
 .ddDanger {
@@ -261,18 +221,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
+  width: 48px;
   height: var(--titlebar-height);
-  color: var(--color-text-tertiary);
-  transition: background var(--transition-fast), color var(--transition-fast);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
 }
 
 .controlBtn:hover {
-  background: rgba(0, 87, 255, 0.08);
-  color: var(--color-accent);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .closeBtn:hover {
-  background: #dc2626;
-  color: #fff;
+  background: var(--color-error);
+  color: #ffffff;
 }

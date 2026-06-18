@@ -2,8 +2,8 @@
   height: var(--log-panel-height);
   display: flex;
   flex-direction: column;
-  border-top: var(--border-width) solid var(--color-border-strong);
-  background: #ffffff;
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-base);
   flex-shrink: 0;
 }
 
@@ -12,11 +12,10 @@
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  background: #ffffff;
+  background: var(--color-bg-base);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
-  height: 30px;
-  box-shadow: var(--shadow-inset);
+  height: 32px;
 }
 
 .tabs {
@@ -30,24 +29,23 @@
   gap: var(--spacing-2);
   padding: 0 var(--spacing-5);
   font-size: var(--font-size-xs);
-  font-weight: 750;
+  font-weight: 600;
   color: var(--color-text-tertiary);
   border-right: var(--border-width) solid var(--color-border);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: all var(--transition-fast);
   white-space: nowrap;
   position: relative;
-  letter-spacing: 0;
 }
 
 .tab:hover {
-  background: #f2f7ff;
-  color: var(--color-accent);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .tabActive {
   color: var(--color-accent);
-  background: #f7faff;
+  background: var(--color-bg-subtle);
 }
 
 .tabActive::after {
@@ -57,8 +55,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--color-accent), var(--color-brand-cyan));
-  border-radius: 1px 1px 0 0;
+  background: var(--color-accent);
 }
 
 .tabCount {
@@ -70,10 +67,9 @@
   padding: 0 4px;
   border-radius: var(--radius-xs);
   background: var(--color-bg-elevated);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--color-text-tertiary);
-  letter-spacing: 0;
 }
 
 .tabActive .tabCount {
@@ -92,19 +88,17 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   padding: 0 var(--spacing-3);
-  height: 20px;
+  height: 22px;
   border-radius: var(--radius-sm);
-  border: var(--border-width) solid transparent;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
-  font-weight: 500;
+  transition: all var(--transition-fast);
+  font-weight: 600;
   display: flex;
   align-items: center;
 }
 
 .actionBtn:hover {
-  background: #f2f7ff;
-  color: var(--color-accent);
-  border-color: rgba(0, 87, 255, 0.18);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 /* ── Content ─────────────────────────────────────────────────────────────────── */
@@ -118,7 +112,7 @@
 .logList {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-1) 0;
+  padding: var(--spacing-2) 0;
 }
 
 .empty {
@@ -132,15 +126,15 @@
   display: flex;
   align-items: baseline;
   gap: var(--spacing-3);
-  padding: 1px var(--spacing-5);
+  padding: 2px var(--spacing-5);
   font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.7;
+  font-size: 11px;
+  line-height: 1.6;
   transition: background var(--transition-fast);
 }
 
 .logRow:hover {
-  background: #f7faff;
+  background: var(--color-bg-hover);
 }
 
 .logTime {
@@ -151,10 +145,10 @@
 
 .logLevel {
   flex-shrink: 0;
-  width: 46px;
+  width: 48px;
   font-weight: 700;
   font-size: 10px;
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .logMsg {
@@ -180,13 +174,13 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  padding: 2px var(--spacing-5);
-  font-size: var(--font-size-xs);
+  padding: 4px var(--spacing-5);
+  font-size: 11px;
   transition: background var(--transition-fast);
 }
 
 .transferRow:hover {
-  background: #f7faff;
+  background: var(--color-bg-hover);
 }
 
 .tFileName {
@@ -202,14 +196,15 @@
   flex-shrink: 0;
   font-weight: 700;
   font-size: 10px;
-  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .tSize {
   flex-shrink: 0;
-  color: var(--color-text-disabled);
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
-  width: 60px;
+  font-variant-numeric: tabular-nums;
+  width: 70px;
   text-align: right;
   font-size: 10px;
 }

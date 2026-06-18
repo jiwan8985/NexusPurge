@@ -4,27 +4,27 @@
   flex-direction: column;
   min-width: var(--panel-min-width);
   min-height: 0;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--color-bg-base);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-xl);
   overflow: hidden;
   position: relative;
-  box-shadow: var(--shadow-md), var(--shadow-inset);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel.dragOver::after {
   content: "";
   position: absolute;
   inset: 0;
-  border: 2px solid var(--color-accent-hover);
+  border: 2px solid var(--color-accent);
   border-radius: var(--radius-xl);
-  background: rgba(0, 87, 255, 0.08);
+  background: var(--color-accent-subtle);
   pointer-events: none;
   z-index: 10;
 }
 
 .header {
-  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  background: var(--color-bg-base);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
 }
@@ -35,15 +35,15 @@
   gap: var(--spacing-3);
   padding: var(--spacing-4) var(--spacing-5);
   font-size: var(--font-size-xs);
-  font-weight: 800;
-  color: var(--color-accent);
+  font-weight: 700;
+  color: var(--color-text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
 }
 
 .headerTitleDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--color-text-disabled);
   flex-shrink: 0;
@@ -51,7 +51,7 @@
 
 .headerTitleDot.active {
   background: var(--color-success);
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.7);
+  box-shadow: 0 0 8px var(--color-success-muted);
 }
 
 .pathBar {
@@ -64,23 +64,22 @@
 .upBtn,
 .refreshBtn {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--radius-md);
-  color: var(--color-text-tertiary);
-  background: #ffffff;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-base);
   border: var(--border-width) solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .upBtn:hover:not(:disabled),
 .refreshBtn:hover:not(:disabled) {
-  background: #f2f7ff;
-  color: var(--color-accent);
-  border-color: rgba(0, 87, 255, 0.22);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
 }
 
 .pathForm {
@@ -90,15 +89,15 @@
 
 .pathInput {
   width: 100%;
-  height: 28px;
-  font-size: var(--font-size-xs);
+  height: 30px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-family-mono);
-  color: var(--color-text-secondary);
-  background: #f7faff;
+  color: var(--color-text-primary);
+  background: var(--color-bg-subtle);
   padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
   border: var(--border-width) solid var(--color-border);
-  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: all var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -106,21 +105,20 @@
 
 .pathInput:hover {
   border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
 }
 
 .pathInput:focus {
-  border-color: var(--color-border-focus);
-  background: #ffffff;
-  color: var(--color-text-primary);
+  border-color: var(--color-accent);
+  background: var(--color-bg-base);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
 
 .columnHeader {
-  height: 30px;
-  background: linear-gradient(90deg, rgba(0, 87, 255, 0.08), rgba(0, 184, 255, 0.04));
+  height: 32px;
+  background: var(--color-bg-subtle);
   border-bottom: var(--border-width) solid var(--color-border);
   font-size: var(--font-size-xs);
-  font-weight: 800;
+  font-weight: 600;
   color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
@@ -130,16 +128,17 @@
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
+  background: var(--color-bg-base);
 }
 
 .placeholder {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-4);
+  gap: var(--spacing-5);
   padding: var(--spacing-7) var(--spacing-5);
   font-size: var(--font-size-sm);
-  color: var(--color-text-disabled);
+  color: var(--color-text-tertiary);
   text-align: center;
   height: 100%;
   justify-content: center;
@@ -148,49 +147,53 @@
 .placeholderIcon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-brand-cyan));
-  color: #fff;
-  font-weight: 800;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  font-weight: 700;
+  font-size: var(--font-size-xl);
 }
 
 .placeholderText {
-  max-width: 280px;
-  line-height: 1.5;
+  max-width: 260px;
+  line-height: 1.6;
 }
 
 .row {
   display: flex;
   align-items: center;
   padding: 0 var(--spacing-5);
-  height: 22px;
+  height: 28px;
 }
 
 .fileRow {
   cursor: pointer;
-  border-bottom: var(--border-width) solid rgba(17, 31, 61, 0.05);
+  border-bottom: var(--border-width) solid var(--color-border);
   transition: background var(--transition-fast);
 }
 
-.fileRow:hover {
-  background: #f4f8ff;
+.fileRow:last-child {
+  border-bottom: none;
 }
 
-.fileRow:focus-visible {
-  outline: 2px solid var(--color-border-focus);
-  outline-offset: -2px;
+.fileRow:hover {
   background: var(--color-bg-hover);
 }
 
+.fileRow:focus-visible {
+  outline: none;
+  background: var(--color-bg-selected);
+}
+
 .fileRow.selected {
-  background: linear-gradient(90deg, rgba(0, 87, 255, 0.14), rgba(0, 184, 255, 0.06));
+  background: var(--color-bg-selected);
 }
 
 .fileRow.selected .fileName {
   color: var(--color-text-primary);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .col {
@@ -212,28 +215,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 
 .dirName {
-  color: var(--color-text-link);
-  font-weight: 700;
+  color: var(--color-accent);
+  font-weight: 600;
 }
 
 .colSize {
   width: 82px;
   text-align: right;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
-  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
 .colDate {
-  width: 116px;
+  width: 124px;
   text-align: right;
   color: var(--color-text-tertiary);
-  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
@@ -258,28 +263,30 @@
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 16px;
+  height: 18px;
   border-radius: var(--radius-xs);
-  background: rgba(0, 87, 255, 0.08);
+  background: var(--color-bg-subtle);
   color: var(--color-text-tertiary);
-  font-size: 8px;
-  font-weight: 800;
+  font-size: 9px;
+  font-weight: 700;
   flex-shrink: 0;
+  border: 1px solid var(--color-border);
 }
 
 .folderIcon {
-  background: rgba(0, 87, 255, 0.13);
+  background: var(--color-accent-muted);
   color: var(--color-accent);
+  border-color: var(--color-accent-subtle);
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
-  height: 17px;
-  padding: 0 6px;
+  height: 18px;
+  padding: 0 8px;
   border-radius: var(--radius-xs);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   border: var(--border-width) solid transparent;
   white-space: nowrap;
 }
@@ -297,9 +304,9 @@
 }
 
 .badge_skipped {
-  color: var(--color-text-tertiary);
-  background: rgba(148, 163, 184, 0.1);
-  border-color: rgba(148, 163, 184, 0.26);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-subtle);
+  border-color: var(--color-border);
 }
 
 .badge_purge {
@@ -309,11 +316,11 @@
 }
 
 .footer {
-  height: 28px;
+  height: 30px;
   display: flex;
   align-items: center;
   padding: 0 var(--spacing-5);
-  background: #fbfdff;
+  background: var(--color-bg-subtle);
   border-top: var(--border-width) solid var(--color-border);
   font-size: 11px;
   color: var(--color-text-tertiary);
@@ -323,6 +330,6 @@
 
 .dropHint {
   margin-left: auto;
-  color: var(--color-accent-hover);
-  font-weight: 700;
+  color: var(--color-accent);
+  font-weight: 600;
 }

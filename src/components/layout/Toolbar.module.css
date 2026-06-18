@@ -2,13 +2,11 @@
   display: flex;
   align-items: center;
   height: var(--toolbar-height);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--color-bg-base);
   border-bottom: var(--border-width) solid var(--color-border);
   padding: 0 var(--spacing-5);
   gap: var(--spacing-3);
   flex-shrink: 0;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.04);
 }
 
 .connectionArea,
@@ -22,51 +20,49 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
-  height: 30px;
-  padding: 0 var(--spacing-5);
-  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 var(--spacing-4);
+  border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
-  font-weight: 650;
+  font-weight: 600;
   color: var(--color-text-secondary);
-  background: #ffffff;
+  background: var(--color-bg-base);
   border: var(--border-width) solid var(--color-border);
-  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  transition: all var(--transition-fast);
   white-space: nowrap;
 }
 
 .toolBtn:hover:not(:disabled) {
-  background: #f2f7ff;
-  color: var(--color-accent);
-  border-color: rgba(0, 87, 255, 0.22);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
 }
 
 .toolBtn:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: scale(0.98);
 }
 
 .toolBtn.primary {
   color: var(--color-text-on-accent);
-  background: linear-gradient(135deg, var(--color-accent), var(--color-brand-cyan));
-  border-color: transparent;
-  box-shadow: 0 10px 20px rgba(0, 87, 255, 0.2);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .toolBtn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--color-accent-hover), var(--color-brand-cyan));
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
 }
 
 .toolBtnIcon {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  color: var(--color-success);
-  font-size: 8px;
-  line-height: 1;
+  background: currentColor;
 }
 
 .separator {
   width: var(--border-width);
-  height: 22px;
+  height: 20px;
   background: var(--color-border);
   margin: 0 var(--spacing-2);
   flex-shrink: 0;
