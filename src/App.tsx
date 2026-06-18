@@ -24,12 +24,34 @@ export default function App() {
   const setActiveProfile   = useAppStore((s) => s.setActiveProfile);
   const setLastProfileId   = useAppStore((s) => s.setLastProfileId);
   const setLogPanelVisible = useAppStore((s) => s.setLogPanelVisible);
+  const theme              = useAppStore((s) => s.theme);
+  const setTheme           = useAppStore((s) => s.setTheme);
   const { loadProfiles, profiles } = useProfile();
 
   // 앱 준비 후 윈도우 표시 (tauri.conf.json: visible: false)
   useEffect(() => {
     void runtime.showMainWindow();
   }, []);
+
+  // localStorage에서 저장된 테마 복원
+  useEffect(() => {
+    const saved = window.localStorage.getItem("nexuspurge.theme") as "light" | "dark" | "system" | null;
+    if (saved === "light" || saved === "dark" || saved === "system") {
+      setTheme(saved);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // theme 변경 시 <html data-theme="..."> 적용 + 저장
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "system") {
+      root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", theme);
+    }
+    window.localStorage.setItem("nexuspurge.theme", theme);
+  }, [theme]);
 
   // 초기 프로파일 로드
   useEffect(() => {

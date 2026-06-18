@@ -57,6 +57,12 @@ interface AppState {
   isProfileModalOpen: boolean;
   isSettingsModalOpen: boolean;
 
+  // Theme
+  theme: "light" | "dark" | "system";
+
+  // Auto-Purge (세션 전역 토글 — 프로필 기본값 위에서 재정의 가능)
+  autoPurgeEnabled: boolean;
+
   // Actions — Profiles
   setProfiles: (profiles: S3Profile[]) => void;
 
@@ -102,6 +108,14 @@ interface AppState {
   clearLogs: () => void;
   setLogPanelVisible: (visible: boolean) => void;
   toggleLogPanel: () => void;
+
+  // Actions — Theme
+  setTheme: (theme: "light" | "dark" | "system") => void;
+  cycleTheme: () => void;
+
+  // Actions — Auto-Purge
+  setAutoPurgeEnabled: (enabled: boolean) => void;
+  toggleAutoPurge: () => void;
 
   // Actions — Modal
   openProfileModal: () => void;
@@ -160,6 +174,12 @@ export const useAppStore = create<AppState>()(
     // ── Modal ─────────────────────────────────────────────────────────────────
     isProfileModalOpen: false,
     isSettingsModalOpen: false,
+
+    // ── Theme ─────────────────────────────────────────────────────────────────
+    theme: "system" as "light" | "dark" | "system",
+
+    // ── Auto-Purge ────────────────────────────────────────────────────────────
+    autoPurgeEnabled: false,
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
@@ -248,6 +268,20 @@ export const useAppStore = create<AppState>()(
     setLogPanelVisible: (isLogPanelVisible) => set({ isLogPanelVisible }),
     toggleLogPanel: () =>
       set((s) => ({ isLogPanelVisible: !s.isLogPanelVisible })),
+
+    // ── Theme Actions ─────────────────────────────────────────────────────────
+    setTheme: (theme) => set({ theme }),
+    cycleTheme: () =>
+      set((s) => ({
+        theme:
+          s.theme === "light" ? "dark"
+          : s.theme === "dark" ? "system"
+          : "light",
+      })),
+
+    // ── Auto-Purge Actions ────────────────────────────────────────────────────
+    setAutoPurgeEnabled: (autoPurgeEnabled) => set({ autoPurgeEnabled }),
+    toggleAutoPurge: () => set((s) => ({ autoPurgeEnabled: !s.autoPurgeEnabled })),
 
     // ── Modal Actions ─────────────────────────────────────────────────────────
     openProfileModal: () => set({ isProfileModalOpen: true }),

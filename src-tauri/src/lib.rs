@@ -5,7 +5,6 @@ mod utils;
 
 use commands::{auth, cdn, log_shipping, operation_log, s3, sync};
 use services::auth::ExternalAuthAdapter;
-use services::log_shipping::LogShippingService;
 use services::operation_log::OperationLogService;
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
@@ -34,7 +33,6 @@ pub fn run() {
         .manage(TransferControl::default())
         .manage(operation_log_service)
         .manage(ExternalAuthAdapter)
-        .manage(LogShippingService::new())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -61,6 +59,9 @@ pub fn run() {
             s3::get_presigned_url,
             s3::upload_files,
             s3::rename_s3_object, // H-1
+            // 암호화 프로필
+            s3::export_encrypted_profile,
+            s3::import_encrypted_profile,
             // Sync & Transfer
             sync::build_sync_plan,
             sync::sync_preview,

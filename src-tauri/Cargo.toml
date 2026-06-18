@@ -55,6 +55,12 @@ keyring = "2"
 # MD5 (ETag 비교)
 md5 = "0.7"
 
+# 암호화 프로필 (AES-256-GCM + PBKDF2, 순수 Rust)
+aes-gcm  = "0.10"
+pbkdf2   = { version = "0.12", features = ["hmac"] }
+rand     = "0.8"
+base64   = "0.22"
+
 # Error handling
 anyhow    = "1"
 thiserror = "1"

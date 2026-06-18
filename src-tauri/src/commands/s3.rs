@@ -9,6 +9,7 @@ use tokio::task::JoinSet;
 use crate::adapters::storage::s3::S3Adapter;
 use crate::utils::adapter_cache::AdapterCache;
 use crate::utils::config::{AwsCredentials, ProfileConfig, ProfileStore};
+use crate::utils::crypto;
 use crate::utils::transfer_control::TransferControl;
 
 // ─── 동시 파일 전송 상한 (H-2) ───────────────────────────────────────────────
@@ -606,4 +607,72 @@ pub async fn upload_files(
 
     while tasks.join_next().await.is_some() {}
     Ok(())
+}
+
+// ─── 암호화 프로필 Export / Import ───────────────────────────────────────────
+
+/// 저장된 프로필(Keyring 시크릿 포함)을 AES-256-GCM 암호화 파일로 내보낸다.
+/// 반환값은 JSON 문자열로, 프론트엔드에서 .nexprofile 파일로 저장한다.
+#[tauri::command]
+pub async fn export_encrypted_profile(
+    profile_id: String,
+    passphrase: String,
+    store: State<'_, ProfileStore>,
+) -> Result<String, String> {
+    if passphrase.trim().is_empty() {
+        return Err("패스프레이즈는 비워둘 수 없습니다".to_string());
+    }
+
+    // Keyring에서 S3 secret 주입
+    let mut profile = store
+        .get_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let creds = store
+        .get_credentials(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    profile.secret_access_key = Some(creds.secret_access_key);
+
+    // CDN secret들도 Keyring에서 주입
+    use keyring::Entry;
+    const SVC: &str = "cdn-upload-tool";
+    for (suffix, field) in [
+        ("_akamai",  &mut profile.akamai_client_secret as &mut Option<String>),
+        ("_lguplus", &mut profile.lguplus_api_secret),
+        ("_hyosung", &mut profile.hyosung_api_secret),
+        ("_kt",      &mut profile.kt_api_secret),
+    ] {
+        let key = format!("{}{}", profile_id, suffix);
+        if let Ok(entry) = Entry::new(SVC, &key) {
+            if let Ok(secret) = entry.get_password() {
+                *field = Some(secret);
+            }
+        }
+    }
+
+    let json = serde_json::to_string(&profile).map_err(|e| e.to_string())?;
+    crypto::encrypt(json.as_bytes(), &passphrase).map_err(|e| e.to_string())
+}
+
+/// 암호화된 .nexprofile 파일 내용을 복호화하여 ProfileStore에 저장한다.
+#[tauri::command]
+pub async fn import_encrypted_profile(
+    encrypted_data: String,
+    passphrase: String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<ProfileConfig, String> {
+    if passphrase.trim().is_empty() {
+        return Err("패스프레이즈는 비워둘 수 없습니다".to_string());
+    }
+
+    let decrypted = crypto::decrypt(&encrypted_data, &passphrase).map_err(|e| e.to_string())?;
+    let profile: ProfileConfig =
+        serde_json::from_slice(&decrypted).map_err(|e| format!("프로필 파싱 실패: {}", e))?;
+
+    // 기존 프로필이 있다면 캐시 무효화
+    cache.invalidate(&profile.id).await;
+    store.save(profile.clone()).await.map_err(|e| e.to_string())?;
+    Ok(profile)
 }

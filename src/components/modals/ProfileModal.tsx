@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { runtime } from "../../services/runtime";
@@ -96,7 +96,7 @@ export default function ProfileModal() {
   const { closeProfileModal } = useAppStore((s) => ({
     closeProfileModal: s.closeProfileModal,
   }));
-  const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection } = useProfile();
+  const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection, exportProfile, importProfile } = useProfile();
 
   const [form, setForm] = useState<FormState>(emptyForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -108,6 +108,22 @@ export default function ProfileModal() {
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
+
+  // 검색
+  const [search, setSearch] = useState("");
+
+  // 암호화 프로필 Import
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importPassphrase, setImportPassphrase] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  // 암호화 프로필 Export
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [exportPassphrase, setExportPassphrase] = useState("");
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const handleEdit = (profile: S3Profile) => {
     setEditingId(profile.id);
@@ -151,6 +167,57 @@ export default function ProfileModal() {
     setError(null);
     setTestResult(null);
     setCdnTestResult(null);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    if (!importPassphrase.trim()) {
+      setImportError("패스프레이즈를 입력하세요.");
+      return;
+    }
+    setIsImporting(true);
+    setImportError(null);
+    try {
+      await importProfile(text, importPassphrase.trim());
+      setShowImportModal(false);
+      setImportPassphrase("");
+    } catch (err) {
+      setImportError(String(err));
+    } finally {
+      setIsImporting(false);
+      if (importFileRef.current) importFileRef.current.value = "";
+    }
+  };
+
+  const handleExportProfile = async () => {
+    if (!exportingId || !exportPassphrase.trim()) {
+      setExportError("패스프레이즈를 입력하세요.");
+      return;
+    }
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const encrypted = await exportProfile(exportingId, exportPassphrase.trim());
+      const profile = profiles.find((p) => p.id === exportingId);
+      const filename = `${profile?.name ?? "profile"}.nexprofile`;
+      const blob = new Blob([encrypted], { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportingId(null);
+      setExportPassphrase("");
+    } catch (err) {
+      setExportError(String(err));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -328,6 +395,13 @@ export default function ProfileModal() {
   const isHyosung = form.cdnProvider === "hyosung";
   const isKt = form.cdnProvider === "kt";
 
+  const filteredProfiles = profiles.filter(
+    (p) =>
+      !search.trim() ||
+      p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.bucket.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <>
     {deleteConfirmId && (
@@ -354,6 +428,92 @@ export default function ProfileModal() {
         onCancel={() => setDeleteConfirmId(null)}
       />
     )}
+
+    {/* Import 패스프레이즈 모달 */}
+    {showImportModal && (
+      <div className={styles.overlay} style={{ zIndex: 200 }}>
+        <div className={styles.modal} style={{ maxWidth: 420 }}>
+          <div className={styles.header}>
+            <span className={styles.title}>프로필 파일 가져오기</span>
+            <button type="button" className={styles.closeBtn} onClick={() => { setShowImportModal(false); setImportPassphrase(""); setImportError(null); }}>✕</button>
+          </div>
+          <div className={styles.body} style={{ display: "block", padding: "1.2rem" }}>
+            <p style={{ marginBottom: "0.8rem", fontSize: "0.85rem", opacity: 0.8 }}>
+              관리자로부터 받은 <strong>.nexprofile</strong> 파일을 가져옵니다.<br />
+              파일 암호화에 사용된 패스프레이즈를 입력하세요.
+            </p>
+            {importError && <div className={styles.errorMsg}>{importError}</div>}
+            <label className={styles.field}>
+              <span>패스프레이즈</span>
+              <input
+                type="password"
+                value={importPassphrase}
+                onChange={(e) => setImportPassphrase(e.target.value)}
+                placeholder="패스프레이즈 입력"
+                autoFocus
+              />
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={isImporting || !importPassphrase.trim()}
+                onClick={() => importFileRef.current?.click()}
+              >
+                {isImporting ? "가져오는 중..." : "파일 선택 및 가져오기"}
+              </button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".nexprofile,application/octet-stream"
+                style={{ display: "none" }}
+                onChange={handleImportFile}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Export 패스프레이즈 모달 */}
+    {exportingId && (
+      <div className={styles.overlay} style={{ zIndex: 200 }}>
+        <div className={styles.modal} style={{ maxWidth: 420 }}>
+          <div className={styles.header}>
+            <span className={styles.title}>프로필 내보내기</span>
+            <button type="button" className={styles.closeBtn} onClick={() => { setExportingId(null); setExportPassphrase(""); setExportError(null); }}>✕</button>
+          </div>
+          <div className={styles.body} style={{ display: "block", padding: "1.2rem" }}>
+            <p style={{ marginBottom: "0.8rem", fontSize: "0.85rem", opacity: 0.8 }}>
+              <strong>{profiles.find((p) => p.id === exportingId)?.name}</strong> 프로필을<br />
+              AES-256-GCM 암호화 파일(.nexprofile)로 내보냅니다.
+            </p>
+            {exportError && <div className={styles.errorMsg}>{exportError}</div>}
+            <label className={styles.field}>
+              <span>패스프레이즈</span>
+              <input
+                type="password"
+                value={exportPassphrase}
+                onChange={(e) => { setExportPassphrase(e.target.value); setExportError(null); }}
+                placeholder="암호화에 사용할 패스프레이즈"
+                autoFocus
+              />
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={isExporting || !exportPassphrase.trim()}
+                onClick={handleExportProfile}
+              >
+                {isExporting ? "내보내는 중..." : "내보내기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeProfileModal()}>
       <div className={styles.modal}>
         <div className={styles.header}>
@@ -366,14 +526,27 @@ export default function ProfileModal() {
           <div className={styles.profileList}>
             <div className={styles.sectionHeader}>
               저장된 프로필
-              <button type="button" className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
+              <div style={{ display: "flex", gap: "0.4rem" }}>
+                <button type="button" className={styles.newBtn} onClick={() => setShowImportModal(true)}>↓ 가져오기</button>
+                <button type="button" className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
+              </div>
+            </div>
+
+            {/* 프로필 검색 */}
+            <div style={{ padding: "0.4rem 0.6rem" }}>
+              <input
+                className={styles.searchInput}
+                placeholder="프로필 이름 / 버킷 검색..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
 
             <div className={styles.profileItems}>
-              {profiles.length === 0 ? (
-                <div className={styles.empty}>저장된 프로필이 없습니다</div>
+              {filteredProfiles.length === 0 ? (
+                <div className={styles.empty}>{search ? "검색 결과가 없습니다" : "저장된 프로필이 없습니다"}</div>
               ) : (
-                profiles.map((p) => (
+                filteredProfiles.map((p) => (
                   <div
                     key={p.id}
                     className={`${styles.profileItem} ${editingId === p.id ? styles.active : ""}`}
@@ -382,11 +555,20 @@ export default function ProfileModal() {
                       <span className={styles.profileName}>{p.name}</span>
                       <span className={styles.profileDetail}>
                         {p.bucket} · {p.region}
+                        {p.permissions?.role && <span style={{ marginLeft: "0.4rem", opacity: 0.6 }}>· {p.permissions.role}</span>}
                       </span>
                     </button>
                     <div className={styles.profileActions}>
                       <button type="button" className={styles.connectBtn} onClick={() => handleConnect(p)}>
                         연결
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.testBtn}
+                        title="암호화 파일로 내보내기"
+                        onClick={() => { setExportingId(p.id); setExportPassphrase(""); setExportError(null); }}
+                      >
+                        내보내기
                       </button>
                       <button type="button" className={styles.deleteBtn} onClick={() => setDeleteConfirmId(p.id)}>
                         삭제

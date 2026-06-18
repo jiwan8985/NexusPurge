@@ -60,6 +60,24 @@
   background: currentColor;
 }
 
+/* 자동 Purge 토글 버튼 */
+.purgeActive {
+  color: var(--color-text-on-accent, #fff);
+  background: #e05c2a;
+  border-color: #c94e20;
+  font-weight: 700;
+}
+
+.purgeActive:hover:not(:disabled) {
+  background: #c94e20;
+  border-color: #b04219;
+}
+
+.purgeInactive {
+  color: var(--color-text-secondary);
+  border-style: dashed;
+}
+
 .separator {
   width: var(--border-width);
   height: 20px;

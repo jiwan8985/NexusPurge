@@ -254,8 +254,7 @@ pub async fn build_sync_plan(
     Ok(plan)
 }
 
-/// 로컬 디렉터리 전체 ↔ S3 prefix 를 비교해 new / modified / deleted / unchanged 분류
-/// (sync_preview Tauri 커맨드의 핵심 로직)
+/// 로컬 디렉터리 ↔ S3 prefix 비교 (크기 stat만 사용, MD5 계산 없음 — 미리보기 전용)
 async fn compare_local_remote(
     profile_id:    &str,
     local_dir:     &str,
@@ -273,101 +272,71 @@ async fn compare_local_remote(
         })
         .await?;
     let profile = store.get_profile(profile_id).await?;
-    let use_size_fallback = profile.multipart_etag_fallback;
 
-    // ── 로컬 파일 목록 수집 ──────────────────────────────────────────────
-    let local_files = collect_local_files(Path::new(local_dir)).await?;
-
-    // ── S3 오브젝트 목록 수집 ────────────────────────────────────────────
+    // 로컬 파일 목록 + S3 목록 병렬 수집
     use crate::adapters::storage::base::StorageAdapter;
-    let remote_files = adapter.list_objects(remote_prefix).await?;
+    let (local_files, remote_files) = tokio::try_join!(
+        collect_local_files(Path::new(local_dir)),
+        adapter.list_objects(remote_prefix),
+    )?;
 
-    // remote key → etag 맵
     let mut remote_map: std::collections::HashMap<String, (u64, Option<String>)> =
         remote_files
             .into_iter()
             .map(|f| (f.key.clone(), (f.size, f.etag)))
             .collect();
 
-    // ── MD5 병렬 계산 + 분류 ─────────────────────────────────────────────
-    let mut tasks: JoinSet<Option<FileEntry>> = JoinSet::new();
+    let mut result = SyncResult {
+        new:           vec![],
+        modified:      vec![],
+        deleted:       vec![],
+        unchanged:     vec![],
+        purge_targets: vec![],
+    };
 
     for (relative_path, abs_path) in &local_files {
-        let rel = relative_path.clone();
-        let abs = abs_path.clone();
         let remote_key = if remote_prefix.is_empty() {
-            rel.clone()
+            relative_path.clone()
         } else {
             format!(
                 "{}{}",
                 remote_prefix.trim_end_matches('/'),
-                if rel.starts_with('/') { rel.clone() } else { format!("/{}", rel) }
+                if relative_path.starts_with('/') {
+                    relative_path.clone()
+                } else {
+                    format!("/{}", relative_path)
+                }
             )
         };
-        let remote_meta = remote_map.remove(&remote_key);
 
-        tasks.spawn(async move {
-            let metadata = tokio::fs::metadata(&abs).await.ok()?;
-            let size = metadata.len();
+        let local_size = tokio::fs::metadata(abs_path).await.map(|m| m.len()).unwrap_or(0);
 
-            let local_etag = if size >= MULTIPART_THRESHOLD {
-                hash::calculate_multipart_etag(&abs, PART_SIZE).await.ok()?
-            } else {
-                hash::calculate_md5(&abs).await.ok()?
-            };
+        let entry = FileEntry {
+            local_path:  Some(abs_path.to_string_lossy().into_owned()),
+            remote_key:  remote_key.clone(),
+            size:        local_size,
+            local_md5:   None,
+            remote_size: remote_map.get(&remote_key).map(|(s, _)| *s),
+            remote_etag: remote_map.get(&remote_key).and_then(|(_, e)| e.clone()),
+        };
 
-            Some(FileEntry {
-                local_path:  Some(abs.to_string_lossy().into_owned()),
-                remote_key,
-                size,
-                local_md5:   Some(local_etag),
-                remote_size: remote_meta.as_ref().map(|(remote_size, _)| *remote_size),
-                remote_etag: remote_meta.map(|(_, etag)| etag).flatten(),
-            })
-        });
-    }
-
-    let mut result = SyncResult {
-        new:       vec![],
-        modified:  vec![],
-        deleted:   vec![],
-        unchanged: vec![],
-        purge_targets: vec![],
-    };
-
-    while let Some(Ok(Some(entry))) = tasks.join_next().await {
-        let matches_with_fallback = use_size_fallback
-            && entry.size >= MULTIPART_THRESHOLD
-            && entry
-                .remote_size
-                .map(|remote_size| remote_size == entry.size)
-                .unwrap_or(false)
-            && entry
-                .remote_etag
-                .as_ref()
-                .map(|value| value.contains('-'))
-                .unwrap_or(false);
-        match &entry.remote_etag {
+        match remote_map.remove(&remote_key) {
             None => {
                 if profile.purge_on_new_upload && profile.cdn_provider.is_some() {
-                    result.purge_targets.push(entry.remote_key.clone());
+                    result.purge_targets.push(remote_key);
                 }
-                result.new.push(entry)
+                result.new.push(entry);
             }
-            Some(etag)
-                if entry.local_md5.as_deref() == Some(etag.as_str())
-                    || matches_with_fallback =>
-            {
-                result.unchanged.push(entry);
+            Some((remote_size, _)) if remote_size != local_size => {
+                result.purge_targets.push(remote_key);
+                result.modified.push(entry);
             }
             Some(_) => {
-                result.purge_targets.push(entry.remote_key.clone());
-                result.modified.push(entry)
+                result.unchanged.push(entry);
             }
         }
     }
 
-    // S3에만 남은 항목 → deleted
     for (remote_key, (size, etag)) in remote_map {
         result.deleted.push(FileEntry {
             local_path:  None,

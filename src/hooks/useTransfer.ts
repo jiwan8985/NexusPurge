@@ -4,6 +4,7 @@ import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
 import type { CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
+import type { UploadOptions } from "../components/transfer/UploadOptionsModal";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -43,6 +44,7 @@ export function useTransfer() {
     clearRemoteSelection,
     addLog,
     setSyncPlan,
+    autoPurgeEnabled,
   } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
     local: s.local,
@@ -55,6 +57,7 @@ export function useTransfer() {
     clearRemoteSelection: s.clearRemoteSelection,
     addLog: s.addLog,
     setSyncPlan: s.setSyncPlan,
+    autoPurgeEnabled: s.autoPurgeEnabled,
   }));
 
   const unlistenRef = useRef<Array<() => void>>([]);
@@ -187,7 +190,7 @@ export function useTransfer() {
     [activeProfile]
   );
 
-  const startUpload = useCallback(async () => {
+  const startUpload = useCallback(async (uploadOptions?: UploadOptions) => {
     if (!activeProfile || local.selectedPaths.size === 0) return;
 
     setTransferring(true);
@@ -263,18 +266,28 @@ export function useTransfer() {
             cdnUrl,
             startedAt: new Date().toISOString(),
           });
+          const extraHeaders = uploadOptions?.headers
+            ? Object.fromEntries(uploadOptions.headers.filter((h) => h.key).map((h) => [h.key, h.value]))
+            : {};
+          const extraMetadata = uploadOptions?.metadata
+            ? Object.fromEntries(uploadOptions.metadata.filter((m) => m.key).map((m) => [m.key, m.value]))
+            : {};
           return {
             id,
             localPath: file.path,
             remotePath,
             isOverwrite,
-            contentTypeOverride: activeProfile.contentTypeOverride,
-            cacheControl,
+            contentTypeOverride: uploadOptions?.contentTypeOverride || activeProfile.contentTypeOverride,
+            cacheControl: uploadOptions?.cacheControl || cacheControl,
+            headers: extraHeaders,
+            metadata: extraMetadata,
           };
         });
 
+      // autoPurgeEnabled가 켜져 있으면 신규 파일도 Purge 대상으로 처리
+      const purgeNewUploads = autoPurgeEnabled || (activeProfile.purgeOnNewUpload ?? false);
       const uploadItems = [
-        ...makeItems(plan.toUpload, activeProfile.purgeOnNewUpload ?? false),
+        ...makeItems(plan.toUpload, purgeNewUploads),
         ...makeItems(plan.toOverwrite, true),
       ];
 
@@ -330,7 +343,7 @@ export function useTransfer() {
     }
   }, [
     activeProfile, local, remote, addTransfer, buildSyncPlan,
-    setTransferring, setShowProgressDialog, clearLocalSelection, addLog, setSyncPlan,
+    setTransferring, setShowProgressDialog, clearLocalSelection, addLog, setSyncPlan, autoPurgeEnabled,
   ]);
 
   const startDownload = useCallback(async () => {

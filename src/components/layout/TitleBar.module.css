@@ -210,6 +210,33 @@
   z-index: 190;
 }
 
+/* ── 테마 토글 버튼 ──────────────────────────────────────────────────────────── */
+.themeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
+  border: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-subtle);
+  margin: 0 var(--spacing-4);
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  transition: all var(--transition-fast);
+}
+
+.themeBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+.themeBtn:active {
+  transform: scale(0.92);
+}
+
 .controls {
   display: flex;
   align-items: stretch;

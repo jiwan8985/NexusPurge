@@ -122,6 +122,29 @@ export function useProfile() {
     addLog("info", "연결 해제됨", "system");
   }, [setActiveProfile, setConnected, addLog]);
 
+  const exportProfile = useCallback(
+    async (profileId: string, passphrase: string): Promise<string> => {
+      const encrypted = await runtime.invoke<string>("export_encrypted_profile", {
+        profileId,
+        passphrase,
+      });
+      return encrypted;
+    },
+    []
+  );
+
+  const importProfile = useCallback(
+    async (encryptedData: string, passphrase: string): Promise<void> => {
+      await runtime.invoke("import_encrypted_profile", {
+        encryptedData,
+        passphrase,
+      });
+      await loadProfiles();
+      addLog("success", "암호화 프로필을 가져왔습니다", "profile");
+    },
+    [loadProfiles, addLog]
+  );
+
   return {
     profiles,
     loadProfiles,
@@ -130,5 +153,7 @@ export function useProfile() {
     testConnection,
     connectWithProfile,
     disconnect,
+    exportProfile,
+    importProfile,
   };
 }

@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { useS3 } from "../../hooks/useS3";
 import { useLocalFs } from "../../hooks/useLocalFs";
+import { usePurge } from "../../hooks/usePurge";
+import PurgeDialog from "../modals/PurgeDialog";
 import { runtime } from "../../services/runtime";
 import type { SyncPreviewResult } from "../../types";
 import styles from "./Toolbar.module.css";
@@ -22,6 +24,8 @@ export default function Toolbar() {
     setSyncPreview,
     setShowSyncPreview,
     addLog,
+    autoPurgeEnabled,
+    toggleAutoPurge,
   } = useAppStore((s) => ({
     activeProfile:        s.activeProfile,
     isConnected:          s.isConnected,
@@ -36,11 +40,21 @@ export default function Toolbar() {
     setSyncPreview:       s.setSyncPreview,
     setShowSyncPreview:   s.setShowSyncPreview,
     addLog:               s.addLog,
+    autoPurgeEnabled:     s.autoPurgeEnabled,
+    toggleAutoPurge:      s.toggleAutoPurge,
   }));
+
+  // 프로필 권한 헬퍼
+  const perms = activeProfile?.permissions;
+  const canPurge   = !perms || perms.canPurge;
+  const canCreate  = !perms || perms.canCreate;
 
   const { disconnect, connectWithProfile } = useProfile();
   const { deleteObjects, createDirectory, renameObject } = useS3();
   const { createDir, deleteFiles, renameFile } = useLocalFs();
+  const { executePurge, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
+
+  const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
 
   // H-1: 새 폴더
   const handleNewFolder = async () => {
@@ -179,15 +193,33 @@ export default function Toolbar() {
 
       <div className={styles.separator} />
 
-      <div className={styles.actionArea}>
+      {/* 자동 Purge 체크 버튼 — 눈에 잘 띄는 위치 (요구사항 2.3) */}
+      {isConnected && activeProfile?.cdnProvider && canPurge && (
         <button
-          className={styles.toolBtn}
-          disabled={focusedSide === "remote" && !isConnected}
-          onClick={handleNewFolder}
-          title="새 폴더 만들기"
+          className={`${styles.toolBtn} ${autoPurgeEnabled ? styles.purgeActive : styles.purgeInactive}`}
+          onClick={toggleAutoPurge}
+          title={autoPurgeEnabled
+            ? "자동 Purge 켜짐 — 업로드 후 자동으로 CDN 캐시를 무효화합니다. 클릭하면 끄기"
+            : "자동 Purge 꺼짐 — 클릭하면 업로드 후 CDN 자동 Purge를 활성화합니다"}
         >
-          새 폴더
+          <span className={styles.toolBtnIcon}>{autoPurgeEnabled ? "⚡" : "○"}</span>
+          자동 Purge {autoPurgeEnabled ? "ON" : "OFF"}
         </button>
+      )}
+
+      <div className={styles.separator} />
+
+      <div className={styles.actionArea}>
+        {canCreate && (
+          <button
+            className={styles.toolBtn}
+            disabled={focusedSide === "remote" && !isConnected}
+            onClick={handleNewFolder}
+            title="새 폴더 만들기"
+          >
+            새 폴더
+          </button>
+        )}
         <button
           className={styles.toolBtn}
           disabled={(focusedSide === "remote" && !isConnected) || !hasSelection}
@@ -212,6 +244,28 @@ export default function Toolbar() {
         >
           미리보기
         </button>
+
+        {/* Phase 3: 수동 Purge 버튼 — CDN 설정된 경우에만 표시 */}
+        {isConnected && activeProfile?.cdnProvider && canPurge && (
+          <>
+            <div className={styles.separator} />
+            <button
+              className={styles.toolBtn}
+              disabled={remotePurgePaths.length === 0}
+              onClick={() => setPurgeDialog({ paths: remotePurgePaths, mode: "selected" })}
+              title="원격 패널에서 선택한 파일의 CDN 캐시를 무효화합니다"
+            >
+              선택 Purge
+            </button>
+            <button
+              className={`${styles.toolBtn} ${styles.purgeInactive}`}
+              onClick={() => setPurgeDialog({ paths: [allPrefix], mode: "all" })}
+              title={`현재 원격 경로 전체 (${allPrefix})를 CDN에서 무효화합니다`}
+            >
+              전체 Purge
+            </button>
+          </>
+        )}
       </div>
 
       <div className={styles.spacer} />
@@ -219,6 +273,18 @@ export default function Toolbar() {
       <button className={styles.toolBtn} onClick={openSettingsModal} title="앱 설정">
         설정
       </button>
+
+      {purgeDialog && (
+        <PurgeDialog
+          paths={purgeDialog.paths}
+          mode={purgeDialog.mode}
+          onConfirm={async () => {
+            await executePurge(purgeDialog.paths);
+            setPurgeDialog(null);
+          }}
+          onCancel={() => setPurgeDialog(null)}
+        />
+      )}
     </div>
   );
 }

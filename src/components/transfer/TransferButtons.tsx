@@ -3,10 +3,14 @@ import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
 import ConfirmDialog from "../common/ConfirmDialog";
 import SyncPreviewDialog from "./SyncPreviewDialog";
+import UploadOptionsModal, { DEFAULT_UPLOAD_OPTIONS } from "./UploadOptionsModal";
+import type { UploadOptions } from "./UploadOptionsModal";
 import type { SyncPreviewResult } from "../../types";
 import styles from "./TransferButtons.module.css";
 
 const LARGE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
+const LARGE_FILE_COUNT_WARN  = 5_000;
+const LARGE_FILE_COUNT_LIMIT = 10_000;
 
 function fmtSize(bytes: number): string {
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -26,19 +30,40 @@ export default function TransferButtons() {
   const [uploadConfirm, setUploadConfirm] = useState<{ totalSize: number; count: number } | null>(null);
   const [previewResult, setPreviewResult] = useState<SyncPreviewResult | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [uploadOptions, setUploadOptions] = useState<UploadOptions>(DEFAULT_UPLOAD_OPTIONS);
+  // 옵션 적용 후 즉시 업로드할 파일 수 (크기 경고 통과 후 옵션 모달로 넘어온 경우)
+  const [pendingUploadSize, setPendingUploadSize] = useState<{ totalSize: number; count: number } | null>(null);
 
   const canUpload = isConnected && !isTransferring && local.selectedPaths.size > 0;
   const canDownload = isConnected && !isTransferring && remote.selectedPaths.size > 0;
   const canPreview = isConnected && !isTransferring && !isPreviewing && !!local.path;
 
+  const proceedToOptions = (totalSize: number, count: number) => {
+    setPendingUploadSize({ totalSize, count });
+    setShowOptions(true);
+  };
+
   const handleUpload = () => {
-    // M-4: 100 MB 초과 시 확인 다이얼로그 표시
     const selectedFiles = local.files.filter((f) => local.selectedPaths.has(f.path));
     const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+    const count = selectedFiles.length;
+
+    if (count >= LARGE_FILE_COUNT_LIMIT) {
+      const msg = `선택한 파일이 ${count}개입니다 (${LARGE_FILE_COUNT_LIMIT.toLocaleString()}개 이상).\n` +
+        "S3/CDN 제한으로 인해 처리 시간이 매우 오래 걸리거나 실패할 수 있습니다.\n" +
+        "계속 진행할까요?";
+      if (!window.confirm(msg)) return;
+    } else if (count >= LARGE_FILE_COUNT_WARN) {
+      const msg = `선택한 파일이 ${count}개입니다 (${LARGE_FILE_COUNT_WARN.toLocaleString()}개 이상).\n` +
+        "배치 처리 시간이 오래 걸릴 수 있습니다. 계속할까요?";
+      if (!window.confirm(msg)) return;
+    }
+
     if (totalSize > LARGE_UPLOAD_THRESHOLD) {
-      setUploadConfirm({ totalSize, count: selectedFiles.length });
+      setUploadConfirm({ totalSize, count });
     } else {
-      startUpload();
+      proceedToOptions(totalSize, count);
     }
   };
 
@@ -56,15 +81,25 @@ export default function TransferButtons() {
 
   return (
     <div className={styles.container}>
-      <button
-        className={`${styles.transferBtn} ${styles.upload}`}
-        onClick={handleUpload}
-        disabled={!canUpload}
-        title={`선택한 ${local.selectedPaths.size}개 파일을 S3로 업로드`}
-      >
-        <span className={styles.arrow}>→</span>
-        <span className={styles.label}>업로드</span>
-      </button>
+      <div className={styles.uploadGroup}>
+        <button
+          className={`${styles.transferBtn} ${styles.upload}`}
+          onClick={handleUpload}
+          disabled={!canUpload}
+          title={`선택한 ${local.selectedPaths.size}개 파일을 S3로 업로드`}
+        >
+          <span className={styles.arrow}>→</span>
+          <span className={styles.label}>업로드</span>
+        </button>
+        <button
+          className={styles.optionsBtn}
+          onClick={() => { setPendingUploadSize(null); setShowOptions(true); }}
+          disabled={!canUpload}
+          title="업로드 옵션 설정 (Content-Type, Cache-Control, 헤더, 메타데이터)"
+        >
+          ⚙
+        </button>
+      </div>
 
       <button
         className={`${styles.transferBtn} ${styles.preview}`}
@@ -98,12 +133,27 @@ export default function TransferButtons() {
               <p>S3 업로드 비용이 발생할 수 있습니다. 계속하시겠습니까?</p>
             </>
           }
-          confirmLabel="업로드 시작"
+          confirmLabel="옵션 설정 후 업로드"
           onConfirm={() => {
+            const info = uploadConfirm;
             setUploadConfirm(null);
-            startUpload();
+            proceedToOptions(info.totalSize, info.count);
           }}
           onCancel={() => setUploadConfirm(null)}
+        />
+      )}
+
+      {showOptions && (
+        <UploadOptionsModal
+          initial={uploadOptions}
+          fileCount={pendingUploadSize?.count ?? local.selectedPaths.size}
+          onConfirm={(opts) => {
+            setUploadOptions(opts);
+            setShowOptions(false);
+            setPendingUploadSize(null);
+            startUpload(opts);
+          }}
+          onCancel={() => { setShowOptions(false); setPendingUploadSize(null); }}
         />
       )}
 
