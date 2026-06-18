@@ -261,6 +261,8 @@ pub async fn verify_cdn_urls(
         .filter(|domain| !domain.trim().is_empty())
         .ok_or_else(|| "CDN domain is required".to_string())?;
 
+    let cdn_base_path = profile.cdn_base_path.clone();
+
     let client = reqwest::Client::builder()
         .use_native_tls()
         .build()
@@ -268,15 +270,28 @@ pub async fn verify_cdn_urls(
 
     let mut checks = Vec::with_capacity(paths.len());
     for path in paths {
-        let url = build_cdn_url(&cdn_domain, &path);
+        let url = build_cdn_url(&cdn_domain, &path, cdn_base_path.as_deref());
         checks.push(check_cdn_url(&client, url).await);
     }
 
     Ok(checks)
 }
 
-fn build_cdn_url(cdn_domain: &str, path: &str) -> String {
-    cdn::build_cdn_url(cdn_domain, path)
+fn build_cdn_url(cdn_domain: &str, path: &str, cdn_base_path: Option<&str>) -> String {
+    // S3 키에서 CDN base path를 제거 (예: "contents/file.txt" + base "contents/" → "file.txt")
+    let effective_path = if let Some(base) = cdn_base_path.filter(|b| !b.trim().is_empty()) {
+        let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
+        let prefix = format!("{}/", base_stripped);
+        let key_stripped = path.trim_start_matches('/');
+        if key_stripped.starts_with(&prefix) {
+            &key_stripped[prefix.len()..]
+        } else {
+            key_stripped
+        }
+    } else {
+        path.trim_start_matches('/')
+    };
+    cdn::build_cdn_url(cdn_domain, effective_path)
 }
 
 async fn check_cdn_url(client: &reqwest::Client, url: String) -> CdnUrlCheck {
@@ -289,14 +304,17 @@ async fn check_cdn_url(client: &reqwest::Client, url: String) -> CdnUrlCheck {
         Ok(resp) => {
             let status = resp.status();
             let headers = resp.headers();
+            // 403: CDN이 응답했으므로 CDN 자체는 동작 중.
+            // 접근 제한(IP 제한, 서명 URL 필요 등)은 purge 성공 여부와 무관.
+            let is_access_restricted = status.as_u16() == 403;
             CdnUrlCheck {
                 url,
-                ok: status.is_success(),
+                ok: status.is_success() || is_access_restricted,
                 status_code: Some(status.as_u16()),
                 etag: header_to_string(headers.get(ETAG)),
                 last_modified: header_to_string(headers.get(LAST_MODIFIED)),
                 cache_control: header_to_string(headers.get(CACHE_CONTROL)),
-                error: if status.is_success() {
+                error: if status.is_success() || is_access_restricted {
                     None
                 } else {
                     Some(status.to_string())

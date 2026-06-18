@@ -36,6 +36,8 @@ pub struct ProfileConfig {
     pub cdn_distribution_id: Option<String>,
     #[serde(rename = "cdnDomain")]
     pub cdn_domain: Option<String>,
+    #[serde(rename = "cdnBasePath", skip_serializing_if = "Option::is_none")]
+    pub cdn_base_path: Option<String>,
     #[serde(rename = "purgeOnNewUpload", default)]
     pub purge_on_new_upload: bool,
     #[serde(default, rename = "purgePolicy", skip_serializing_if = "Option::is_none")]

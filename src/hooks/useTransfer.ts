@@ -119,14 +119,17 @@ export function useTransfer() {
                 .then((checks) => {
                   const check = checks[0];
                   if (check?.ok) {
+                    const isRestricted = check.statusCode === 403;
                     updateTransfer(payload.id, {
                       cdnVerified: true,
                       cdnStatusCode: check.statusCode,
                       cdnCheckError: undefined,
                     });
                     state.addLog(
-                      "success",
-                      `CDN 반영 확인: ${transfer.remotePath} (${check.statusCode})`,
+                      "info",
+                      isRestricted
+                        ? `CDN 반영 확인 (접근 제한 403): ${transfer.remotePath}`
+                        : `CDN 반영 확인: ${transfer.remotePath} (${check.statusCode})`,
                       "cdn"
                     );
                   } else {
@@ -253,7 +256,7 @@ export function useTransfer() {
           const id = crypto.randomUUID();
           // file.name이 "folder/sub/file.txt"처럼 상대경로를 포함하므로 그대로 연결
           const remotePath = remote.path + file.name;
-          const cdnUrl = buildCdnUrl(activeProfile.cdnDomain, remotePath) ?? undefined;
+          const cdnUrl = buildCdnUrl(activeProfile.cdnDomain, remotePath, activeProfile.cdnBasePath) ?? undefined;
           const cacheControl =
             activeProfile.defaultCacheControl || defaultCacheControlFor(remotePath) || undefined;
           addTransfer({

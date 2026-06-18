@@ -42,6 +42,7 @@ interface FormState {
   cdnProvider: CdnProvider | "";
   cdnDistributionId: string;
   cdnDomain: string;
+  cdnBasePath: string;
   purgeOnNewUpload: boolean;
   defaultCacheControl: string;
   contentTypeOverride: string;
@@ -73,6 +74,7 @@ const emptyForm = (): FormState => ({
   cdnProvider: "",
   cdnDistributionId: "",
   cdnDomain: "",
+  cdnBasePath: "",
   purgeOnNewUpload: false,
   defaultCacheControl: "",
   contentTypeOverride: "",
@@ -141,6 +143,7 @@ export default function ProfileModal() {
       cdnProvider: profile.cdnProvider ?? "",
       cdnDistributionId: profile.cdnDistributionId ?? "",
       cdnDomain: profile.cdnDomain ?? "",
+      cdnBasePath: profile.cdnBasePath ?? "",
       purgeOnNewUpload: profile.purgeOnNewUpload ?? false,
       defaultCacheControl: profile.defaultCacheControl ?? "",
       contentTypeOverride: profile.contentTypeOverride ?? "",
@@ -243,6 +246,7 @@ export default function ProfileModal() {
         cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
         cdnDistributionId: form.cdnDistributionId || undefined,
         cdnDomain: form.cdnDomain || undefined,
+        cdnBasePath: form.cdnBasePath || undefined,
         purgeOnNewUpload: form.purgeOnNewUpload,
         defaultCacheControl: form.defaultCacheControl || undefined,
         contentTypeOverride: form.contentTypeOverride || undefined,
@@ -916,6 +920,20 @@ export default function ProfileModal() {
                     </span>
                   )}
                 </div>
+              )}
+
+              {form.cdnProvider && (
+                <label className={styles.field}>
+                  <span>CDN Base Path (S3 → CDN 경로 변환)</span>
+                  <input
+                    value={form.cdnBasePath}
+                    onChange={setField("cdnBasePath")}
+                    placeholder="예: contents/ (S3 키에서 이 접두사를 제거해 CDN URL 구성)"
+                  />
+                  <small className={styles.helpText}>
+                    S3 키가 <code>contents/file.txt</code>이고 CDN이 <code>/file.txt</code>로 서빙한다면 <code>contents/</code> 입력
+                  </small>
+                </label>
               )}
               </fieldset>
             </details>

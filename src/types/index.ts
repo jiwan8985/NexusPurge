@@ -15,6 +15,7 @@ export interface S3Profile {
   cdnProviders?: CdnProviderConfig[];
   cdnDistributionId?: string;     // CloudFront distribution ID
   cdnDomain?: string;             // CDN 도메인 (Purge URL 구성용)
+  cdnBasePath?: string;           // S3 키에서 제거할 CDN 경로 접두사 (예: "contents/" → CDN에서 스트립)
   purgeOnNewUpload?: boolean;     // 신규 업로드에도 CDN Purge 수행
   purgePolicy?: PurgePolicy;
   uploadPolicy?: UploadPolicy;
