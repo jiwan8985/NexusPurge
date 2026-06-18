@@ -1,0 +1,34 @@
+================================================================
+시나리오 07 — 특수 파일명 Purge
+================================================================
+
+목적: 다양한 파일명 패턴에서 Purge 경로가 올바르게 인코딩·전달되는지 확인
+
+[파일 목록]
+normal-file.txt              : 기준 (일반 영문)
+한글파일명.txt               : 한글 포함 → URL 인코딩 필요
+file with spaces.txt         : 공백 포함 → %20 인코딩
+file-with-dashes_underscores : 하이픈/언더스코어 (특별 처리 불필요)
+UPPERCASE-FILE.txt           : 대문자 (대소문자 구분 확인)
+
+[테스트 A — 한글 파일명 Purge]
+1. 한글파일명.txt 업로드
+2. CDN에서 URL 인코딩된 경로로 접근 확인:
+   http://sklb-test.dn.nexoncdn.co.kr/scenarios/07_special-filename/%ED%95%9C%EA%B8%80%ED%8C%8C%EC%9D%BC%EB%AA%85.txt
+3. 원격 패널에서 선택 후 [선택 Purge] 실행
+4. Purge API에 인코딩된 경로 전달 여부 확인
+
+[테스트 B — 공백 포함 파일명 Purge]
+1. "file with spaces.txt" 업로드
+2. CDN URL: .../file%20with%20spaces.txt
+3. Purge 실행 후 캐시 무효화 확인
+
+[테스트 C — 대소문자 구분]
+1. UPPERCASE-FILE.txt 업로드
+2. 소문자로 Purge 경로 입력 시 대소문자 불일치로 캐시 유지되는지 확인
+   (S3/CDN 은 대소문자 구분 → Purge 실패 케이스)
+
+[기대 결과]
+- 한글/공백 파일명: URL 인코딩 적용되어 정상 Purge ✓
+- 대소문자 오류: 경로 불일치 → Purge 적용 안 됨 (예상된 실패)
+================================================================

@@ -1,0 +1,11 @@
+Overwrite Auto Purge Test
+==========================
+내용: 덮어쓰기 버전 (Version 2)
+
+이 파일을 content-v1.txt 이름으로 재업로드하면
+Smart Sync가 크기 변화를 감지하여 Overwrite로 분류하고
+자동 Purge를 실행합니다.
+
+Content: UPDATED
+Version: 2
+Size-marker: BBB-222-BBB-EXTENDED-CONTENT-HERE

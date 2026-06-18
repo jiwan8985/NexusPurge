@@ -1,0 +1,24 @@
+================================================================
+시나리오 01 — 단일 파일 Purge
+================================================================
+
+목적: 파일 1개만 선택하여 Purge가 정확히 해당 파일에만 적용되는지 확인
+
+[순서]
+1. file-a.txt, file-b.txt 모두 S3 contents/scenarios/01_single-purge/ 에 업로드
+2. 브라우저에서 두 파일 모두 CDN 캐시 확인 (X-Cache: Hit)
+3. 원격 패널에서 file-a.txt 만 선택
+4. [선택 Purge] 실행
+5. Purge 대상 경로 1개 확인 후 실행
+
+[검증]
+curl -I http://sklb-test.dn.nexoncdn.co.kr/scenarios/01_single-purge/file-a.txt
+→ X-Cache: Miss (Purge 적용됨)
+
+curl -I http://sklb-test.dn.nexoncdn.co.kr/scenarios/01_single-purge/file-b.txt
+→ X-Cache: Hit  (캐시 유지됨)
+
+[기대 결과]
+- file-a.txt: 캐시 무효화 ✓
+- file-b.txt: 캐시 유지 ✓
+================================================================

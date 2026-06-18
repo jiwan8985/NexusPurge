@@ -1,0 +1,11 @@
+Overwrite Auto Purge Test
+==========================
+내용: 3차 업데이트 버전 (Version 3)
+
+연속 Overwrite 테스트용입니다.
+v2 업로드 후 이 파일을 content-v1.txt 이름으로
+다시 업로드하여 자동 Purge가 반복적으로 동작하는지 확인합니다.
+
+Content: FINAL UPDATE
+Version: 3
+Size-marker: CCC-333-CCC-EXTENDED-CONTENT-HERE-AGAIN

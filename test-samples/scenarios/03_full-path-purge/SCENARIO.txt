@@ -1,0 +1,26 @@
+================================================================
+시나리오 03 — 전체 경로 Purge (와일드카드)
+================================================================
+
+목적: 특정 경로 하위 전체를 한 번에 Purge (/* 패턴)
+
+[순서]
+1. alpha.txt, beta.txt, gamma.txt 모두 업로드
+2. 원격 패널 현재 경로를 contents/scenarios/03_full-path-purge/ 로 유지
+3. 아무 파일도 선택하지 않고 [전체 Purge] 버튼 클릭
+4. PurgeDialog에서 경로 패턴 확인:
+   contents/scenarios/03_full-path-purge/*
+
+[검증]
+alpha.txt, beta.txt, gamma.txt 모두 → X-Cache: Miss
+
+[기대 결과]
+- 와일드카드 패턴으로 하위 파일 전체 무효화
+- 개별 파일 경로를 나열하지 않고 /* 한 줄로 처리
+- Akamai: CP_CODE 기반 경로 패턴 Purge
+- CloudFront: /* 패턴 InvalidationBatch
+
+[주의]
+CloudFront는 /* 패턴 Invalidation 1건당 비용이 발생합니다.
+(월 1,000건 무료, 이후 $0.005/건)
+================================================================

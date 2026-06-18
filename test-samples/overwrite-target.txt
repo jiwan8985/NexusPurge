@@ -1,0 +1,11 @@
+Overwrite Target — Version 1
+=============================
+이 파일은 덮어쓰기 테스트용입니다.
+
+[테스트 순서]
+1. 이 파일(Version 1)을 S3에 업로드
+2. overwrite-target-v2.txt 내용으로 교체하여 재업로드
+3. Smart Sync가 변경을 감지하고 Overwrite로 분류하는지 확인
+4. 자동 Purge 옵션이 켜져 있으면 Purge가 자동 실행되는지 확인
+
+Content-Hash: aaa111

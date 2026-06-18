@@ -1,0 +1,10 @@
+Purge Test File 04
+==================
+파일명: purge-test-04.txt
+목적: 전체 Purge 테스트 (배치)
+
+01~05 파일을 모두 선택하여 일괄 Purge를 실행합니다.
+전체 경로에 대한 Purge가 정상 동작하는지 확인합니다.
+
+Version: 1
+Timestamp: 2026-06-18

@@ -1,0 +1,10 @@
+Single Purge Test — File B
+==========================
+시나리오: 단일 파일 Purge
+테스트: file-a.txt 만 Purge 후 이 파일(B)은 캐시 유지 확인
+
+확인 사항:
+- Purge 후 file-a.txt → X-Cache: Miss
+- 이 파일(file-b.txt) → X-Cache: Hit (캐시 유지)
+
+Version: 1

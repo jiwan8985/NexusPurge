@@ -1,0 +1,10 @@
+Purge Test File 03
+==================
+파일명: purge-test-03.txt
+목적: 선택 Purge (개별 파일) 테스트
+
+이 파일만 선택하여 Purge를 실행합니다.
+다른 파일(01, 02)은 Purge되지 않아야 합니다.
+
+Version: 1
+Timestamp: 2026-06-18

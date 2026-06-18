@@ -1,0 +1,4 @@
+Special Filename Purge — 한글 파일명 테스트
+파일명에 한글이 포함된 경우 URL 인코딩이 올바르게 처리되는지 확인합니다.
+S3 Key: %ED%95%9C%EA%B8%80%ED%8C%8C%EC%9D%BC%EB%AA%85.txt
+Version: 1

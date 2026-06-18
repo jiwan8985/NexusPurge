@@ -1,0 +1,201 @@
+================================================================
+NexusPurge — Purge 테스트 가이드
+================================================================
+환경: sklb-test (Nexon CDN + S3 + Akamai / CloudFront)
+작성일: 2026-06-18
+================================================================
+
+
+----------------------------------------------------------------
+1. 환경 정보 요약
+----------------------------------------------------------------
+
+[S3]
+  버킷명  : sklb-test-test-kr-online-nexoncdn
+  리전    : ap-northeast-2 (서울)
+  업로드  : /contents/ 경로에 파일 배치
+  주의    : S3 직접 다운로드 불가 (Referer 헤더 차단)
+
+[경로 매핑]
+  S3 업로드 경로          →  CDN URL
+  /contents/파일명.txt   →  http://sklb-test.dn.nexoncdn.co.kr/파일명.txt
+
+[CDN]
+  서비스 도메인  : sklb-test.dn.nexoncdn.co.kr
+  Akamai 엣지   : sklb-test.dn.nexoncdn.co.kr.edgesuite.net
+  CloudFront    : d2f1611qj8oisv.cloudfront.net
+
+
+----------------------------------------------------------------
+2. 프로필 설정 (앱 최초 실행 시 1회)
+----------------------------------------------------------------
+
+---- 공통 S3 설정 ----
+  버킷명          : sklb-test-test-kr-online-nexoncdn
+  리전            : ap-northeast-2
+  Access Key ID   : (IAM 키 입력)
+  Secret Key      : (IAM 시크릿 입력)
+
+---- Akamai 프로필 ----
+  CDN Provider    : Akamai
+  HOST            : (EdgeGrid 호스트명)
+  CLIENT_TOKEN    : (EdgeGrid Client Token)
+  CLIENT_SECRET   : (EdgeGrid Client Secret)
+  ACCESS_TOKEN    : (EdgeGrid Access Token)
+  CP_CODE         : (퍼지 대상 CP CODE)
+
+---- CloudFront 프로필 ----
+  CDN Provider    : CloudFront
+  Distribution ID : d2f1611qj8oisv.cloudfront.net (또는 Distribution ID)
+  AWS Access Key  : (CloudFront Invalidation 권한 포함 IAM 키)
+  AWS Secret Key  : (IAM 시크릿)
+
+※ S3 업로드와 CloudFront Purge는 동일 IAM 키를 사용해도 됩니다.
+   IAM 키에 CloudFront:CreateInvalidation 권한이 포함되어야 합니다.
+
+
+----------------------------------------------------------------
+3. 원격 경로 설정
+----------------------------------------------------------------
+
+앱에서 원격 패널의 경로를 아래로 설정하세요:
+
+  contents/
+
+S3 버킷 루트(/) 가 아닌 /contents/ 하위에 파일을 업로드해야
+CDN에서 정상적으로 접근됩니다.
+
+
+----------------------------------------------------------------
+4. 테스트 시나리오
+----------------------------------------------------------------
+
+[시나리오 A] 기본 업로드 & CDN 확인
+--------------------------------------
+대상 파일: purge-test-01.txt
+
+1. 로컬 패널에서 test-samples/ 폴더 이동
+2. purge-test-01.txt 선택
+3. [→ 업로드] 버튼 클릭
+4. 업로드 완료 확인 (LogPanel "완료")
+5. 브라우저에서 CDN URL 접근하여 파일 확인:
+   http://sklb-test.dn.nexoncdn.co.kr/purge-test-01.txt
+
+
+[시나리오 B] 선택 Purge (개별 파일)
+--------------------------------------
+대상 파일: purge-test-03.txt (purge-test-01~05 모두 업로드 후 진행)
+
+1. purge-test-01~05.txt 모두 업로드
+2. 원격 패널에서 purge-test-03.txt 만 선택
+3. 툴바 [선택 Purge] 버튼 클릭
+4. PurgeDialog 확인 팝업에서 경로 확인:
+   - contents/purge-test-03.txt 만 표시되어야 함
+5. [Purge 실행] 클릭
+6. LogPanel → 실패 항목 탭 / 작업 로그에서 결과 확인
+7. CDN에서 캐시 무효화 확인:
+   http://sklb-test.dn.nexoncdn.co.kr/purge-test-03.txt
+
+
+[시나리오 C] 전체 경로 Purge (일괄)
+--------------------------------------
+대상 파일: purge-test-01~05.txt (모두 업로드된 상태)
+
+1. 원격 패널 경로를 contents/ 로 유지
+2. 툴바 [전체 Purge] 버튼 클릭
+3. PurgeDialog에서 "contents/*" 패턴 확인
+4. [Purge 실행] 클릭
+5. LogPanel 작업 로그에서 Purge 완료 메시지 확인
+
+
+[시나리오 D] Overwrite 후 자동 Purge
+--------------------------------------
+대상 파일: overwrite-target.txt → overwrite-target-v2.txt
+
+1. overwrite-target.txt 를 S3 contents/ 에 업로드
+   → CDN에서 파일 확인:
+     http://sklb-test.dn.nexoncdn.co.kr/overwrite-target.txt
+     (내용에 "Version: 1" 표시)
+
+2. 툴바에서 [자동 Purge] 토글을 ON으로 설정
+
+3. overwrite-target-v2.txt 파일명을 overwrite-target.txt 로 변경
+
+4. 변경된 파일을 다시 업로드
+   → Smart Sync가 크기 변화를 감지하여 "교체(Overwrite)" 분류
+   → 업로드 완료 즉시 자동 Purge 실행
+
+5. LogPanel 확인:
+   - 전송 큐 탭: 상태 "교체" + "CDN" 표시
+   - 작업 로그: "CDN Purge 완료" 메시지
+
+6. CDN에서 변경 내용 반영 확인:
+   http://sklb-test.dn.nexoncdn.co.kr/overwrite-target.txt
+   (내용에 "Version: 2" 표시)
+
+
+[시나리오 E] Skip 동작 확인
+--------------------------------------
+대상 파일: skip-target.txt
+
+1. skip-target.txt 업로드
+2. 파일 수정 없이 동일 파일 재업로드 시도
+3. Smart Sync 결과 확인:
+   - toSkip 목록에 포함되어야 함
+   - "모든 파일이 최신 상태입니다" 메시지 표시
+   - LogPanel 전송 큐: "건너뜀" 상태
+
+
+[시나리오 F] 미리보기(동기화 비교) 확인
+------------------------------------------
+대상 파일: test-samples/ 폴더 전체
+
+1. 로컬 패널: test-samples/ 경로 선택
+2. 원격 패널: contents/ 경로 유지
+3. 가운데 [⚖ 미리보기] 버튼 클릭
+4. SyncPreviewDialog에서 결과 확인:
+   - 신규 업로드 대상 / 변경 감지 / 동일(Skip) 파일 수 확인
+5. 확인 후 실제 업로드 진행 여부 결정
+
+
+----------------------------------------------------------------
+5. CDN 캐시 확인 방법
+----------------------------------------------------------------
+
+curl 명령어로 캐시 히트 여부 확인:
+
+  [Akamai]
+  curl -I http://sklb-test.dn.nexoncdn.co.kr/purge-test-01.txt
+  → 응답 헤더에 X-Check-Cacheable: YES
+     X-Cache: TCP_HIT (캐시 히트) / TCP_MISS (캐시 미스)
+
+  [CloudFront]
+  curl -I https://d2f1611qj8oisv.cloudfront.net/purge-test-01.txt
+  → 응답 헤더에 X-Cache: Hit from cloudfront (캐시 히트)
+                X-Cache: Miss from cloudfront (캐시 미스 / Purge 직후)
+
+Purge 직후에는 X-Cache: Miss 가 반환되어야 정상입니다.
+
+
+----------------------------------------------------------------
+6. 예상 에러 및 대처
+----------------------------------------------------------------
+
+[업로드 실패 - AccessDenied]
+  → IAM 키에 s3:PutObject 권한 확인
+  → 버킷 정책 또는 ACL 확인
+
+[Purge 실패 - Akamai 403]
+  → EdgeGrid 토큰 만료 여부 확인
+  → CP_CODE 값이 올바른지 확인
+
+[Purge 실패 - CloudFront InvalidationBatchAlreadyExists]
+  → 동일 caller_reference로 중복 요청 — 정상 (멱등성 보장)
+  → 잠시 후 재시도
+
+[CDN에서 파일 미반영 (Purge 후에도 캐시 히트)]
+  → Akamai는 Purge 완료까지 최대 수십 초 소요
+  → CloudFront는 Invalidation 완료까지 최대 수 분 소요
+  → LogPanel에서 Invalidation ID 확인 후 대기
+
+================================================================

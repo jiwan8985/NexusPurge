@@ -1,0 +1,42 @@
+================================================================
+시나리오 09 — CDN Provider 비교 (Akamai vs CloudFront)
+================================================================
+
+목적: 동일한 S3 파일에 대해 Akamai / CloudFront 각각 Purge 동작 비교
+
+[환경]
+S3 버킷: sklb-test-test-kr-online-nexoncdn
+Akamai   : sklb-test.dn.nexoncdn.co.kr (엣지: *.edgesuite.net)
+CloudFront: d2f1611qj8oisv.cloudfront.net
+
+[사전 준비]
+두 CDN 프로필을 각각 앱에 등록:
+- 프로필 A: CDN Provider = Akamai
+- 프로필 B: CDN Provider = CloudFront
+
+[테스트 A — Akamai Purge]
+1. 프로필 A 연결
+2. akamai-target.txt 업로드
+3. 원격 패널에서 선택 → [선택 Purge]
+4. Akamai EdgeGrid API 호출 확인 (LogPanel)
+5. CDN 무효화 확인:
+   curl -I http://sklb-test.dn.nexoncdn.co.kr/scenarios/09_provider-comparison/akamai-target.txt
+   → X-Cache: TCP_MISS (Purge 직후)
+
+[테스트 B — CloudFront Purge]
+1. 프로필 B 연결
+2. cloudfront-target.txt 업로드
+3. 원격 패널에서 선택 → [선택 Purge]
+4. CloudFront Invalidation API 호출 확인 (LogPanel에 Invalidation ID 표시)
+5. CDN 무효화 확인:
+   curl -I https://d2f1611qj8oisv.cloudfront.net/scenarios/09_provider-comparison/cloudfront-target.txt
+   → X-Cache: Miss from cloudfront
+
+[응답 속도 비교]
+Akamai   : Purge 완료 수 초 ~ 수십 초
+CloudFront: Invalidation 완료 최대 수 분 소요
+
+[기대 결과]
+Akamai Purge   : EdgeGrid API 정상 호출, 캐시 무효화 ✓
+CloudFront Purge: InvalidationBatch 생성, Invalidation ID 반환 ✓
+================================================================

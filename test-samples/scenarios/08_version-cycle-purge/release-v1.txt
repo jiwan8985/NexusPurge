@@ -1,0 +1,6 @@
+Release Note
+============
+Version: 1.0.0
+Date: 2026-01-01
+Changes: 최초 릴리즈
+Status: ACTIVE

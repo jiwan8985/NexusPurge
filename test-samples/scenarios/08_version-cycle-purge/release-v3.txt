@@ -1,0 +1,6 @@
+Release Note
+============
+Version: 3.0.0
+Date: 2026-06-18
+Changes: 성능 향상, 신규 CDN 어댑터 추가
+Status: ACTIVE

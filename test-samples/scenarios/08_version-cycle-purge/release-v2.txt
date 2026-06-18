@@ -1,0 +1,6 @@
+Release Note
+============
+Version: 2.0.0
+Date: 2026-03-01
+Changes: 기능 개선, 버그 수정
+Status: ACTIVE

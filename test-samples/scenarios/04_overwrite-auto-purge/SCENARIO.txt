@@ -1,0 +1,37 @@
+================================================================
+시나리오 04 — 덮어쓰기(Overwrite) + 자동 Purge
+================================================================
+
+목적: 파일 내용 변경 후 재업로드 시 자동 Purge가 트리거되는지 확인
+
+[사전 설정]
+- 툴바의 [자동 Purge] 토글 ON
+
+[순서 — 1회차]
+1. content-v1.txt 를 S3 업로드
+   → S3 경로: contents/scenarios/04_overwrite-auto-purge/content-v1.txt
+   → CDN에서 확인: "Version: 1" 표시
+
+2. content-v2.txt 파일을 content-v1.txt 로 이름 변경 후 재업로드
+   → Smart Sync: 파일 크기 다름 → "교체(Overwrite)" 분류
+   → 업로드 완료 후 자동 Purge 실행
+
+3. 검증:
+   curl -I http://sklb-test.dn.nexoncdn.co.kr/scenarios/04_overwrite-auto-purge/content-v1.txt
+   → X-Cache: Miss 직후 → Hit으로 전환 (갱신된 내용 캐시)
+   → 내용 확인 시 "Version: 2" 표시
+
+[순서 — 2회차 (연속 Overwrite)]
+4. content-v3.txt 파일을 content-v1.txt 로 이름 변경 후 재업로드
+5. 자동 Purge 재실행 확인
+6. CDN에서 "Version: 3" 표시 확인
+
+[LogPanel 확인 사항]
+- 전송 큐 탭: 상태 "교체" + "CDN" 배지
+- 작업 로그: "CDN Purge 완료: content-v1.txt"
+- 자동 Purge 비활성 시: Purge 실행 안 됨 (수동 실행 필요)
+
+[기대 결과]
+1회차: Version 1 → Version 2 반영 ✓
+2회차: Version 2 → Version 3 반영 ✓
+================================================================
