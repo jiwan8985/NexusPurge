@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
 import { readBatchSettings, writeBatchSetting, BATCH_DEFAULTS } from "../../utils/batch-settings";
 import styles from "./SettingsModal.module.css";
@@ -30,6 +31,11 @@ export default function SettingsModal() {
     clearLogs: s.clearLogs,
     addLog: s.addLog,
   }));
+
+  const [appVersion, setAppVersion] = useState<string>("0.1.0");
+  useEffect(() => {
+    runtime.getVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   const [batch, setBatch] = useState(() => readBatchSettings());
 
@@ -249,6 +255,35 @@ export default function SettingsModal() {
                 로그 지우기
               </button>
             </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}>단축키</div>
+            <div className={styles.shortcutGrid}>
+              {[
+                ["Ctrl+P", "프로필 관리"],
+                ["Ctrl+R", "패널 새로고침"],
+                ["Ctrl+D", "Dry-run 미리보기"],
+                ["F2", "이름 변경"],
+                ["Del", "삭제"],
+                ["Space", "파일 선택 토글"],
+                ["Enter", "폴더 열기 / 선택"],
+              ].map(([key, desc]) => (
+                <div key={key} className={styles.shortcutRow}>
+                  <kbd className={styles.kbd}>{key}</kbd>
+                  <span>{desc}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}>앱 정보</div>
+            <div className={styles.appInfo}>
+              <span className={styles.appName}>NexusPurge</span>
+              <span className={styles.appVer}>v{appVersion}</span>
+            </div>
+            <p className={styles.appDesc}>S3 듀얼 패널 파일 관리 + CDN 자동 Purge 도구</p>
           </section>
         </div>
 

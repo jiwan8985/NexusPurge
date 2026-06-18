@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CDN Upload Tool",
+  "productName": "NexusPurge",
   "version": "0.1.0",
-  "identifier": "com.yourcompany.cdn-upload-tool",
+  "identifier": "com.nexuspurge.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CDN Upload Tool",
+        "title": "NexusPurge",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
@@ -38,7 +38,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "copyright": "© 2025 CDN Upload Tool",
+    "copyright": "© 2025 NexusPurge",
     "category": "DeveloperTool",
     "shortDescription": "S3 dual-panel file manager with CDN auto-purge",
     "windows": {

@@ -43,6 +43,8 @@ export function useTransfer() {
     setShowProgressDialog,
     clearLocalSelection,
     clearRemoteSelection,
+    triggerRemoteRefresh,
+    triggerLocalRefresh,
     addLog,
     setSyncPlan,
     autoPurgeEnabled,
@@ -56,6 +58,8 @@ export function useTransfer() {
     setShowProgressDialog: s.setShowProgressDialog,
     clearLocalSelection: s.clearLocalSelection,
     clearRemoteSelection: s.clearRemoteSelection,
+    triggerRemoteRefresh: s.triggerRemoteRefresh,
+    triggerLocalRefresh: s.triggerLocalRefresh,
     addLog: s.addLog,
     setSyncPlan: s.setSyncPlan,
     autoPurgeEnabled: s.autoPurgeEnabled,
@@ -177,7 +181,9 @@ export function useTransfer() {
       unlistenRef.current = [unlistenProgress, unlistenComplete];
     };
 
-    setupListeners();
+    setupListeners().catch((err) =>
+      console.error("[useTransfer] 이벤트 리스너 등록 실패:", err)
+    );
     return () => unlistenRef.current.forEach((fn) => fn());
   }, [updateTransfer, addLog]);
 
@@ -379,6 +385,7 @@ export function useTransfer() {
 
       clearLocalSelection();
       setSyncPlan(null);
+      triggerRemoteRefresh(); // 업로드 완료 후 원격 패널 자동 갱신
     } catch (err) {
       addLog("error", `업로드 오류: ${err}`, "transfer");
       setSyncPlan(null);
@@ -387,7 +394,8 @@ export function useTransfer() {
     }
   }, [
     activeProfile, local, remote, addTransfer, buildSyncPlan,
-    setTransferring, setShowProgressDialog, clearLocalSelection, addLog, setSyncPlan, autoPurgeEnabled,
+    setTransferring, setShowProgressDialog, clearLocalSelection, triggerRemoteRefresh,
+    addLog, setSyncPlan, autoPurgeEnabled,
   ]);
 
   const startDownload = useCallback(async () => {
@@ -462,6 +470,7 @@ export function useTransfer() {
       void saveOperationLog(downloadLog);
 
       clearRemoteSelection();
+      triggerLocalRefresh(); // 다운로드 완료 후 로컬 패널 자동 갱신
     } catch (err) {
       addLog("error", `다운로드 오류: ${err}`, "transfer");
     } finally {
@@ -469,7 +478,7 @@ export function useTransfer() {
     }
   }, [
     activeProfile, local, remote, addTransfer,
-    setTransferring, setShowProgressDialog, clearRemoteSelection, addLog,
+    setTransferring, setShowProgressDialog, clearRemoteSelection, triggerLocalRefresh, addLog,
   ]);
 
   // L-1: 로컬 디렉터리 전체 ↔ S3 prefix 비교 (dry-run)

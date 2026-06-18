@@ -179,7 +179,7 @@ export const useAppStore = create<AppState>()(
     theme: "system" as "light" | "dark" | "system",
 
     // ── Auto-Purge ────────────────────────────────────────────────────────────
-    autoPurgeEnabled: false,
+    autoPurgeEnabled: window.localStorage.getItem("nexuspurge.autoPurgeEnabled") === "true",
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
@@ -280,8 +280,15 @@ export const useAppStore = create<AppState>()(
       })),
 
     // ── Auto-Purge Actions ────────────────────────────────────────────────────
-    setAutoPurgeEnabled: (autoPurgeEnabled) => set({ autoPurgeEnabled }),
-    toggleAutoPurge: () => set((s) => ({ autoPurgeEnabled: !s.autoPurgeEnabled })),
+    setAutoPurgeEnabled: (enabled) => {
+      window.localStorage.setItem("nexuspurge.autoPurgeEnabled", String(enabled));
+      set({ autoPurgeEnabled: enabled });
+    },
+    toggleAutoPurge: () => set((s) => {
+      const next = !s.autoPurgeEnabled;
+      window.localStorage.setItem("nexuspurge.autoPurgeEnabled", String(next));
+      return { autoPurgeEnabled: next };
+    }),
 
     // ── Modal Actions ─────────────────────────────────────────────────────────
     openProfileModal: () => set({ isProfileModalOpen: true }),

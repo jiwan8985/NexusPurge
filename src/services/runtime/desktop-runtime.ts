@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { getVersion as tauriGetVersion } from "@tauri-apps/api/app";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -45,4 +46,5 @@ export const desktopRuntime: RuntimeBridge = {
   closeWindow: async () => {
     await getCurrentWindow().close();
   },
+  getVersion: () => tauriGetVersion(),
 };

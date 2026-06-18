@@ -903,23 +903,30 @@ export default function ProfileModal() {
               )}
 
               {form.cdnProvider && (
-                <div className={styles.testRow}>
-                  <button
-                    type="button"
-                    className={styles.testBtn}
-                    onClick={handleTestCdnConnection}
-                    disabled={isTestingCdn}
-                  >
-                    {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
-                  </button>
-                  {cdnTestResult && (
-                    <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
-                      {cdnTestResult.success
-                        ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
-                        : `✗ ${cdnTestResult.error}`}
-                    </span>
-                  )}
-                </div>
+                ["lguplus", "hyosung", "kt"].includes(form.cdnProvider) ? (
+                  <div className={styles.unsupportedNotice}>
+                    <strong>⚠ {form.cdnProvider === "lguplus" ? "LG U+" : form.cdnProvider === "hyosung" ? "Hyosung" : "KT"} CDN은 현재 미지원입니다.</strong>
+                    <p>API 명세 확보 후 다음 버전에서 지원 예정입니다. CloudFront 또는 Akamai를 사용해 주세요.</p>
+                  </div>
+                ) : (
+                  <div className={styles.testRow}>
+                    <button
+                      type="button"
+                      className={styles.testBtn}
+                      onClick={handleTestCdnConnection}
+                      disabled={isTestingCdn}
+                    >
+                      {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
+                    </button>
+                    {cdnTestResult && (
+                      <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
+                        {cdnTestResult.success
+                          ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
+                          : `✗ ${cdnTestResult.error}`}
+                      </span>
+                    )}
+                  </div>
+                )
               )}
 
               {form.cdnProvider && (

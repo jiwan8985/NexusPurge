@@ -35,4 +35,7 @@ export const webRuntime: RuntimeBridge = {
   async closeWindow() {
     return undefined;
   },
+  async getVersion() {
+    return "0.1.0";
+  },
 };

@@ -62,3 +62,37 @@
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
+
+.textMuted {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.active {
+  color: var(--color-accent);
+}
+
+.speed {
+  font-size: var(--font-size-xs);
+  font-family: var(--font-family-mono);
+  color: var(--color-success);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.errBadge {
+  color: var(--color-error);
+  font-weight: 700;
+}
+
+.cdnBadge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}

@@ -12,4 +12,5 @@ export interface RuntimeBridge {
   minimizeWindow(): Promise<void>;
   toggleMaximizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
+  getVersion(): Promise<string>;
 }
