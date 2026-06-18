@@ -1,0 +1,5 @@
+Upload During Purge — File 01
+이 파일은 업로드 중 Purge 시도 테스트용입니다.
+파일이 크지 않으므로 타이밍을 맞추기 어렵습니다.
+실제 테스트는 대용량 파일 업로드 중에 Purge 버튼을 눌러서 확인하세요.
+Size padding: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA

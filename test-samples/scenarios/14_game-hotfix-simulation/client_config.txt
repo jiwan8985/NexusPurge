@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: client_config
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

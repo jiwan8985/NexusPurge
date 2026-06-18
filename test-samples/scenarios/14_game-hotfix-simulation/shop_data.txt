@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: shop_data
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

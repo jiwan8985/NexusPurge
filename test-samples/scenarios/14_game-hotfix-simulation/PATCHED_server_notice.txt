@@ -1,0 +1,5 @@
+﻿HOTFIX TARGET: server_notice
+Version: AFTER_PATCH
+Critical: YES
+Deploy: COMPLETE
+Fixed: BUG-2024-001

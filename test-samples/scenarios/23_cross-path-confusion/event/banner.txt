@@ -1,0 +1,1 @@
+﻿EVENT (대문자) PATH: /EVENT/banner.txt | Version: 1

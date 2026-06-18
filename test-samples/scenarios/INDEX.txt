@@ -6,6 +6,7 @@ CDN      : sklb-test.dn.nexoncdn.co.kr
 경로 매핑: S3 /contents/ → CDN /
 ================================================================
 
+── 기본 시나리오 (일반 사용) ──────────────────────────────────────
 번호  폴더명                    핵심 검증 포인트
 ----  -------------------------  ----------------------------------------
 01    01_single-purge            단일 파일 Purge, 인접 파일 캐시 유지 확인
@@ -17,15 +18,38 @@ CDN      : sklb-test.dn.nexoncdn.co.kr
 07    07_special-filename        한글/공백/대소문자 파일명 인코딩 처리
 08    08_version-cycle-purge     릴리즈 배포 사이클 (v1→v2→v3 교체)
 09    09_provider-comparison     Akamai vs CloudFront Purge API 비교
-10    10_edge-cases              동일 파일명/빈 파일/연속 업데이트 등 엣지 케이스
+10    10_edge-cases              동일 파일명/빈 파일/연속 업데이트 엣지 케이스
+
+── 비정상/게임사 특수 시나리오 ────────────────────────────────────
+번호  폴더명                    핵심 검증 포인트
+----  -------------------------  ----------------------------------------
+11    11_double-purge            Purge 완료 직후 즉시 재Purge (중복 Purge)
+12    12_nonexistent-purge       S3에 없는 파일/삭제된 파일 Purge
+13    13_purge-during-upload     업로드 진행 중 Purge 버튼 동시 클릭
+14    14_game-hotfix-simulation  긴급 핫픽스 10개 파일 동시 교체+Purge
+15    15_maintenance-notice-cycle 점검 공지 단시간 4회 연속 교체 (연장/재연장)
+16    16_rollback-purge          버그 배포 후 이전 버전으로 즉시 롤백+Purge
+17    17_wrong-profile-purge     잘못된 자격증명/미설정 프로필로 Purge 시도
+18    18_extreme-long-path       200자 파일명 / 10단계 중첩 경로 / S3 키 한계
+19    19_root-nuke-purge         루트(/) 경로에서 전체 Purge ("핵폭탄" 상황)
+20    20_same-file-multi-user    여러 운영자가 동시에 같은 파일 업로드+Purge
+21    21_purge-only-no-upload    업로드 없이 Purge만 반복/버튼 연타
+22    22_upload-same-file-repeat 동일 파일 수십 번 반복 업로드+Purge
+23    23_cross-path-confusion    event/event_old/EVENT 경로 혼동 오인 Purge
+24    24_partial-failure-purge   Purge 부분 성공/실패, 네트워크 불안정
 
 ----------------------------------------------------------------
 권장 테스트 순서
 ----------------------------------------------------------------
-처음 실행 시: 01 → 02 → 03 (기본 동작 확인)
-자동 Purge : 04 → 08 (Overwrite + 버전 배포 패턴)
-안정성 검증: 06 → 07 → 10 (배치, 특수 파일명, 엣지 케이스)
-Provider 비교: 09 (Akamai / CloudFront 각각)
+처음 실행 시 : 01 → 02 → 03
+자동 Purge   : 04 → 08 → 15 → 16
+안정성 검증  : 06 → 07 → 10 → 18 → 24
+게임사 운영  : 14 → 15 → 16 → 22 (핫픽스/공지/롤백)
+비정상 사용  : 11 → 12 → 19 → 21 → 23 (이상 패턴)
+Provider 비교: 09 (Akamai / CloudFront)
+
+⚠️  19번(루트 전체 Purge)은 테스트 환경(sklb-test)에서만 실행
+⚠️  17번(잘못된 자격증명)은 테스트 전용 프로필 별도 생성 후 실행
 
 각 시나리오 폴더의 SCENARIO.txt 파일에 상세 순서와 검증 방법 기재.
 ================================================================

@@ -1,0 +1,40 @@
+================================================================
+시나리오 23 — 비슷한 경로 혼동 Purge (경로 오인 실수)
+================================================================
+
+목적: 비슷하게 생긴 경로가 여러 개 있을 때 잘못된 경로를 Purge하거나
+      정작 필요한 경로를 빠뜨리는 실수 시나리오
+
+[경로 구조]
+event/banner.txt      : 현재 운영 중인 이벤트 배너
+event_old/banner.txt  : 구버전 경로 (더 이상 사용 안 함)
+EVENT/banner.txt      : 대문자 경로 (잘못 업로드된 파일)
+
+[테스트 A — event_old 를 event 로 오인하여 Purge]
+1. 세 경로 모두 업로드 (CDN 캐시 생성)
+2. 운영자가 event 경로 Purge 의도로 event_old 선택
+3. [선택 Purge] 실행
+
+[기대 결과 A]
+- event_old/banner.txt 캐시만 무효화
+- event/banner.txt 캐시는 유지 (운영 배너 영향 없음)
+
+[테스트 B — 대소문자 혼동 (EVENT vs event)]
+1. event/banner.txt 만 Purge 의도
+2. 실수로 EVENT/banner.txt 선택
+3. S3는 대소문자 구분 → 다른 파일이 Purge됨
+
+[기대 결과 B]
+- EVENT/banner.txt 캐시 무효화
+- event/banner.txt 캐시 유지
+
+[테스트 C — 의도한 경로만 정확히 Purge]
+1. 원격 패널에서 event/banner.txt 정확히 선택
+2. [선택 Purge] 실행
+3. PurgeDialog 경로 미리보기에서 경로 확인 후 실행
+
+[교훈]
+- Purge 실행 전 PurgeDialog에서 경로 목록 반드시 확인
+- event vs event_old vs EVENT 는 완전히 다른 S3 키
+- UI에서 전체 경로(full path)를 표시하는 것이 중요
+================================================================

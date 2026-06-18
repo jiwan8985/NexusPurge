@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: skill_balance
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

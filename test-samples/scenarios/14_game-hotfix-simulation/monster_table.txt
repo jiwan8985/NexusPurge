@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: monster_table
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

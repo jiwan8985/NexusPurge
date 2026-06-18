@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: event_banner_main
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

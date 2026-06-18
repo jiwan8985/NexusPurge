@@ -1,0 +1,4 @@
+Upload During Purge — Already Cached
+이 파일은 사전에 업로드되어 CDN에 캐시된 상태입니다.
+업로드 진행 중에 이 파일을 Purge하는 시나리오에 사용합니다.
+Version: 1

@@ -1,0 +1,4 @@
+﻿HOTFIX TARGET: version_info
+Version: BEFORE_PATCH
+Critical: YES
+Deploy: EMERGENCY

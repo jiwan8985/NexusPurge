@@ -1,0 +1,5 @@
+Repeat Upload Target
+====================
+동일한 파일을 수십 번 반복 업로드하는 테스트
+내용과 크기가 동일하므로 Smart Sync는 Skip 처리해야 함
+Version: FIXED (변경 없음)
