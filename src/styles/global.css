@@ -48,7 +48,7 @@ button {
   background: none;
   color: inherit;
   -webkit-app-region: no-drag;
-  transition: all var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 button:disabled {
@@ -82,9 +82,9 @@ select option { background: var(--color-bg-elevated); }
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: var(--spacing-5);
-  gap: var(--spacing-5);
-  background-color: var(--color-bg-subtle);
+  padding: var(--spacing-4);
+  gap: var(--spacing-4);
+  background-color: var(--color-bg-secondary);
 }
 
 .panels-row {
@@ -92,5 +92,5 @@ select option { background: var(--color-bg-elevated); }
   display: flex;
   min-height: 0;
   overflow: hidden;
-  gap: var(--spacing-5);
+  gap: var(--spacing-4);
 }

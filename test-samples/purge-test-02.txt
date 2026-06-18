@@ -3,9 +3,16 @@ Purge Test File 02
 파일명: purge-test-02.txt
 목적: 덮어쓰기(Overwrite) 후 자동 Purge 테스트
 
+
+
+test tetst test test test test test
+
+test tetst test test test test test
+
+test tetst test test test test test
 1. 이 파일을 S3에 업로드
 2. 파일 내용 수정 후 다시 업로드 (Overwrite)
 3. 자동 Purge 기능이 트리거되는지 확인
 
-Version: 1
+Version: 3
 Timestamp: 2026-06-18

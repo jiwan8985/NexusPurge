@@ -2,95 +2,132 @@
   display: flex;
   align-items: center;
   height: var(--toolbar-height);
-  background: var(--color-bg-base);
+  background: var(--color-bg-subtle);
   border-bottom: var(--border-width) solid var(--color-border);
   padding: 0 var(--spacing-5);
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   flex-shrink: 0;
 }
 
-.connectionArea,
-.actionArea {
+.group {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
+  gap: var(--spacing-1);
 }
 
 .toolBtn {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
-  height: 32px;
+  height: 30px;
   padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--color-text-secondary);
-  background: var(--color-bg-base);
-  border: var(--border-width) solid var(--color-border);
-  transition: all var(--transition-fast);
+  background: transparent;
+  border: var(--border-width) solid transparent;
   white-space: nowrap;
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .toolBtn:hover:not(:disabled) {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border);
 }
 
 .toolBtn:active:not(:disabled) {
+  background: var(--color-bg-active);
   transform: scale(0.98);
 }
 
-.toolBtn.primary {
-  color: var(--color-text-on-accent);
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+.icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
-.toolBtn.primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
+.toolBtn:hover:not(:disabled) .icon,
+.toolBtn:focus-visible .icon {
+  opacity: 1;
 }
 
-.toolBtnIcon {
+/* ── 연결됨 상태 버튼 ────────────────────────────────────────────────────── */
+.connected {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 25%, transparent);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+}
+
+.connected:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  color: var(--color-success);
+}
+
+.connDotInline {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+  flex-shrink: 0;
 }
 
-/* 자동 Purge 토글 버튼 */
-.purgeActive {
-  color: var(--color-text-on-accent, #fff);
-  background: #e05c2a;
-  border-color: #c94e20;
+/* ── Primary ────────────────────────────────────────────────────────────── */
+.primary {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-text-on-accent);
+}
+
+/* ── 자동 Purge 토글 ────────────────────────────────────────────────────── */
+.purgeOn {
+  color: #fff;
+  background: #c94e20;
+  border-color: #b04219;
   font-weight: 700;
 }
 
-.purgeActive:hover:not(:disabled) {
-  background: #c94e20;
-  border-color: #b04219;
+.purgeOn:hover:not(:disabled) {
+  background: #b04219;
+  border-color: #943613;
+  color: #fff;
 }
 
-.purgeInactive {
+.purgeOff {
   color: var(--color-text-secondary);
-  border-style: dashed;
+  border-color: var(--color-border-strong);
+  background: transparent;
 }
 
-.separator {
+.purgeOff:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+/* ── Separator ──────────────────────────────────────────────────────────── */
+.sep {
   width: var(--border-width);
-  height: 20px;
+  height: 18px;
   background: var(--color-border);
   margin: 0 var(--spacing-2);
   flex-shrink: 0;
 }
 
-.spacer {
-  flex: 1;
-}
+.spacer { flex: 1; }
 
-/* ── Purge 진행 중 플로팅 칩 ───────────────────────────────────────────────── */
+/* ── Purge 진행 중 플로팅 칩 ────────────────────────────────────────────── */
 .purgeChip {
   position: fixed;
   bottom: 20px;
@@ -103,11 +140,11 @@
   border-radius: 999px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-strong);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  box-shadow: var(--shadow-lg);
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-primary);
-  animation: chipIn 200ms cubic-bezier(0.2,0,0,1) both;
+  animation: chipIn 200ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .purgeChipDot {
