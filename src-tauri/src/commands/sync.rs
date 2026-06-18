@@ -116,7 +116,50 @@ struct TransferCompletePayload {
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-/// 지정된 로컬 파일 목록과 S3 ETag를 비교해 업로드/스킵/덮어쓰기 플랜 생성
+/// 파일/폴더 경로 목록을 `(절대경로, 상대경로)` 파일 목록으로 확장.
+/// 폴더는 재귀 탐색하여 `폴더명/하위경로` 형태의 상대경로를 반환한다.
+async fn expand_paths_to_files(paths: &[String]) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    for path_str in paths {
+        let p = Path::new(path_str);
+        match tokio::fs::metadata(p).await {
+            Ok(meta) if meta.is_dir() => {
+                let folder_name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if let Ok(files) = collect_local_files(p).await {
+                    for (rel, abs_path) in files {
+                        let full_rel = if folder_name.is_empty() {
+                            rel
+                        } else {
+                            format!("{}/{}", folder_name, rel)
+                        };
+                        result.push((abs_path.to_string_lossy().into_owned(), full_rel));
+                    }
+                }
+            }
+            Ok(_) => {
+                let file_name = p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !file_name.is_empty() {
+                    result.push((path_str.clone(), file_name));
+                }
+            }
+            Err(e) => {
+                tracing::warn!("경로 접근 실패, 건너뜀: {} ({})", path_str, e);
+            }
+        }
+    }
+    result
+}
+
+/// 지정된 로컬 파일/폴더 목록과 S3 ETag를 비교해 업로드/스킵/덮어쓰기 플랜 생성.
+/// 폴더 경로가 포함된 경우 재귀적으로 파일을 확장하며, 상대 경로 구조를 S3 키에 보존한다.
 #[tauri::command]
 pub async fn build_sync_plan(
     profile_id:    String,
@@ -154,18 +197,26 @@ pub async fn build_sync_plan(
             "etag".to_string()
         },
     };
+
+    // 폴더를 재귀적으로 파일로 확장 — (절대경로, 상대경로) 목록
+    let expanded = expand_paths_to_files(&local_paths).await;
+    tracing::info!(
+        "build_sync_plan: 입력 {}개 경로 → 확장 후 {}개 파일",
+        local_paths.len(),
+        expanded.len()
+    );
+
     let mut tasks: JoinSet<
         Option<(String, String, String, u64, String, String, Option<(u64, Option<String>)>)>,
     > = JoinSet::new();
 
-    for local_path in local_paths {
+    for (local_path, rel_path) in expanded {
         let adapter = adapter.clone();
-        let prefix = remote_prefix.clone();
+        let prefix  = remote_prefix.clone();
 
         tasks.spawn(async move {
-            let path = Path::new(&local_path);
-            let file_name = path.file_name()?.to_str()?.to_string();
-            let remote_key = format!("{}{}", prefix, file_name);
+            let p = Path::new(&local_path);
+            let remote_key = format!("{}{}", prefix, rel_path);
 
             let metadata = tokio::fs::metadata(&local_path).await.ok()?;
             let size = metadata.len();
@@ -180,17 +231,16 @@ pub async fn build_sync_plan(
                 .flatten()
                 .map(|meta| (meta.size, meta.etag));
 
-            // 파일 크기에 따라 비교할 ETag를 결정:
-            // 10MB 이상이면 S3 멀티파트 ETag 형식("hash-N")으로 계산해야 원격과 일치한다.
+            // 10MB 이상이면 S3 멀티파트 ETag 형식("hash-N")으로 계산
             let local_etag = if size >= MULTIPART_THRESHOLD {
-                hash::calculate_multipart_etag(path, PART_SIZE).await.ok()?
+                hash::calculate_multipart_etag(p, PART_SIZE).await.ok()?
             } else {
                 hash::compute_file_md5(&local_path).await.ok()?
             };
 
             Some((
                 local_path,
-                file_name,
+                rel_path,   // FileItem.name: 폴더 포함 상대 경로
                 remote_key,
                 size,
                 last_modified,
@@ -202,8 +252,8 @@ pub async fn build_sync_plan(
 
     while let Some(Ok(Some((
         local_path,
-        file_name,
-        _remote_key,
+        rel_path,
+        remote_key,
         size,
         last_modified,
         local_etag,
@@ -211,7 +261,7 @@ pub async fn build_sync_plan(
     )))) = tasks.join_next().await
     {
         let item = FileItem {
-            name:          file_name,
+            name:          rel_path,   // 폴더 포함 상대 경로 ("folder/sub/file.txt")
             path:          local_path,
             size,
             last_modified,
@@ -237,7 +287,7 @@ pub async fn build_sync_plan(
         match remote_etag {
             None => {
                 if profile.purge_on_new_upload && profile.cdn_provider.is_some() {
-                    plan.purge_targets.push(_remote_key);
+                    plan.purge_targets.push(remote_key);
                 }
                 plan.to_upload.push(item)
             }
@@ -245,7 +295,7 @@ pub async fn build_sync_plan(
                 plan.to_skip.push(item)
             }
             Some(_) => {
-                plan.purge_targets.push(_remote_key);
+                plan.purge_targets.push(remote_key);
                 plan.to_overwrite.push(item)
             }
         }

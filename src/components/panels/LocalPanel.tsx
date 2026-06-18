@@ -142,6 +142,7 @@ export default function LocalPanel() {
 
   const handleRowClick = (event: React.MouseEvent, file: FileItem) => {
     if (event.ctrlKey || event.metaKey) {
+      // Ctrl/Cmd+클릭: 파일/폴더 모두 선택 토글 (폴더는 통째 업로드)
       toggleLocalSelection(file.path);
     } else if (file.isDirectory) {
       loadDirectory(file.path);
@@ -162,6 +163,12 @@ export default function LocalPanel() {
       label: file.isDirectory ? "폴더 열기" : "선택",
       action: () => (file.isDirectory ? loadDirectory(file.path) : toggleLocalSelection(file.path)),
     },
+    ...(file.isDirectory
+      ? [{
+          label: local.selectedPaths.has(file.path) ? "폴더 선택 해제" : "폴더 선택 (통째 업로드)",
+          action: () => toggleLocalSelection(file.path),
+        }]
+      : []),
     { divider: true },
     { label: "경로 복사", action: () => navigator.clipboard.writeText(file.path) },
   ];
@@ -188,11 +195,14 @@ export default function LocalPanel() {
     }
   };
 
-  const selectedFiles = local.files.filter((file) => local.selectedPaths.has(file.path));
-  const selectedSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  const selectedItems = local.files.filter((file) => local.selectedPaths.has(file.path));
+  const selectedDirs  = selectedItems.filter((f) => f.isDirectory).length;
+  const selectedSize  = selectedItems.reduce((sum, file) => sum + file.size, 0);
   const footerText =
     local.selectedPaths.size > 0
-      ? `${local.selectedPaths.size}개 선택 · ${fmtSize(selectedSize)}`
+      ? selectedDirs > 0
+        ? `${local.selectedPaths.size}개 선택 (폴더 ${selectedDirs}개 포함 — 내부 파일 전체 업로드)`
+        : `${local.selectedPaths.size}개 선택 · ${fmtSize(selectedSize)}`
       : `${local.files.length}개 항목`;
 
   return (
@@ -264,6 +274,7 @@ export default function LocalPanel() {
                         file.isDirectory ? await loadDirectory(file.path) : toggleLocalSelection(file.path);
                       } else if (event.key === " ") {
                         event.preventDefault();
+                        // Space: 파일과 폴더 모두 선택 토글 (폴더는 통째 업로드)
                         toggleLocalSelection(file.path);
                       } else if (event.key === "Delete" || event.key === "Backspace") {
                         event.preventDefault();
@@ -273,7 +284,7 @@ export default function LocalPanel() {
                         await renameLocalFile(file);
                       }
                     }}
-                    draggable={!file.isDirectory}
+                    draggable
                     onDragStart={(event) => {
                       if (!local.selectedPaths.has(file.path)) {
                         clearLocalSelection();

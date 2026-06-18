@@ -44,9 +44,17 @@ export default function TransferButtons() {
 
   const handleUpload = () => {
     const cfg = readBatchSettings();
-    const selectedFiles = local.files.filter((f) => local.selectedPaths.has(f.path));
-    const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
-    const count = selectedFiles.length;
+    const selectedItems = local.files.filter((f) => local.selectedPaths.has(f.path));
+    const hasDirectory = selectedItems.some((f) => f.isDirectory);
+    const totalSize = selectedItems.reduce((sum, f) => sum + f.size, 0);
+    const count = selectedItems.length;
+
+    if (hasDirectory) {
+      // 폴더 포함 시: 실제 파일 수는 sync plan이 확정하므로 개수 경고를 건너뜀
+      // 대용량 경고도 폴더 크기가 0으로 표시되어 의미 없음 → 바로 옵션으로 진행
+      proceedToOptions(totalSize, count);
+      return;
+    }
 
     if (count >= cfg.fileCountLimit) {
       const msg = `선택한 파일이 ${count}개입니다 (${cfg.fileCountLimit.toLocaleString()}개 이상).\n` +

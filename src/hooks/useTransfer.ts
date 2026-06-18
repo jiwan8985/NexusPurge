@@ -245,10 +245,11 @@ export function useTransfer() {
       }
 
       // 3. 업로드 대상 Rust에 전달 (병렬 처리)
-      // 기본은 덮어쓰기만 Purge. 프로파일 옵션이 켜진 경우 신규 업로드도 Purge.
+      // file.name은 폴더 포함 상대경로 ("folder/sub/file.txt" 또는 "file.txt")
       const makeItems = (files: typeof plan.toUpload, isOverwrite: boolean) =>
         files.map((file) => {
           const id = crypto.randomUUID();
+          // file.name이 "folder/sub/file.txt"처럼 상대경로를 포함하므로 그대로 연결
           const remotePath = remote.path + file.name;
           const cdnUrl = buildCdnUrl(activeProfile.cdnDomain, remotePath) ?? undefined;
           const cacheControl =
