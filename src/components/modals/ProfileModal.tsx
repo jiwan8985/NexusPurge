@@ -10,7 +10,6 @@ const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "cloudfront", label: "AWS CloudFront" },
   { value: "akamai",     label: "Akamai" },
   { value: "lguplus",    label: "LG U+ CDN" },
-  { value: "hyosung",    label: "Hyosung CDN" },
   { value: "kt",         label: "KT CDN" },
 ];
 
@@ -47,19 +46,22 @@ interface FormState {
   defaultCacheControl: string;
   contentTypeOverride: string;
   multipartEtagFallback: boolean;
-  // H-6: Akamai 전용 필드
+  // Akamai EdgeGrid
   akamaiClientToken: string;
   akamaiClientSecret: string;
   akamaiAccessToken: string;
   akamaiHost: string;
-  lguplusApiKey: string;
-  lguplusApiSecret: string;
+  // LG U+ CDN
+  lguplusUsername: string;
+  lguplusPassword: string;
+  lguplusServiceName: string;
+  lguplusVolumeName: string;
   lguplusEndpoint: string;
-  hyosungApiKey: string;
-  hyosungApiSecret: string;
-  hyosungEndpoint: string;
-  ktApiKey: string;
-  ktApiSecret: string;
+  // KT CDN
+  ktUsername: string;
+  ktPassword: string;
+  ktServiceName: string;
+  ktVolumeName: string;
   ktEndpoint: string;
 }
 
@@ -83,14 +85,15 @@ const emptyForm = (): FormState => ({
   akamaiClientSecret: "",
   akamaiAccessToken: "",
   akamaiHost: "",
-  lguplusApiKey: "",
-  lguplusApiSecret: "",
+  lguplusUsername: "",
+  lguplusPassword: "",
+  lguplusServiceName: "",
+  lguplusVolumeName: "",
   lguplusEndpoint: "",
-  hyosungApiKey: "",
-  hyosungApiSecret: "",
-  hyosungEndpoint: "",
-  ktApiKey: "",
-  ktApiSecret: "",
+  ktUsername: "",
+  ktPassword: "",
+  ktServiceName: "",
+  ktVolumeName: "",
   ktEndpoint: "",
 });
 
@@ -109,6 +112,7 @@ export default function ProfileModal() {
   const [cdnTestResult, setCdnTestResult] = useState<CdnConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [confirmRequest, setConfirmRequest] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
 
   // 검색
@@ -152,14 +156,15 @@ export default function ProfileModal() {
       akamaiClientSecret: "",  // 보안상 마스킹
       akamaiAccessToken: profile.akamaiAccessToken ?? "",
       akamaiHost: profile.akamaiHost ?? "",
-      lguplusApiKey: profile.lguplusApiKey ?? "",
-      lguplusApiSecret: "",
+      lguplusUsername: profile.lguplusUsername ?? "",
+      lguplusPassword: "",     // 보안상 마스킹
+      lguplusServiceName: profile.lguplusServiceName ?? "",
+      lguplusVolumeName: profile.lguplusVolumeName ?? "",
       lguplusEndpoint: profile.lguplusEndpoint ?? "",
-      hyosungApiKey: profile.hyosungApiKey ?? "",
-      hyosungApiSecret: "",
-      hyosungEndpoint: profile.hyosungEndpoint ?? "",
-      ktApiKey: profile.ktApiKey ?? "",
-      ktApiSecret: "",
+      ktUsername: profile.ktUsername ?? "",
+      ktPassword: "",          // 보안상 마스킹
+      ktServiceName: profile.ktServiceName ?? "",
+      ktVolumeName: profile.ktVolumeName ?? "",
       ktEndpoint: profile.ktEndpoint ?? "",
     });
   };
@@ -255,14 +260,15 @@ export default function ProfileModal() {
         akamaiClientSecret: form.akamaiClientSecret || undefined,
         akamaiAccessToken: form.akamaiAccessToken || undefined,
         akamaiHost: form.akamaiHost || undefined,
-        lguplusApiKey: form.lguplusApiKey || undefined,
-        lguplusApiSecret: form.lguplusApiSecret || undefined,
+        lguplusUsername: form.lguplusUsername || undefined,
+        lguplusPassword: form.lguplusPassword || undefined,
+        lguplusServiceName: form.lguplusServiceName || undefined,
+        lguplusVolumeName: form.lguplusVolumeName || undefined,
         lguplusEndpoint: form.lguplusEndpoint || undefined,
-        hyosungApiKey: form.hyosungApiKey || undefined,
-        hyosungApiSecret: form.hyosungApiSecret || undefined,
-        hyosungEndpoint: form.hyosungEndpoint || undefined,
-        ktApiKey: form.ktApiKey || undefined,
-        ktApiSecret: form.ktApiSecret || undefined,
+        ktUsername: form.ktUsername || undefined,
+        ktPassword: form.ktPassword || undefined,
+        ktServiceName: form.ktServiceName || undefined,
+        ktVolumeName: form.ktVolumeName || undefined,
         ktEndpoint: form.ktEndpoint || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -289,18 +295,22 @@ export default function ProfileModal() {
       return;
     }
 
+    if (!isLocalStack && shouldConfirmExternalRequests()) {
+      setConfirmRequest({
+        message: "실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
+        onConfirm: () => void runS3Test(accessKeyId, secretAccessKey),
+      });
+      return;
+    }
+    void runS3Test(accessKeyId, secretAccessKey);
+  };
+
+  const runS3Test = async (accessKeyId: string, secretAccessKey: string) => {
     setIsTesting(true);
     setTestResult(null);
     setError(null);
 
     try {
-      if (
-        !isLocalStack &&
-        shouldConfirmExternalRequests() &&
-        !window.confirm("실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")
-      ) {
-        return;
-      }
       if (secretAccessKey) {
         // 직접 입력값으로 테스트
         const result = await testConnection({
@@ -339,22 +349,36 @@ export default function ProfileModal() {
       setError("CloudFront Distribution ID를 입력하세요.");
       return;
     }
-    if ((form.cdnProvider === "akamai" || form.cdnProvider === "lguplus" || form.cdnProvider === "hyosung" || form.cdnProvider === "kt") && !form.cdnDomain) {
+    if (form.cdnProvider === "akamai" && !form.cdnDomain) {
       setError("CDN 도메인을 입력하세요.");
       return;
     }
+    if (form.cdnProvider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName)) {
+      setError("LG U+ CDN Username과 Service Name을 입력하세요.");
+      return;
+    }
+    if (form.cdnProvider === "kt" && (!form.ktUsername || !form.ktServiceName)) {
+      setError("KT CDN Username과 Service Name을 입력하세요.");
+      return;
+    }
 
+    if (shouldConfirmExternalRequests()) {
+      setConfirmRequest({
+        message: "실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
+        onConfirm: () => void runCdnTest(),
+      });
+      return;
+    }
+    void runCdnTest();
+  };
+
+  const runCdnTest = async () => {
+    if (!editingId || !form.cdnProvider) return;
     setIsTestingCdn(true);
     setCdnTestResult(null);
     setError(null);
 
     try {
-      if (
-        shouldConfirmExternalRequests() &&
-        !window.confirm("실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다. 계속할까요?")
-      ) {
-        return;
-      }
       const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
         profileId: editingId,
         provider: form.cdnProvider,
@@ -396,7 +420,6 @@ export default function ProfileModal() {
   const isAkamai = form.cdnProvider === "akamai";
   const isCloudFront = form.cdnProvider === "cloudfront";
   const isLguplus = form.cdnProvider === "lguplus";
-  const isHyosung = form.cdnProvider === "hyosung";
   const isKt = form.cdnProvider === "kt";
 
   const filteredProfiles = profiles.filter(
@@ -408,6 +431,20 @@ export default function ProfileModal() {
 
   return (
     <>
+    {confirmRequest && (
+      <ConfirmDialog
+        title="외부 API 요청 확인"
+        message={<p>{confirmRequest.message}</p>}
+        confirmLabel="계속 진행"
+        onConfirm={() => {
+          const req = confirmRequest;
+          setConfirmRequest(null);
+          req.onConfirm();
+        }}
+        onCancel={() => setConfirmRequest(null)}
+      />
+    )}
+
     {deleteConfirmId && (
       <ConfirmDialog
         title="프로필 삭제"
@@ -791,74 +828,52 @@ export default function ProfileModal() {
               {isLguplus && (
                 <>
                   <label className={styles.field}>
-                    <span>API Key</span>
+                    <span>Username *</span>
                     <input
-                      value={form.lguplusApiKey}
-                      onChange={setField("lguplusApiKey")}
-                      placeholder="LG U+ CDN API key"
+                      value={form.lguplusUsername}
+                      onChange={setField("lguplusUsername")}
+                      placeholder="LG U+ CDN 계정 아이디"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API Secret</span>
+                    <span>Password *</span>
                     <input
                       type="password"
-                      value={form.lguplusApiSecret}
-                      onChange={setField("lguplusApiSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : ""}
+                      value={form.lguplusPassword}
+                      onChange={setField("lguplusPassword")}
+                      placeholder={editingId ? "변경하려면 입력" : "LG U+ CDN 계정 비밀번호"}
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>Endpoint</span>
+                    <span>Service Name *</span>
+                    <input
+                      value={form.lguplusServiceName}
+                      onChange={setField("lguplusServiceName")}
+                      placeholder="서비스 이름 (SERVICE_NAME)"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Volume Name</span>
+                    <input
+                      value={form.lguplusVolumeName}
+                      onChange={setField("lguplusVolumeName")}
+                      placeholder="볼륨 이름 (VOLUME_NAME)"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인 (FQDN) *</span>
+                    <input
+                      value={form.cdnDomain}
+                      onChange={setField("cdnDomain")}
+                      placeholder="cdn.example.com"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API 엔드포인트</span>
                     <input
                       value={form.lguplusEndpoint}
                       onChange={setField("lguplusEndpoint")}
-                      placeholder="https://api.example.com"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>CDN 도메인</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
-                    />
-                  </label>
-                </>
-              )}
-
-              {isHyosung && (
-                <>
-                  <label className={styles.field}>
-                    <span>API Key</span>
-                    <input
-                      value={form.hyosungApiKey}
-                      onChange={setField("hyosungApiKey")}
-                      placeholder="Hyosung CDN API key"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>API Secret</span>
-                    <input
-                      type="password"
-                      value={form.hyosungApiSecret}
-                      onChange={setField("hyosungApiSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : ""}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Endpoint</span>
-                    <input
-                      value={form.hyosungEndpoint}
-                      onChange={setField("hyosungEndpoint")}
-                      placeholder="https://api.example.com"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>CDN 도메인</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
+                      placeholder="https://api.lgucdn.com (기본값)"
                     />
                   </label>
                 </>
@@ -867,66 +882,75 @@ export default function ProfileModal() {
               {isKt && (
                 <>
                   <label className={styles.field}>
-                    <span>API Key</span>
+                    <span>Username *</span>
                     <input
-                      value={form.ktApiKey}
-                      onChange={setField("ktApiKey")}
-                      placeholder="KT CDN API key"
+                      value={form.ktUsername}
+                      onChange={setField("ktUsername")}
+                      placeholder="KT CDN 계정 아이디"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API Secret</span>
+                    <span>Password *</span>
                     <input
                       type="password"
-                      value={form.ktApiSecret}
-                      onChange={setField("ktApiSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : ""}
+                      value={form.ktPassword}
+                      onChange={setField("ktPassword")}
+                      placeholder={editingId ? "변경하려면 입력" : "KT CDN 계정 비밀번호"}
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>Endpoint</span>
+                    <span>Service Name *</span>
                     <input
-                      value={form.ktEndpoint}
-                      onChange={setField("ktEndpoint")}
-                      placeholder="https://api.example.com"
+                      value={form.ktServiceName}
+                      onChange={setField("ktServiceName")}
+                      placeholder="서비스 이름 (SERVICE_NAME)"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>CDN 도메인</span>
+                    <span>Volume Name</span>
+                    <input
+                      value={form.ktVolumeName}
+                      onChange={setField("ktVolumeName")}
+                      placeholder="볼륨 이름 (VOLUME_NAME)"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인 (FQDN) *</span>
                     <input
                       value={form.cdnDomain}
                       onChange={setField("cdnDomain")}
                       placeholder="cdn.example.com"
                     />
                   </label>
+                  <label className={styles.field}>
+                    <span>API 엔드포인트</span>
+                    <input
+                      value={form.ktEndpoint}
+                      onChange={setField("ktEndpoint")}
+                      placeholder="https://api.ktcdn.co.kr (기본값)"
+                    />
+                  </label>
                 </>
               )}
 
               {form.cdnProvider && (
-                ["lguplus", "hyosung", "kt"].includes(form.cdnProvider) ? (
-                  <div className={styles.unsupportedNotice}>
-                    <strong>⚠ {form.cdnProvider === "lguplus" ? "LG U+" : form.cdnProvider === "hyosung" ? "Hyosung" : "KT"} CDN은 현재 미지원입니다.</strong>
-                    <p>API 명세 확보 후 다음 버전에서 지원 예정입니다. CloudFront 또는 Akamai를 사용해 주세요.</p>
-                  </div>
-                ) : (
-                  <div className={styles.testRow}>
-                    <button
-                      type="button"
-                      className={styles.testBtn}
-                      onClick={handleTestCdnConnection}
-                      disabled={isTestingCdn}
-                    >
-                      {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
-                    </button>
-                    {cdnTestResult && (
-                      <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
-                        {cdnTestResult.success
-                          ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
-                          : `✗ ${cdnTestResult.error}`}
-                      </span>
-                    )}
-                  </div>
-                )
+                <div className={styles.testRow}>
+                  <button
+                    type="button"
+                    className={styles.testBtn}
+                    onClick={handleTestCdnConnection}
+                    disabled={isTestingCdn}
+                  >
+                    {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
+                  </button>
+                  {cdnTestResult && (
+                    <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
+                      {cdnTestResult.success
+                        ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
+                        : `✗ ${cdnTestResult.error}`}
+                    </span>
+                  )}
+                </div>
               )}
 
               {form.cdnProvider && (

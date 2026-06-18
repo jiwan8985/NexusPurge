@@ -134,18 +134,40 @@ pub async fn test_cdn_connection(
                     .map_err(|e| e.to_string())?;
                 Ok(Some(cdn_domain))
             }
-            CdnCredentials::Lguplus { .. } => Err(
-                "LG U+ CDN purge API is not implemented yet. API specification is required."
-                    .to_string(),
-            ),
+            CdnCredentials::Lguplus {
+                username,
+                password,
+                service_name,
+                volume_name,
+                endpoint,
+                cdn_domain,
+            } => {
+                let adapter = cdn::lguplus::LguplusCdnAdapter::new(
+                    username, password, service_name, volume_name, endpoint, cdn_domain.clone(),
+                )
+                .map_err(|e| e.to_string())?;
+                adapter.test_connection().await.map_err(|e| e.to_string())?;
+                Ok(Some(cdn_domain))
+            }
             CdnCredentials::Hyosung { .. } => Err(
                 "Hyosung CDN purge API is not implemented yet. API specification is required."
                     .to_string(),
             ),
-            CdnCredentials::Kt { .. } => Err(
-                "KT CDN purge API is not implemented yet. API specification is required."
-                    .to_string(),
-            ),
+            CdnCredentials::Kt {
+                username,
+                password,
+                service_name,
+                volume_name,
+                endpoint,
+                cdn_domain,
+            } => {
+                let adapter = cdn::kt::KtCdnAdapter::new(
+                    username, password, service_name, volume_name, endpoint, cdn_domain.clone(),
+                )
+                .map_err(|e| e.to_string())?;
+                adapter.test_connection().await.map_err(|e| e.to_string())?;
+                Ok(Some(cdn_domain))
+            }
         }
     }
     .await;
@@ -204,11 +226,8 @@ pub async fn get_purge_status(
                 ),
             )),
             CdnCredentials::Lguplus { .. } => Ok((
-                Some("NotImplemented".to_string()),
-                Some(
-                    "LG U+ CDN purge API is not implemented yet. API specification is required."
-                        .to_string(),
-                ),
+                Some("Accepted".to_string()),
+                Some("LG U+ CDN purge 상태 조회 미지원 — 요청 후 즉시 처리됩니다.".to_string()),
             )),
             CdnCredentials::Hyosung { .. } => Ok((
                 Some("NotImplemented".to_string()),
@@ -218,11 +237,8 @@ pub async fn get_purge_status(
                 ),
             )),
             CdnCredentials::Kt { .. } => Ok((
-                Some("NotImplemented".to_string()),
-                Some(
-                    "KT CDN purge API is not implemented yet. API specification is required."
-                        .to_string(),
-                ),
+                Some("Accepted".to_string()),
+                Some("KT CDN purge 상태 조회 미지원 — 요청 후 즉시 처리됩니다.".to_string()),
             )),
         }
     }

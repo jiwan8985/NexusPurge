@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::adapters::storage::base::StorageAdapter;
 use crate::adapters::storage::s3::S3Adapter;
 use crate::services::operation_log::OperationLog;
 use crate::utils::config::{AwsCredentials, ProfileStore};

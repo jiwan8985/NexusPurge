@@ -4,6 +4,7 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 /// 파일 전체 MD5 계산 — Path 타입 (S3 단일 업로드 ETag 비교용)
+#[allow(dead_code)]
 pub async fn calculate_md5(path: &Path) -> Result<String> {
     let path_str = path.to_str().context("유효하지 않은 경로")?;
     compute_file_md5(path_str).await

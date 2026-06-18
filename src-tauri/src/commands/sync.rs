@@ -72,10 +72,13 @@ pub struct UploadItem {
     #[serde(rename = "cacheControl")]
     pub cache_control: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub headers: std::collections::HashMap<String, String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub metadata: std::collections::HashMap<String, String>,
     #[serde(default, rename = "retryMetadataFailure")]
+    #[allow(dead_code)]
     pub retry_metadata_failure: bool,
     /// true인 경우에만 업로드 완료 후 CDN Purge를 수행한다.
     #[serde(default, rename = "isOverwrite")]

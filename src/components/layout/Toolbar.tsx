@@ -6,6 +6,8 @@ import { useLocalFs } from "../../hooks/useLocalFs";
 import { usePurge } from "../../hooks/usePurge";
 import PurgeDialog from "../modals/PurgeDialog";
 import PurgeResultDialog from "../modals/PurgeResultDialog";
+import ConfirmDialog from "../common/ConfirmDialog";
+import InputDialog from "../common/InputDialog";
 import { runtime } from "../../services/runtime";
 import type { PurgeExecutionResult, SyncPreviewResult } from "../../types";
 import styles from "./Toolbar.module.css";
@@ -16,15 +18,6 @@ const ICON_PROPS = {
   fill: "none", stroke: "currentColor",
   strokeWidth: "1.5", strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
 };
-
-function IconProfile() {
-  return (
-    <svg {...ICON_PROPS}>
-      <circle cx="8" cy="5" r="3" />
-      <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-    </svg>
-  );
-}
 
 function IconLink() {
   return (
@@ -161,20 +154,39 @@ export default function Toolbar() {
 
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
   const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
+  const [inputDialog, setInputDialog] = useState<{
+    title: string;
+    label?: string;
+    initialValue?: string;
+    placeholder?: string;
+    confirmLabel?: string;
+    onConfirm: (value: string) => void;
+  } | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
 
-  const handleNewFolder = async () => {
-    const name = window.prompt("새 폴더 이름을 입력하세요:");
-    if (!name || !name.trim()) return;
-    if (focusedSide === "remote" && isConnected) {
-      const prefix = remote.path.endsWith("/") ? remote.path : remote.path + "/";
-      await createDirectory(prefix + name.trim() + "/");
-      triggerRemoteRefresh();
-    } else {
-      const sep = local.path.includes("\\") ? "\\" : "/";
-      const base = local.path.replace(/[/\\]+$/, "");
-      await createDir(base + sep + name.trim());
-      triggerLocalRefresh();
-    }
+  const handleNewFolder = () => {
+    setInputDialog({
+      title: "새 폴더",
+      label: focusedSide === "remote" ? `S3 경로 "${remote.path}" 아래에 새 폴더를 만듭니다.` : "로컬에 새 폴더를 만듭니다.",
+      placeholder: "폴더 이름",
+      confirmLabel: "만들기",
+      onConfirm: async (name) => {
+        if (focusedSide === "remote" && isConnected) {
+          const prefix = remote.path.endsWith("/") ? remote.path : remote.path + "/";
+          await createDirectory(prefix + name + "/");
+          triggerRemoteRefresh();
+        } else {
+          const sep = local.path.includes("\\") ? "\\" : "/";
+          const base = local.path.replace(/[/\\]+$/, "");
+          await createDir(base + sep + name);
+          triggerLocalRefresh();
+        }
+      },
+    });
   };
 
   const handleDryRun = async () => {
@@ -193,49 +205,79 @@ export default function Toolbar() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
       if (keys.length === 0) return;
-      const purgeNotice = activeProfile?.cdnProvider ? "\n삭제 성공한 항목은 CDN 캐시도 Purge됩니다." : "";
-      if (!window.confirm(`S3에서 ${keys.length}개 항목을 삭제할까요?${purgeNotice}`)) return;
-      await deleteObjects(keys);
-      triggerRemoteRefresh();
+      const purgeNotice = activeProfile?.cdnProvider ? " 삭제 성공한 항목은 CDN 캐시도 Purge됩니다." : "";
+      setDeleteDialog({
+        title: "S3 항목 삭제",
+        message: `S3에서 ${keys.length}개 항목을 삭제합니다.${purgeNotice} 삭제된 파일은 복구할 수 없습니다.`,
+        onConfirm: async () => {
+          await deleteObjects(keys);
+          triggerRemoteRefresh();
+        },
+      });
     } else {
       const paths = Array.from(local.selectedPaths);
       if (paths.length === 0) return;
-      if (!window.confirm(`로컬에서 ${paths.length}개 항목을 삭제할까요?`)) return;
-      await deleteFiles(paths);
-      triggerLocalRefresh();
+      setDeleteDialog({
+        title: "로컬 항목 삭제",
+        message: `로컬에서 ${paths.length}개 항목을 삭제합니다. 이 작업은 취소할 수 없습니다.`,
+        onConfirm: async () => {
+          await deleteFiles(paths);
+          triggerLocalRefresh();
+        },
+      });
     }
   };
 
-  const handleRename = async () => {
+  const handleRename = () => {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
-      if (keys.length !== 1) { window.alert("이름 변경은 항목 1개만 선택하세요."); return; }
+      if (keys.length !== 1) return;
       const oldKey  = keys[0];
       const oldName = oldKey.replace(/\/$/, "").split("/").pop() ?? oldKey;
-      const newName = window.prompt("새 이름을 입력하세요:", oldName);
-      if (!newName || !newName.trim() || newName.trim() === oldName) return;
-      const newKey = oldKey.replace(/[^/]*\/?$/, newName.trim() + (oldKey.endsWith("/") ? "/" : ""));
-      await renameObject(oldKey, newKey);
-      triggerRemoteRefresh();
+      setInputDialog({
+        title: "이름 변경",
+        label: `"${oldName}"의 새 이름을 입력하세요.`,
+        initialValue: oldName,
+        placeholder: "새 이름",
+        confirmLabel: "변경",
+        onConfirm: async (newName) => {
+          if (newName === oldName) return;
+          const newKey = oldKey.replace(/[^/]*\/?$/, newName + (oldKey.endsWith("/") ? "/" : ""));
+          await renameObject(oldKey, newKey);
+          triggerRemoteRefresh();
+        },
+      });
     } else {
       const paths = Array.from(local.selectedPaths);
-      if (paths.length !== 1) { window.alert("이름 변경은 항목 1개만 선택하세요."); return; }
+      if (paths.length !== 1) return;
       const oldPath = paths[0];
       const oldName = oldPath.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? oldPath;
-      const newName = window.prompt("새 이름을 입력하세요:", oldName);
-      if (!newName || !newName.trim() || newName.trim() === oldName) return;
-      await renameFile(oldPath, newName.trim());
-      triggerLocalRefresh();
+      setInputDialog({
+        title: "이름 변경",
+        label: `"${oldName}"의 새 이름을 입력하세요.`,
+        initialValue: oldName,
+        placeholder: "새 이름",
+        confirmLabel: "변경",
+        onConfirm: async (newName) => {
+          if (newName === oldName) return;
+          await renameFile(oldPath, newName);
+          triggerLocalRefresh();
+        },
+      });
     }
   };
 
   const hasSelection = focusedSide === "remote"
     ? remote.selectedPaths.size > 0
     : local.selectedPaths.size > 0;
+
+  const selectionCount = focusedSide === "remote"
+    ? remote.selectedPaths.size
+    : local.selectedPaths.size;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -258,11 +300,6 @@ export default function Toolbar() {
     <div className={styles.toolbar}>
       {/* ── 연결 영역 ─────────────────────────────────────────────────────── */}
       <div className={styles.group}>
-        <button className={styles.toolBtn} onClick={openProfileModal} title="프로필 관리 (Ctrl/Cmd+P)">
-          <span className={styles.icon}><IconProfile /></span>
-          프로필
-        </button>
-
         {activeProfile && !isConnected && (
           <button
             className={`${styles.toolBtn} ${styles.primary}`}
@@ -328,9 +365,9 @@ export default function Toolbar() {
         </button>
         <button
           className={styles.toolBtn}
-          disabled={(focusedSide === "remote" && !isConnected) || !hasSelection}
+          disabled={(focusedSide === "remote" && !isConnected) || selectionCount !== 1}
           onClick={handleRename}
-          title="선택 항목 이름 변경"
+          title="선택 항목 이름 변경 (항목 1개 선택 시 활성화)"
         >
           <span className={styles.icon}><IconPen /></span>
           이름 변경
@@ -396,6 +433,37 @@ export default function Toolbar() {
       )}
       {purgeResult && (
         <PurgeResultDialog result={purgeResult} onClose={() => setPurgeResult(null)} />
+      )}
+
+      {inputDialog && (
+        <InputDialog
+          title={inputDialog.title}
+          label={inputDialog.label}
+          initialValue={inputDialog.initialValue}
+          placeholder={inputDialog.placeholder}
+          confirmLabel={inputDialog.confirmLabel}
+          onConfirm={(value) => {
+            const dialog = inputDialog;
+            setInputDialog(null);
+            void dialog.onConfirm(value);
+          }}
+          onCancel={() => setInputDialog(null)}
+        />
+      )}
+
+      {deleteDialog && (
+        <ConfirmDialog
+          title={deleteDialog.title}
+          message={<p>{deleteDialog.message}</p>}
+          confirmLabel="삭제"
+          danger
+          onConfirm={() => {
+            const dialog = deleteDialog;
+            setDeleteDialog(null);
+            void dialog.onConfirm();
+          }}
+          onCancel={() => setDeleteDialog(null)}
+        />
       )}
 
       {isPurging && (

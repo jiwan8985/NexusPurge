@@ -67,24 +67,37 @@ pub struct ProfileConfig {
     /// Akamai EdgeGrid API ?몄뒪??(e.g. akab-xxxx.luna.akamaiapis.net)
     #[serde(rename = "akamaiHost", skip_serializing_if = "Option::is_none")]
     pub akamai_host: Option<String>,
-    #[serde(rename = "lguplusApiKey", skip_serializing_if = "Option::is_none")]
-    pub lguplus_api_key: Option<String>,
-    #[serde(rename = "lguplusApiSecret", skip_serializing_if = "Option::is_none")]
-    pub lguplus_api_secret: Option<String>,
+    // LG U+ CDN — username/password 기반 JWT 인증
+    #[serde(rename = "lguplusUsername", skip_serializing_if = "Option::is_none")]
+    pub lguplus_username: Option<String>,
+    /// keyring에 저장 (JSON 직렬화 제외)
+    #[serde(rename = "lguplusPassword", skip_serializing_if = "Option::is_none")]
+    pub lguplus_password: Option<String>,
+    #[serde(rename = "lguplusServiceName", skip_serializing_if = "Option::is_none")]
+    pub lguplus_service_name: Option<String>,
+    #[serde(rename = "lguplusVolumeName", skip_serializing_if = "Option::is_none")]
+    pub lguplus_volume_name: Option<String>,
     #[serde(rename = "lguplusEndpoint", skip_serializing_if = "Option::is_none")]
     pub lguplus_endpoint: Option<String>,
+    // KT CDN — username/password 기반 JWT 인증
+    #[serde(rename = "ktUsername", skip_serializing_if = "Option::is_none")]
+    pub kt_username: Option<String>,
+    /// keyring에 저장 (JSON 직렬화 제외)
+    #[serde(rename = "ktPassword", skip_serializing_if = "Option::is_none")]
+    pub kt_password: Option<String>,
+    #[serde(rename = "ktServiceName", skip_serializing_if = "Option::is_none")]
+    pub kt_service_name: Option<String>,
+    #[serde(rename = "ktVolumeName", skip_serializing_if = "Option::is_none")]
+    pub kt_volume_name: Option<String>,
+    #[serde(rename = "ktEndpoint", skip_serializing_if = "Option::is_none")]
+    pub kt_endpoint: Option<String>,
+    // Hyosung (미지원, 하위 호환)
     #[serde(rename = "hyosungApiKey", skip_serializing_if = "Option::is_none")]
     pub hyosung_api_key: Option<String>,
     #[serde(rename = "hyosungApiSecret", skip_serializing_if = "Option::is_none")]
     pub hyosung_api_secret: Option<String>,
     #[serde(rename = "hyosungEndpoint", skip_serializing_if = "Option::is_none")]
     pub hyosung_endpoint: Option<String>,
-    #[serde(rename = "ktApiKey", skip_serializing_if = "Option::is_none")]
-    pub kt_api_key: Option<String>,
-    #[serde(rename = "ktApiSecret", skip_serializing_if = "Option::is_none")]
-    pub kt_api_secret: Option<String>,
-    #[serde(rename = "ktEndpoint", skip_serializing_if = "Option::is_none")]
-    pub kt_endpoint: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: String,
     #[serde(rename = "updatedAt")]
@@ -264,22 +277,29 @@ pub enum CdnCredentials {
         host: String,
         cdn_domain: String,
     },
+    /// LG U+ CDN (Solbox CDN v2) — JWT 인증
     Lguplus {
-        api_key: String,
-        api_secret: String,
-        endpoint: String,
-        cdn_domain: String,
+        username:     String,
+        password:     String,
+        service_name: String,
+        volume_name:  String,
+        endpoint:     String,
+        cdn_domain:   String,
     },
-    Hyosung {
-        api_key: String,
-        api_secret: String,
-        endpoint: String,
-        cdn_domain: String,
-    },
+    /// KT CDN (Solbox CDN v3) — JWT 인증
     Kt {
-        api_key: String,
+        username:     String,
+        password:     String,
+        service_name: String,
+        volume_name:  String,
+        endpoint:     String,
+        cdn_domain:   String,
+    },
+    /// Hyosung CDN — 미지원 (하위 호환)
+    Hyosung {
+        api_key:    String,
         api_secret: String,
-        endpoint: String,
+        endpoint:   String,
         cdn_domain: String,
     },
 }
@@ -368,7 +388,7 @@ impl ProfileStore {
                     .context("Akamai Keyring ????ㅽ뙣")?;
             }
         }
-        if let Some(secret) = profile.lguplus_api_secret.take() {
+        if let Some(secret) = profile.lguplus_password.take() {
             if !secret.is_empty() {
                 let key = format!("{}_lguplus", &profile.id);
                 Entry::new(KEYRING_SERVICE, &key)
@@ -386,7 +406,7 @@ impl ProfileStore {
                     .context("Hyosung Keyring save failed")?;
             }
         }
-        if let Some(secret) = profile.kt_api_secret.take() {
+        if let Some(secret) = profile.kt_password.take() {
             if !secret.is_empty() {
                 let key = format!("{}_kt", &profile.id);
                 Entry::new(KEYRING_SERVICE, &key)
@@ -521,32 +541,37 @@ impl ProfileStore {
                 })
             }
             "lguplus" => {
-                let (api_key, endpoint, cdn_domain) = {
+                let (username, service_name, volume_name, endpoint, cdn_domain) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
                         .find(|p| p.id == profile_id)
                         .context("Profile not found")?;
                     (
-                        profile.lguplus_api_key.clone().unwrap_or_default(),
-                        profile.lguplus_endpoint.clone().unwrap_or_default(),
+                        profile.lguplus_username.clone().unwrap_or_default(),
+                        profile.lguplus_service_name.clone().unwrap_or_default(),
+                        profile.lguplus_volume_name.clone().unwrap_or_default(),
+                        profile.lguplus_endpoint.clone()
+                            .unwrap_or_else(|| "https://api.lgucdn.com".to_owned()),
                         profile.cdn_domain.clone().unwrap_or_default(),
                     )
                 };
-                if api_key.trim().is_empty()
-                    || endpoint.trim().is_empty()
+                if username.trim().is_empty()
+                    || service_name.trim().is_empty()
                     || cdn_domain.trim().is_empty()
                 {
                     return Err(anyhow::anyhow!("LG U+ CDN credentials are incomplete"));
                 }
                 let lguplus_key = format!("{}_lguplus", profile_id);
-                let api_secret = Entry::new(KEYRING_SERVICE, &lguplus_key)
+                let password = Entry::new(KEYRING_SERVICE, &lguplus_key)
                     .context("LG U+ Keyring entry creation failed")?
                     .get_password()
                     .context("LG U+ Keyring load failed")?;
                 Ok(CdnCredentials::Lguplus {
-                    api_key,
-                    api_secret,
+                    username,
+                    password,
+                    service_name,
+                    volume_name,
                     endpoint,
                     cdn_domain,
                 })
@@ -583,32 +608,37 @@ impl ProfileStore {
                 })
             }
             "kt" => {
-                let (api_key, endpoint, cdn_domain) = {
+                let (username, service_name, volume_name, endpoint, cdn_domain) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
                         .find(|p| p.id == profile_id)
                         .context("Profile not found")?;
                     (
-                        profile.kt_api_key.clone().unwrap_or_default(),
-                        profile.kt_endpoint.clone().unwrap_or_default(),
+                        profile.kt_username.clone().unwrap_or_default(),
+                        profile.kt_service_name.clone().unwrap_or_default(),
+                        profile.kt_volume_name.clone().unwrap_or_default(),
+                        profile.kt_endpoint.clone()
+                            .unwrap_or_else(|| "https://api.ktcdn.co.kr".to_owned()),
                         profile.cdn_domain.clone().unwrap_or_default(),
                     )
                 };
-                if api_key.trim().is_empty()
-                    || endpoint.trim().is_empty()
+                if username.trim().is_empty()
+                    || service_name.trim().is_empty()
                     || cdn_domain.trim().is_empty()
                 {
                     return Err(anyhow::anyhow!("KT CDN credentials are incomplete"));
                 }
                 let kt_key = format!("{}_kt", profile_id);
-                let api_secret = Entry::new(KEYRING_SERVICE, &kt_key)
+                let password = Entry::new(KEYRING_SERVICE, &kt_key)
                     .context("KT Keyring entry creation failed")?
                     .get_password()
                     .context("KT Keyring load failed")?;
                 Ok(CdnCredentials::Kt {
-                    api_key,
-                    api_secret,
+                    username,
+                    password,
+                    service_name,
+                    volume_name,
                     endpoint,
                     cdn_domain,
                 })
@@ -719,8 +749,8 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
         }
         Some("lguplus") => {
             for (label, value) in [
-                ("LG U+ CDN API Key", profile.lguplus_api_key.as_deref()),
-                ("LG U+ CDN Endpoint", profile.lguplus_endpoint.as_deref()),
+                ("LG U+ CDN Username", profile.lguplus_username.as_deref()),
+                ("LG U+ CDN Service Name", profile.lguplus_service_name.as_deref()),
                 ("LG U+ CDN Domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
@@ -743,8 +773,8 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
         }
         Some("kt") => {
             for (label, value) in [
-                ("KT CDN API Key", profile.kt_api_key.as_deref()),
-                ("KT CDN Endpoint", profile.kt_endpoint.as_deref()),
+                ("KT CDN Username", profile.kt_username.as_deref()),
+                ("KT CDN Service Name", profile.kt_service_name.as_deref()),
                 ("KT CDN Domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {

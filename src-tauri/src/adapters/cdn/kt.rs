@@ -1,26 +1,153 @@
-use anyhow::Result;
+/// KT CDN Purge Adapter (Solbox CDN v3)
+///
+/// Auth:  POST {endpoint}/v3/auth/tokens
+///        Body: {"username": "...", "password": "...", "expiresIn": "1h"}
+///        Response: {"token": "..."}
+///
+/// Purge: POST {endpoint}/v3/service/service/{service_name}/purge
+///        Authorization: Bearer {token}
+///        Body: {"domain": "fqdn", "paths": ["/path1", "/path2"]}
+///
+/// Default endpoint: https://api.ktcdn.co.kr
+use anyhow::{Context, Result};
+use reqwest::Client;
+use serde_json::Value;
 
 pub struct KtCdnAdapter {
-    #[allow(dead_code)]
-    api_key: String,
-    #[allow(dead_code)]
-    api_secret: String,
-    #[allow(dead_code)]
-    endpoint: String,
+    client:       Client,
+    username:     String,
+    password:     String,
+    service_name: String,
+    volume_name:  String,
+    endpoint:     String, // e.g. https://api.ktcdn.co.kr
+    cdn_domain:   String, // FQDN for purge URL
 }
 
 impl KtCdnAdapter {
-    pub fn new(api_key: String, api_secret: String, endpoint: String) -> Self {
-        Self {
-            api_key,
-            api_secret,
-            endpoint,
-        }
+    pub fn new(
+        username:     String,
+        password:     String,
+        service_name: String,
+        volume_name:  String,
+        endpoint:     String,
+        cdn_domain:   String,
+    ) -> Result<Self> {
+        let client = Client::builder()
+            .use_native_tls()
+            .build()
+            .context("HTTP 클라이언트 생성 실패")?;
+        let endpoint = endpoint
+            .trim()
+            .trim_end_matches('/')
+            .to_owned();
+        Ok(Self { client, username, password, service_name, volume_name, endpoint, cdn_domain })
     }
 
-    pub async fn purge_urls(&self, _urls: &[String]) -> Result<()> {
-        Err(anyhow::anyhow!(
-            "KT CDN purge API is not implemented yet. API specification is required."
-        ))
+    /// JWT 토큰 발급 (1시간 유효)
+    async fn acquire_token(&self) -> Result<String> {
+        let url = format!("{}/v3/auth/tokens", self.endpoint);
+        let body = serde_json::json!({
+            "username":  self.username,
+            "password":  self.password,
+            "expiresIn": "1h",
+        })
+        .to_string();
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .context("KT CDN 인증 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "KT CDN 인증 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        let text = resp.text().await.context("KT CDN 인증 응답 읽기 실패")?;
+        let json: Value = serde_json::from_str(&text)
+            .context("KT CDN 인증 응답 JSON 파싱 실패")?;
+
+        let token = json["token"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("KT CDN 인증 응답에 token 필드 없음: {}", text))?
+            .to_owned();
+
+        Ok(token)
+    }
+
+    /// CDN 경로 목록을 Purge
+    pub async fn purge_paths(&self, paths: &[String]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+
+        let token = self.acquire_token().await?;
+
+        // paths는 S3 키 기반. 앞에 / 보장
+        let normalized: Vec<String> = paths
+            .iter()
+            .map(|p| {
+                if p.starts_with('/') {
+                    p.clone()
+                } else {
+                    format!("/{}", p)
+                }
+            })
+            .collect();
+
+        let url = format!(
+            "{}/v3/service/service/{}/purge",
+            self.endpoint,
+            self.service_name
+        );
+
+        let body = serde_json::json!({
+            "domain":     self.cdn_domain,
+            "paths":      normalized,
+            "volumeName": self.volume_name,
+        })
+        .to_string();
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .context("KT CDN Purge 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "KT CDN Purge 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        tracing::info!(
+            "KT CDN Purge 성공: {} 경로 (서비스: {})",
+            paths.len(),
+            self.service_name
+        );
+        Ok(())
+    }
+
+    /// 연결 테스트 — 토큰 발급만 확인
+    pub async fn test_connection(&self) -> Result<()> {
+        self.acquire_token().await?;
+        Ok(())
     }
 }

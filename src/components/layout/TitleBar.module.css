@@ -3,7 +3,7 @@
   align-items: center;
   height: var(--titlebar-height);
   background: var(--color-bg-base);
-  border-bottom: var(--border-width) solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   position: relative;
   z-index: 100;
@@ -13,66 +13,78 @@
 .left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-4);
+  gap: var(--spacing-3);
   padding: 0 var(--spacing-5);
   flex-shrink: 0;
   -webkit-app-region: drag;
+}
+
+/* 브랜드와 프로필 사이 구분선 */
+.leftSep {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
+  flex-shrink: 0;
+  margin: 0 var(--spacing-1);
 }
 
 .brandMark {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  color: var(--color-text-on-accent);
-  font-size: 13px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 800;
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .brandText {
   display: flex;
   flex-direction: column;
-  gap: 0px;
+  gap: 0;
 }
 
 .appName {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--color-text-primary);
   letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .appSub {
   font-size: 10px;
   color: var(--color-text-tertiary);
   font-weight: 500;
+  line-height: 1.2;
 }
 
+/* 순수 드래그 공간 — 내용 없음 */
 .center {
   flex: 1;
-  display: flex;
-  justify-content: center;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .profileArea {
   position: relative;
+  -webkit-app-region: no-drag;
 }
 
 .profileBtn {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  height: 30px;
-  max-width: 420px;
-  padding: 0 var(--spacing-4);
+  gap: var(--spacing-2);
+  height: 26px;
+  max-width: 260px;
+  padding: 0 var(--spacing-3);
   border-radius: var(--radius-md);
-  border: var(--border-width) solid var(--color-border);
+  border: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
@@ -93,8 +105,8 @@
 }
 
 .connDot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--color-text-disabled);
   flex-shrink: 0;
@@ -102,7 +114,7 @@
 
 .connDot.on {
   background: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success-muted);
+  box-shadow: 0 0 6px var(--color-success-muted);
 }
 
 .profileLabel {
@@ -110,17 +122,17 @@
 }
 
 .bucketLabel {
-  max-width: 180px;
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .caret {
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: 9px;
   transition: transform var(--transition-fast);
 }
 
@@ -128,30 +140,34 @@
   transform: rotate(180deg);
 }
 
+/* ── 드롭다운 — 글래스모피즘 ──────────────────────────────────────────────── */
 .dropdown {
   position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  min-width: 280px;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 272px;
   background: var(--color-bg-elevated);
-  border: var(--border-width) solid var(--color-border-strong);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   z-index: 200;
   overflow: hidden;
   padding: var(--spacing-2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .ddHeader {
-  padding: var(--spacing-3) var(--spacing-4);
-  font-size: 11px;
-  font-weight: 600;
+  padding: var(--spacing-2) var(--spacing-3);
+  font-size: 10px;
+  font-weight: 700;
   color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .ddEmpty {
-  padding: var(--spacing-5);
+  padding: var(--spacing-4);
   font-size: var(--font-size-sm);
   color: var(--color-text-disabled);
   text-align: center;
@@ -162,12 +178,12 @@
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  padding: var(--spacing-3) var(--spacing-4);
+  padding: var(--spacing-2) var(--spacing-3);
   color: var(--color-text-primary);
   border-radius: var(--radius-sm);
   transition: background var(--transition-fast);
   text-align: left;
-  gap: var(--spacing-1);
+  gap: 1px;
 }
 
 .ddItem:hover {
@@ -185,15 +201,15 @@
 }
 
 .ddMeta {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
 }
 
 .ddDivider {
-  height: var(--border-width);
+  height: 1px;
   background: var(--color-border);
-  margin: var(--spacing-2) 0;
+  margin: var(--spacing-1) 0;
 }
 
 .ddDanger {
@@ -210,18 +226,18 @@
   z-index: 190;
 }
 
-/* ── 테마 토글 버튼 ──────────────────────────────────────────────────────────── */
+/* ── 테마 버튼 ─────────────────────────────────────────────────────────────── */
 .themeBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 28px;
-  border-radius: var(--radius-md);
+  width: 30px;
+  height: 24px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-tertiary);
-  border: var(--border-width) solid var(--color-border);
+  border: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
-  margin: 0 var(--spacing-4);
+  margin: 0 var(--spacing-3);
   flex-shrink: 0;
   -webkit-app-region: no-drag;
   transition: all var(--transition-fast);
@@ -237,6 +253,7 @@
   transform: scale(0.92);
 }
 
+/* ── 창 컨트롤 버튼 ────────────────────────────────────────────────────────── */
 .controls {
   display: flex;
   align-items: stretch;
@@ -248,9 +265,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
+  width: 44px;
   height: var(--titlebar-height);
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   transition: all var(--transition-fast);
 }
 

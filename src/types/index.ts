@@ -30,15 +30,22 @@ export interface S3Profile {
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
   akamaiAccessToken?: string;     // Akamai EdgeGrid access token
   akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
-  lguplusApiKey?: string;
-  lguplusApiSecret?: string;
+  // LG U+ CDN (Solbox CDN v2)
+  lguplusUsername?: string;
+  lguplusPassword?: string;    // keyring에 저장, 로드 시 빈 값
+  lguplusServiceName?: string;
+  lguplusVolumeName?: string;
   lguplusEndpoint?: string;
+  // KT CDN (Solbox CDN v3)
+  ktUsername?: string;
+  ktPassword?: string;         // keyring에 저장, 로드 시 빈 값
+  ktServiceName?: string;
+  ktVolumeName?: string;
+  ktEndpoint?: string;
+  // Hyosung CDN (미지원, 하위 호환)
   hyosungApiKey?: string;
   hyosungApiSecret?: string;
   hyosungEndpoint?: string;
-  ktApiKey?: string;
-  ktApiSecret?: string;
-  ktEndpoint?: string;
   createdAt: string;
   updatedAt: string;
 }

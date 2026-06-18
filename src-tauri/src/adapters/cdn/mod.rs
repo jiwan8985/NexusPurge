@@ -62,15 +62,28 @@ pub async fn purge_with_credentials(
             Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Akamai purge retry failed")))
         }
         CdnCredentials::Lguplus {
-            api_key,
-            api_secret,
+            username,
+            password,
+            service_name,
+            volume_name,
             endpoint,
             cdn_domain,
         } => {
-            let adapter = lguplus::LguplusCdnAdapter::new(api_key, api_secret, endpoint);
-            let urls = build_cdn_urls(&cdn_domain, paths);
-            adapter.purge_urls(&urls).await?;
-            Ok(None)
+            let adapter = lguplus::LguplusCdnAdapter::new(
+                username, password, service_name, volume_name, endpoint, cdn_domain,
+            )?;
+            let mut last_err = None;
+            for attempt in 0..3 {
+                match adapter.purge_paths(paths).await {
+                    Ok(()) => return Ok(None),
+                    Err(err) if attempt < 2 => {
+                        last_err = Some(err);
+                        tokio::time::sleep(retry_delay(attempt)).await;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Err(last_err.unwrap_or_else(|| anyhow::anyhow!("LG U+ purge retry failed")))
         }
         CdnCredentials::Hyosung {
             api_key,
@@ -84,15 +97,28 @@ pub async fn purge_with_credentials(
             Ok(None)
         }
         CdnCredentials::Kt {
-            api_key,
-            api_secret,
+            username,
+            password,
+            service_name,
+            volume_name,
             endpoint,
             cdn_domain,
         } => {
-            let adapter = kt::KtCdnAdapter::new(api_key, api_secret, endpoint);
-            let urls = build_cdn_urls(&cdn_domain, paths);
-            adapter.purge_urls(&urls).await?;
-            Ok(None)
+            let adapter = kt::KtCdnAdapter::new(
+                username, password, service_name, volume_name, endpoint, cdn_domain,
+            )?;
+            let mut last_err = None;
+            for attempt in 0..3 {
+                match adapter.purge_paths(paths).await {
+                    Ok(()) => return Ok(None),
+                    Err(err) if attempt < 2 => {
+                        last_err = Some(err);
+                        tokio::time::sleep(retry_delay(attempt)).await;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Err(last_err.unwrap_or_else(|| anyhow::anyhow!("KT purge retry failed")))
         }
     }
 }
@@ -146,49 +172,6 @@ mod tests {
         assert_eq!(
             build_cdn_url("http://cdn.example.com/base", "assets/app.js"),
             "https://cdn.example.com/base/assets/app.js"
-        );
-    }
-
-    #[tokio::test]
-    async fn kt_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
-        let result = purge_with_credentials(
-            "",
-            &["assets/app.js".to_string()],
-            CdnCredentials::Kt {
-                api_key: "key".to_string(),
-                api_secret: "secret".to_string(),
-                endpoint: "https://api.example.com".to_string(),
-                cdn_domain: "cdn.example.com".to_string(),
-            },
-        )
-        .await;
-
-        let err = result.expect_err("KT provider should fail until the real API is implemented");
-        assert!(
-            err.to_string()
-                .contains("KT CDN purge API is not implemented yet")
-        );
-    }
-
-    #[tokio::test]
-    async fn lguplus_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
-        let result = purge_with_credentials(
-            "",
-            &["assets/app.js".to_string()],
-            CdnCredentials::Lguplus {
-                api_key: "key".to_string(),
-                api_secret: "secret".to_string(),
-                endpoint: "https://api.example.com".to_string(),
-                cdn_domain: "cdn.example.com".to_string(),
-            },
-        )
-        .await;
-
-        let err =
-            result.expect_err("LG U+ provider should fail until the real API is implemented");
-        assert!(
-            err.to_string()
-                .contains("LG U+ CDN purge API is not implemented yet")
         );
     }
 

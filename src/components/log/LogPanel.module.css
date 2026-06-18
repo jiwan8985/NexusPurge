@@ -15,7 +15,7 @@
   background: var(--color-bg-base);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
-  height: 32px;
+  height: 28px;
 }
 
 .tabs {
@@ -166,7 +166,7 @@
   white-space: nowrap;
   flex-shrink: 0;
   opacity: 0.85;
-  background: var(--color-surface-2, #2a2a2a);
+  background: var(--color-bg-subtle);
   color: var(--color-text-secondary);
 }
 

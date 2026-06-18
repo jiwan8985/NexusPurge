@@ -90,9 +90,9 @@ export default function TitleBar() {
           <span className={styles.appName}>NexusPurge</span>
           <span className={styles.appSub}>S3 배포 운영 콘솔</span>
         </div>
-      </div>
 
-      <div className={styles.center} data-tauri-drag-region="false">
+        <div className={styles.leftSep} />
+
         <div className={styles.profileArea}>
           <button
             className={`${styles.profileBtn} ${isConnected ? styles.connected : ""}`}
@@ -149,6 +149,8 @@ export default function TitleBar() {
           )}
         </div>
       </div>
+
+      <div className={styles.center} data-tauri-drag-region />
 
       <button
         className={styles.themeBtn}

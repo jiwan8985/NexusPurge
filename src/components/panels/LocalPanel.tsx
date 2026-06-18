@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
+import ConfirmDialog from "../common/ConfirmDialog";
+import InputDialog from "../common/InputDialog";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
@@ -75,6 +77,7 @@ export default function LocalPanel() {
     addLog,
     setFocusedSide,
     localRefreshKey,
+    focusedSide,
   } = useAppStore((s) => ({
     local:               s.local,
     syncPlan:            s.syncPlan,
@@ -87,11 +90,14 @@ export default function LocalPanel() {
     addLog:              s.addLog,
     setFocusedSide:      s.setFocusedSide,
     localRefreshKey:     s.localRefreshKey,
+    focusedSide:         s.focusedSide,
   }));
 
   const [pathInput, setPathInput] = useState(local.path);
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
+  const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(local.path), [local.path]);
@@ -173,8 +179,12 @@ export default function LocalPanel() {
     { label: "경로 복사", action: () => navigator.clipboard.writeText(file.path) },
   ];
 
-  const deleteLocalFile = async (file: FileItem) => {
-    if (!window.confirm(`로컬에서 "${file.name}" 항목을 삭제할까요?`)) return;
+  const deleteLocalFile = (file: FileItem) => {
+    setCtxMenu(null);
+    setDeleteConfirm(file);
+  };
+
+  const doDeleteLocalFile = async (file: FileItem) => {
     try {
       await runtime.invoke("delete_local_files", { paths: [file.path] });
       await loadDirectory(local.path);
@@ -183,12 +193,16 @@ export default function LocalPanel() {
     }
   };
 
-  const renameLocalFile = async (file: FileItem) => {
+  const renameLocalFile = (file: FileItem) => {
+    setCtxMenu(null);
+    setRenameDialog(file);
+  };
+
+  const doRenameLocalFile = async (file: FileItem, newName: string) => {
     const oldName = file.path.replace(/[/\\]+$/, "").split(/[/\\]/).pop() ?? file.name;
-    const newName = window.prompt("새 이름을 입력하세요:", oldName);
-    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    if (newName === oldName) return;
     try {
-      await runtime.invoke("rename_local_file", { oldPath: file.path, newName: newName.trim() });
+      await runtime.invoke("rename_local_file", { oldPath: file.path, newName });
       await loadDirectory(local.path);
     } catch (err) {
       addLog("error", `로컬 이름 변경 실패: ${err}`);
@@ -207,7 +221,7 @@ export default function LocalPanel() {
 
   return (
     <div
-      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""}`}
+      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "local" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("local")}
       onDragOver={(event) => {
         event.preventDefault();
@@ -234,6 +248,7 @@ export default function LocalPanel() {
               onFocus={(event) => event.target.select()}
               spellCheck={false}
               aria-label="로컬 경로"
+              title={pathInput || undefined}
             />
           </form>
         </div>
@@ -269,19 +284,19 @@ export default function LocalPanel() {
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
                     }}
                     tabIndex={0}
-                    onKeyDown={async (event) => {
+                    onKeyDown={(event) => {
                       if (event.key === "Enter") {
-                        file.isDirectory ? await loadDirectory(file.path) : toggleLocalSelection(file.path);
+                        file.isDirectory ? void loadDirectory(file.path) : toggleLocalSelection(file.path);
                       } else if (event.key === " ") {
                         event.preventDefault();
                         // Space: 파일과 폴더 모두 선택 토글 (폴더는 통째 업로드)
                         toggleLocalSelection(file.path);
                       } else if (event.key === "Delete" || event.key === "Backspace") {
                         event.preventDefault();
-                        await deleteLocalFile(file);
+                        deleteLocalFile(file);
                       } else if (event.key === "F2") {
                         event.preventDefault();
-                        await renameLocalFile(file);
+                        renameLocalFile(file);
                       }
                     }}
                     draggable
@@ -321,6 +336,42 @@ export default function LocalPanel() {
           y={ctxMenu.y}
           items={buildMenuItems(ctxMenu.file)}
           onClose={() => setCtxMenu(null)}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="항목 삭제"
+          message={
+            <>
+              <p><strong>{deleteConfirm.name}</strong>을(를) 삭제합니다.</p>
+              <p>로컬에서 삭제된 파일은 복구할 수 없습니다.</p>
+            </>
+          }
+          confirmLabel="삭제"
+          danger
+          onConfirm={() => {
+            const file = deleteConfirm;
+            setDeleteConfirm(null);
+            void doDeleteLocalFile(file);
+          }}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {renameDialog && (
+        <InputDialog
+          title="이름 변경"
+          label={`"${renameDialog.name}"의 새 이름을 입력하세요.`}
+          initialValue={renameDialog.name}
+          placeholder="새 이름"
+          confirmLabel="변경"
+          onConfirm={(newName) => {
+            const file = renameDialog;
+            setRenameDialog(null);
+            void doRenameLocalFile(file, newName);
+          }}
+          onCancel={() => setRenameDialog(null)}
         />
       )}
     </div>

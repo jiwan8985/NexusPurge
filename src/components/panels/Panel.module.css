@@ -5,11 +5,11 @@
   min-width: var(--panel-min-width);
   min-height: 0;
   background: var(--color-bg-base);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-xl);
+  /* 풀스크린: 테두리·radius 없음, 간격이 구분선 역할 */
+  border: none;
+  border-radius: 0;
   overflow: hidden;
   position: relative;
-  box-shadow: var(--shadow-sm);
 }
 
 .panel.dragOver::after {
@@ -17,33 +17,38 @@
   position: absolute;
   inset: 0;
   border: 2px solid var(--color-accent);
-  border-radius: var(--radius-xl);
   background: var(--color-accent-subtle);
   pointer-events: none;
   z-index: 10;
 }
 
+/* ── 패널 헤더 ─────────────────────────────────────────────────────────────── */
 .header {
-  background: var(--color-bg-base);
-  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  transition: border-bottom-color var(--transition-fast);
+}
+
+.panel.focused .header {
+  border-bottom-color: var(--color-accent);
 }
 
 .headerTitle {
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  padding: var(--spacing-4) var(--spacing-5);
-  font-size: var(--font-size-xs);
+  padding: var(--spacing-3) var(--spacing-5);
+  font-size: 10px;
   font-weight: 700;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .headerTitleDot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--color-text-disabled);
   flex-shrink: 0;
@@ -51,35 +56,36 @@
 
 .headerTitleDot.active {
   background: var(--color-success);
-  box-shadow: 0 0 8px var(--color-success-muted);
+  box-shadow: 0 0 6px var(--color-success-muted);
 }
 
 .pathBar {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: 0 var(--spacing-5) var(--spacing-4);
+  gap: var(--spacing-2);
+  padding: 0 var(--spacing-4) var(--spacing-3);
 }
 
 .upBtn,
 .refreshBtn {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  background: var(--color-bg-base);
-  border: var(--border-width) solid var(--color-border);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
 }
 
 .upBtn:hover:not(:disabled),
 .refreshBtn:hover:not(:disabled) {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border);
 }
 
 .pathForm {
@@ -89,14 +95,14 @@
 
 .pathInput {
   width: 100%;
-  height: 30px;
-  font-size: var(--font-size-sm);
+  height: 26px;
+  font-size: 11px;
   font-family: var(--font-family-mono);
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   background: var(--color-bg-subtle);
-  padding: 0 var(--spacing-4);
-  border-radius: var(--radius-md);
-  border: var(--border-width) solid var(--color-border);
+  padding: 0 var(--spacing-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
   transition: all var(--transition-fast);
   white-space: nowrap;
   overflow: hidden;
@@ -105,24 +111,29 @@
 
 .pathInput:hover {
   border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
 .pathInput:focus {
   border-color: var(--color-accent);
   background: var(--color-bg-base);
+  color: var(--color-text-primary);
   box-shadow: 0 0 0 1px var(--color-accent);
 }
 
+/* ── 컬럼 헤더 ─────────────────────────────────────────────────────────────── */
 .columnHeader {
-  height: 32px;
-  background: var(--color-bg-subtle);
-  border-bottom: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
+  height: 26px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 10px;
+  font-weight: 700;
   color: var(--color-text-tertiary);
+  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 
+/* ── 파일 목록 ─────────────────────────────────────────────────────────────── */
 .fileList {
   flex: 1;
   overflow-y: auto;
@@ -135,7 +146,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--spacing-5);
+  gap: var(--spacing-4);
   padding: var(--spacing-7) var(--spacing-5);
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);
@@ -147,9 +158,9 @@
 .placeholderIcon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-lg);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
   background: var(--color-accent-muted);
   color: var(--color-accent);
   font-weight: 700;
@@ -157,38 +168,49 @@
 }
 
 .placeholderText {
-  max-width: 260px;
+  max-width: 240px;
   line-height: 1.6;
 }
 
+/* ── 파일 행 ───────────────────────────────────────────────────────────────── */
 .row {
   display: flex;
   align-items: center;
-  padding: 0 var(--spacing-5);
-  height: 28px;
+  padding: 0 var(--spacing-4);
+  height: 26px;
 }
 
 .fileRow {
   cursor: pointer;
-  border-bottom: var(--border-width) solid var(--color-border);
+  border-bottom: 1px solid transparent;  /* 마지막 외 행 구분 */
   transition: background var(--transition-fast);
+  /* 호버/선택 시 왼쪽 강조선 (레이아웃 변경 없음) */
+  box-shadow: inset 2px 0 0 transparent;
 }
 
-.fileRow:last-child {
-  border-bottom: none;
+.fileRow:nth-child(odd) {
+  background: var(--color-bg-base);
+}
+
+.fileRow:nth-child(even) {
+  background: var(--color-bg-hover);
 }
 
 .fileRow:hover {
-  background: var(--color-bg-hover);
+  background: color-mix(in srgb, var(--color-accent-muted) 60%, var(--color-bg-hover));
+  box-shadow: inset 2px 0 0 var(--color-accent-muted);
+  border-bottom-color: transparent;
 }
 
 .fileRow:focus-visible {
   outline: none;
   background: var(--color-bg-selected);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .fileRow.selected {
   background: var(--color-bg-selected);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .fileRow.selected .fileName {
@@ -196,6 +218,7 @@
   font-weight: 500;
 }
 
+/* ── 컬럼 ──────────────────────────────────────────────────────────────────── */
 .col {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -207,7 +230,7 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
+  gap: var(--spacing-2);
   min-width: 0;
 }
 
@@ -224,26 +247,26 @@
 }
 
 .colSize {
-  width: 82px;
+  width: 76px;
   text-align: right;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 10px;
   flex-shrink: 0;
 }
 
 .colDate {
-  width: 124px;
+  width: 116px;
   text-align: right;
   color: var(--color-text-tertiary);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 10px;
   flex-shrink: 0;
 }
 
 .colEtag {
-  width: 84px;
+  width: 76px;
   text-align: right;
   color: var(--color-text-disabled);
   font-family: var(--font-family-mono);
@@ -252,18 +275,19 @@
 }
 
 .colBadge {
-  width: 66px;
+  width: 60px;
   display: flex;
   justify-content: flex-end;
   flex-shrink: 0;
 }
 
+/* ── 파일 아이콘 ────────────────────────────────────────────────────────────── */
 .fileIcon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 18px;
+  width: 24px;
+  height: 16px;
   border-radius: var(--radius-xs);
   background: var(--color-bg-subtle);
   color: var(--color-text-tertiary);
@@ -279,16 +303,18 @@
   border-color: var(--color-accent-subtle);
 }
 
+/* ── 배지 ──────────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-flex;
   align-items: center;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: var(--radius-xs);
-  font-size: 10px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 9px;
   font-weight: 700;
-  border: var(--border-width) solid transparent;
+  border: 1px solid transparent;
   white-space: nowrap;
+  letter-spacing: 0.03em;
 }
 
 .badge_new {
@@ -304,7 +330,7 @@
 }
 
 .badge_skipped {
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   background: var(--color-bg-subtle);
   border-color: var(--color-border);
 }
@@ -315,14 +341,15 @@
   border-color: var(--badge-purge-border);
 }
 
+/* ── 푸터 ──────────────────────────────────────────────────────────────────── */
 .footer {
-  height: 30px;
+  height: 24px;
   display: flex;
   align-items: center;
-  padding: 0 var(--spacing-5);
-  background: var(--color-bg-subtle);
-  border-top: var(--border-width) solid var(--color-border);
-  font-size: 11px;
+  padding: 0 var(--spacing-4);
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 10px;
   color: var(--color-text-tertiary);
   flex-shrink: 0;
   gap: var(--spacing-3);

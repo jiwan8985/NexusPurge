@@ -53,10 +53,13 @@ pub struct UploadFileItem {
     #[serde(rename = "cacheControl")]
     pub cache_control: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub headers: std::collections::HashMap<String, String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub metadata: std::collections::HashMap<String, String>,
     #[serde(default, rename = "retryMetadataFailure")]
+    #[allow(dead_code)]
     pub retry_metadata_failure: bool,
     /// true → 기존 파일 덮어쓰기, CDN Purge 트리거
     #[serde(rename = "isOverwrite")]
@@ -640,9 +643,9 @@ pub async fn export_encrypted_profile(
     const SVC: &str = "cdn-upload-tool";
     for (suffix, field) in [
         ("_akamai",  &mut profile.akamai_client_secret as &mut Option<String>),
-        ("_lguplus", &mut profile.lguplus_api_secret),
+        ("_lguplus", &mut profile.lguplus_password),
         ("_hyosung", &mut profile.hyosung_api_secret),
-        ("_kt",      &mut profile.kt_api_secret),
+        ("_kt",      &mut profile.kt_password),
     ] {
         let key = format!("{}{}", profile_id, suffix);
         if let Ok(entry) = Entry::new(SVC, &key) {

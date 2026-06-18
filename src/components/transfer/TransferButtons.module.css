@@ -4,7 +4,7 @@
   align-items: center;
   justify-content: center;
   width: var(--transfer-btn-width);
-  gap: var(--spacing-5);
+  gap: var(--spacing-3);
   flex-shrink: 0;
   position: relative;
 }
@@ -22,13 +22,11 @@
 
 .transferBtn {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-2);
-  width: 54px;
-  height: 60px;
-  border-radius: var(--radius-lg);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
   border: var(--border-width) solid var(--color-border);
   background: var(--color-bg-base);
   transition: all var(--transition-fast);
@@ -40,54 +38,41 @@
   background: var(--color-accent);
   border-color: var(--color-accent);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--color-accent-muted);
+  box-shadow: 0 4px 10px var(--color-accent-muted);
 }
 
 .transferBtn:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.94);
 }
 
 .arrow {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   line-height: 1;
 }
 
-.label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-}
-
-.transferBtn:hover:not(:disabled) .arrow,
-.transferBtn:hover:not(:disabled) .label {
+.transferBtn:hover:not(:disabled) .arrow {
   color: var(--color-text-on-accent);
-}
-
-.preview:hover:not(:disabled) {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
 }
 
 .uploadGroup {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   position: relative;
   z-index: 1;
 }
 
 .optionsBtn {
-  width: 28px;
-  height: 18px;
-  border-radius: var(--radius-sm);
+  width: 22px;
+  height: 14px;
+  border-radius: var(--radius-xs);
   border: var(--border-width) solid var(--color-border);
   background: var(--color-bg-subtle);
   color: var(--color-text-tertiary);
-  font-size: 11px;
+  font-size: 10px;
   display: flex;
   align-items: center;
   justify-content: center;

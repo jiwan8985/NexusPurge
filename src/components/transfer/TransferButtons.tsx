@@ -28,6 +28,7 @@ export default function TransferButtons() {
   }));
   const { startUpload, startDownload, buildPreview } = useTransfer();
   const [uploadConfirm, setUploadConfirm] = useState<{ totalSize: number; count: number } | null>(null);
+  const [fileCountConfirm, setFileCountConfirm] = useState<{ message: string; totalSize: number; count: number } | null>(null);
   const [previewResult, setPreviewResult] = useState<SyncPreviewResult | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -82,14 +83,17 @@ export default function TransferButtons() {
     }
 
     if (count >= cfg.fileCountLimit) {
-      const msg = `선택한 파일이 ${count}개입니다 (${cfg.fileCountLimit.toLocaleString()}개 이상).\n` +
-        "S3/CDN 제한으로 인해 처리 시간이 매우 오래 걸리거나 실패할 수 있습니다.\n" +
-        "계속 진행할까요?";
-      if (!window.confirm(msg)) return;
+      setFileCountConfirm({
+        message: `선택한 파일이 ${count}개입니다 (${cfg.fileCountLimit.toLocaleString()}개 이상). S3/CDN 제한으로 처리 시간이 매우 오래 걸리거나 실패할 수 있습니다.`,
+        totalSize, count,
+      });
+      return;
     } else if (count >= cfg.fileCountWarn) {
-      const msg = `선택한 파일이 ${count}개입니다 (${cfg.fileCountWarn.toLocaleString()}개 이상).\n` +
-        "배치 처리 시간이 오래 걸릴 수 있습니다. 계속할까요?";
-      if (!window.confirm(msg)) return;
+      setFileCountConfirm({
+        message: `선택한 파일이 ${count}개입니다 (${cfg.fileCountWarn.toLocaleString()}개 이상). 배치 처리 시간이 오래 걸릴 수 있습니다.`,
+        totalSize, count,
+      });
+      return;
     }
 
     const largeThreshold = cfg.largeSizeMb * 1024 * 1024;
@@ -122,7 +126,6 @@ export default function TransferButtons() {
           title={`선택한 ${local.selectedPaths.size}개 파일을 S3로 업로드`}
         >
           <span className={styles.arrow}>→</span>
-          <span className={styles.label}>업로드</span>
         </button>
         <button
           className={styles.optionsBtn}
@@ -141,7 +144,6 @@ export default function TransferButtons() {
         title="로컬 디렉터리와 S3 버킷의 차이를 미리 확인"
       >
         <span className={styles.arrow}>{isPreviewing ? "…" : "⚖"}</span>
-        <span className={styles.label}>미리보기</span>
       </button>
 
       <button
@@ -151,8 +153,26 @@ export default function TransferButtons() {
         title={`선택한 ${remote.selectedPaths.size}개 파일을 로컬로 다운로드`}
       >
         <span className={styles.arrow}>←</span>
-        <span className={styles.label}>다운로드</span>
       </button>
+
+      {fileCountConfirm && (
+        <ConfirmDialog
+          title="파일 수 경고"
+          message={<p>{fileCountConfirm.message}</p>}
+          confirmLabel="계속 진행"
+          onConfirm={() => {
+            const info = fileCountConfirm;
+            setFileCountConfirm(null);
+            const largeThreshold = readBatchSettings().largeSizeMb * 1024 * 1024;
+            if (info.totalSize > largeThreshold) {
+              setUploadConfirm({ totalSize: info.totalSize, count: info.count });
+            } else {
+              proceedToOptions(info.totalSize, info.count);
+            }
+          }}
+          onCancel={() => setFileCountConfirm(null)}
+        />
+      )}
 
       {uploadConfirm && (
         <ConfirmDialog

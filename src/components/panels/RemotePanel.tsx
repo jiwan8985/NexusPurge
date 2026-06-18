@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import ConfirmDialog from "../common/ConfirmDialog";
+import InputDialog from "../common/InputDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
@@ -39,6 +40,7 @@ export default function RemotePanel() {
     addLog,
     setFocusedSide,
     remoteRefreshKey,
+    focusedSide,
   } = useAppStore((s) => ({
     remote:               s.remote,
     isConnected:          s.isConnected,
@@ -48,6 +50,7 @@ export default function RemotePanel() {
     addLog:               s.addLog,
     setFocusedSide:       s.setFocusedSide,
     remoteRefreshKey:     s.remoteRefreshKey,
+    focusedSide:          s.focusedSide,
   }));
 
   const { listObjects, deleteObjects, getPresignedUrl, renameObject } = useS3();
@@ -56,6 +59,7 @@ export default function RemotePanel() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
+  const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
@@ -123,18 +127,15 @@ export default function RemotePanel() {
     }
   };
 
-  const deleteRemoteFile = async (file: FileItem) => {
-    const purgeNotice = activeProfile?.cdnProvider ? "\n삭제 성공 후 CDN 캐시도 Purge됩니다." : "";
-    if (!confirm(`"${file.name}" 항목을 삭제할까요?${purgeNotice}`)) return;
-    await deleteObjects([file.path]);
-    await loadPrefix(remote.path);
+  const renameRemoteFile = (file: FileItem) => {
+    setCtxMenu(null);
+    setRenameDialog(file);
   };
 
-  const renameRemoteFile = async (file: FileItem) => {
+  const doRenameRemoteFile = async (file: FileItem, newName: string) => {
     const oldName = file.path.replace(/\/$/, "").split("/").pop() ?? file.name;
-    const newName = window.prompt("새 이름을 입력하세요:", oldName);
-    if (!newName || !newName.trim() || newName.trim() === oldName) return;
-    const newKey = file.path.replace(/[^/]*\/?$/, newName.trim() + (file.path.endsWith("/") ? "/" : ""));
+    if (newName === oldName) return;
+    const newKey = file.path.replace(/[^/]*\/?$/, newName + (file.path.endsWith("/") ? "/" : ""));
     await renameObject(file.path, newKey);
     await loadPrefix(remote.path);
   };
@@ -178,7 +179,10 @@ export default function RemotePanel() {
       { divider: true },
       {
         label: "이름 변경",
-        action: () => renameRemoteFile(file),
+        action: () => {
+          setCtxMenu(null);
+          renameRemoteFile(file);
+        },
         disabled: !isConnected,
       },
       {
@@ -203,7 +207,7 @@ export default function RemotePanel() {
 
   return (
     <div
-      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""}`}
+      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("remote")}
       onDragOver={(event) => {
         if (!isConnected) return;
@@ -238,10 +242,16 @@ export default function RemotePanel() {
               disabled={!isConnected}
               spellCheck={false}
               aria-label="S3 경로"
+              title={isConnected ? pathInput : undefined}
             />
           </form>
           {isConnected && (
-            <button className={styles.refreshBtn} onClick={() => loadPrefix(remote.path)} title="새로고침">
+            <button
+              className={styles.refreshBtn}
+              onClick={() => loadPrefix(remote.path)}
+              disabled={remote.isLoading}
+              title="새로고침"
+            >
               ↻
             </button>
           )}
@@ -304,10 +314,10 @@ export default function RemotePanel() {
                         toggleRemoteSelection(file.path);
                       } else if (event.key === "Delete" || event.key === "Backspace") {
                         event.preventDefault();
-                        await deleteRemoteFile(file);
+                        setDeleteConfirm(file);
                       } else if (event.key === "F2") {
                         event.preventDefault();
-                        await renameRemoteFile(file);
+                        renameRemoteFile(file);
                       }
                     }}
                   >
@@ -367,6 +377,22 @@ export default function RemotePanel() {
             await loadPrefix(remote.path);
           }}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {renameDialog && (
+        <InputDialog
+          title="이름 변경"
+          label={`"${renameDialog.name}"의 새 이름을 입력하세요.`}
+          initialValue={renameDialog.name}
+          placeholder="새 이름"
+          confirmLabel="변경"
+          onConfirm={(newName) => {
+            const file = renameDialog;
+            setRenameDialog(null);
+            void doRenameRemoteFile(file, newName);
+          }}
+          onCancel={() => setRenameDialog(null)}
         />
       )}
     </div>

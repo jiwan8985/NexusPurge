@@ -208,6 +208,7 @@ impl S3Adapter {
         Err(last_err.expect("retry error")).context("HTTP HEAD ?�패")
     }
 
+    #[allow(dead_code)]
     async fn signed_put(
         &self,
         url: &Url,
@@ -389,13 +390,6 @@ impl S3Adapter {
             .await
             .map_err(|err| self.sdk_failure("HeadBucket", None, &err))?;
         return Ok(());
-
-        let url = Url::parse(&self.bucket_url()).context("HeadBucket URL ?�성 ?�패")?;
-        let resp = self.signed_head(&url).await.context(format!(
-            "S3 HeadBucket ?�패: bucket={}, region={}",
-            self.bucket, self.region
-        ))?;
-        self.ensure_success("S3 HeadBucket", None, resp).await
     }
 
     async fn test_get_bucket_location(&self) -> Result<()> {
@@ -418,24 +412,6 @@ impl S3Adapter {
             .await
             .map_err(|err| self.sdk_failure("ListObjectsV2", Some(prefix), &err))?;
         return Ok(());
-
-        let encoded_prefix = percent_encoding::utf8_percent_encode(
-            prefix,
-            percent_encoding::NON_ALPHANUMERIC,
-        )
-        .to_string()
-        .replace("%2F", "/");
-        let url = Url::parse(&format!(
-            "{}/?list-type=2&prefix={}&max-keys=1",
-            self.bucket_url(),
-            encoded_prefix
-        ))
-        .context("ListObjectsV2 URL ?�성 ?�패")?;
-        let resp = self.signed_get(&url).await.context(format!(
-            "S3 ListObjectsV2 ?�패: bucket={}, key={}, region={}",
-            self.bucket, prefix, self.region
-        ))?;
-        self.ensure_success("S3 ListObjectsV2", Some(prefix), resp).await
     }
 
     async fn test_put_object(&self, key: &str) -> Result<()> {
@@ -449,22 +425,6 @@ impl S3Adapter {
             .await
             .map_err(|err| self.sdk_failure("PutObject", Some(key), &err))?;
         return Ok(());
-
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("PutObject URL ?�성 ?�패")?;
-        let resp = self
-            .signed_put(
-                &url,
-                b"NexusPurge connection test\n".to_vec(),
-                "text/plain; charset=utf-8",
-                None,
-            )
-            .await
-            .context(format!(
-                "S3 PutObject ?�패: bucket={}, key={}, region={}",
-                self.bucket, key, self.region
-            ))?;
-        self.ensure_success("S3 PutObject", Some(key), resp).await
     }
 
     async fn test_delete_object(&self, key: &str) -> Result<()> {
@@ -476,14 +436,6 @@ impl S3Adapter {
             .await
             .map_err(|err| self.sdk_failure("DeleteObject", Some(key), &err))?;
         return Ok(());
-
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("DeleteObject URL ?�성 ?�패")?;
-        let resp = self.signed_delete(&url).await.context(format!(
-            "S3 DeleteObject ?�패: bucket={}, key={}, region={}",
-            self.bucket, key, self.region
-        ))?;
-        self.ensure_success("S3 DeleteObject", Some(key), resp).await
     }
 
     async fn ensure_success(
@@ -598,61 +550,6 @@ impl S3Adapter {
             next_token: response.next_continuation_token().map(ToOwned::to_owned),
             is_truncated: response.is_truncated().unwrap_or(false),
         });
-
-        let encoded_prefix = percent_encoding::utf8_percent_encode(
-            prefix,
-            percent_encoding::NON_ALPHANUMERIC,
-        )
-        .to_string()
-        .replace("%2F", "/");
-
-        let mut raw = format!(
-            "{}/?list-type=2&prefix={}&delimiter=%2F&max-keys=1000",
-            self.bucket_url(),
-            encoded_prefix
-        );
-        if let Some(token) = continuation_token {
-            let encoded_token = percent_encoding::utf8_percent_encode(
-                token,
-                percent_encoding::NON_ALPHANUMERIC,
-            )
-            .to_string();
-            raw.push_str(&format!("&continuation-token={}", encoded_token));
-        }
-
-        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
-
-        // M-5: 지??백오???�시??(최�? 3??
-        let mut delay_ms = 500u64;
-        for attempt in 0u32..3 {
-            match self.signed_get(&url).await {
-                Err(e) if attempt < 2 => {
-                    tracing::warn!("목록 조회 ?�트?�크 ?�류 ?�시??{}/3: {}", attempt + 1, e);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                    delay_ms *= 2;
-                    continue;
-                }
-                Err(e) => return Err(e.context("HTTP GET ?�패")),
-                Ok(resp) => {
-                    // C-3 + H-4: HTTP ?�태 ?�인 ???�류 ?�답??�?목록?�로 ?�인?��? ?�음
-                    let status = resp.status();
-                    if status.is_success() {
-                        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
-                        return parse_list_response(&text);
-                    }
-                    let code = status.as_u16();
-                    if attempt < 2 && is_retryable_status(code) {
-                        tracing::warn!("목록 조회 ?�시??{}/3: HTTP {}", attempt + 1, code);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                        delay_ms *= 2;
-                        continue;
-                    }
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("S3 목록 조회 ?�패 (HTTP {}): {}", code, body));
-                }
-            }
-        }
-        unreachable!()
     }
 
     /// C-3: ?�체 ?�이지�??�회??1000�?초과 ?�브?�트�?모두 반환
@@ -757,66 +654,6 @@ impl S3Adapter {
             deleted.push(key.clone());
         }
         return Ok(deleted);
-
-        let items: String = keys
-            .iter()
-            .map(|k| format!("<Object><Key>{}</Key></Object>", xml_escape(k)))
-            .collect();
-
-        let body = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
-             <Delete><Quiet>false</Quiet>{}</Delete>",
-            items
-        )
-        .into_bytes();
-
-        let content_md5 = base64_md5(&body);
-        let url = Url::parse(&format!("{}/?delete", self.bucket_url()))
-            .context("URL ?�싱 ?�패")?;
-
-        let headers =
-            self.signer()
-                .sign_headers("POST", &url, &[("content-md5", &content_md5)], &body);
-
-        let mut req = self
-            .client
-            .post(url.as_str())
-            .header("content-type", "application/xml")
-            .header("content-md5", &content_md5)
-            .body(body);
-        for (k, v) in &headers {
-            req = req.header(k.as_str(), v.as_str());
-        }
-
-        let resp = req.send().await.context("HTTP POST(delete) ?�패")?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!(
-                "DeleteObjects ?�패: HTTP {}",
-                resp.status()
-            ));
-        }
-        let text = resp.text().await.unwrap_or_default();
-        let failed_keys = xml_tag_values(&text, "Error")
-            .into_iter()
-            .filter_map(|block| xml_tag_values(&block, "Key").into_iter().next())
-            .collect::<Vec<_>>();
-        if !failed_keys.is_empty() && failed_keys.len() == keys.len() {
-            return Err(anyhow::anyhow!(
-                "DeleteObjects ?�패: {}",
-                failed_keys.join(", ")
-            ));
-        }
-
-        let mut deleted_keys = xml_tag_values(&text, "Deleted")
-            .into_iter()
-            .filter_map(|block| xml_tag_values(&block, "Key").into_iter().next())
-            .collect::<Vec<_>>();
-
-        if deleted_keys.is_empty() && failed_keys.is_empty() {
-            deleted_keys = keys.to_vec();
-        }
-
-        Ok(deleted_keys)
     }
 
     pub async fn put_object(&self, key: &str, data: Vec<u8>, content_type: &str) -> Result<()> {
@@ -830,14 +667,6 @@ impl S3Adapter {
             .await
             .map_err(|err| self.sdk_failure("PutObject", Some(key), &err))?;
         return Ok(());
-
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_put(&url, data, content_type, None).await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("PutObject ?�패: HTTP {}", resp.status()));
-        }
-        Ok(())
     }
 
     /// ?�일 ?�로?? 10 MB ?�상?� ?�동?�로 멀?�파???�로??
@@ -1529,6 +1358,7 @@ impl StorageAdapter for S3Adapter {
 
 // ?�?�?� XML Parsing ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
 
+#[allow(dead_code)]
 fn parse_list_response(xml: &str) -> Result<ListResult> {
     let mut files: Vec<FileItem> = vec![];
 
@@ -1601,6 +1431,7 @@ fn xml_extract(xml: &str, tag: &str) -> Option<String> {
     Some(xml_unescape(&xml[start..end]))
 }
 
+#[allow(dead_code)]
 fn xml_tag_values(xml: &str, tag: &str) -> Vec<String> {
     let open = format!("<{}>", tag);
     let close = format!("</{}>", tag);
@@ -1629,6 +1460,7 @@ fn xml_unescape(s: &str) -> String {
      .replace("&apos;", "'")
 }
 
+#[allow(dead_code)]
 fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -1712,11 +1544,13 @@ fn retry_delay(attempt: usize) -> Duration {
     Duration::from_millis(250 * 2_u64.pow(attempt as u32))
 }
 
+#[allow(dead_code)]
 fn base64_md5(data: &[u8]) -> String {
     let hash = md5::compute(data);
     base64_encode(hash.as_ref())
 }
 
+#[allow(dead_code)]
 fn base64_encode(input: &[u8]) -> String {
     const CHARS: &[u8] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
