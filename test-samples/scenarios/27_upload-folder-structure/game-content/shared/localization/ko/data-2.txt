@@ -1,0 +1,1 @@
+﻿folder: game-content\shared\localization\ko | file: 2 | category: game-cdn-test

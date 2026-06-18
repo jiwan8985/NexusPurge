@@ -1,0 +1,1 @@
+﻿folder: patch\v1.2.3\client | file: 2 | category: game-cdn-test

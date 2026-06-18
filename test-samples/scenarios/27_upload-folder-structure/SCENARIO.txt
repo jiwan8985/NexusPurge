@@ -1,0 +1,62 @@
+================================================================
+시나리오 27 — 폴더째 업로드 + 경로 구조 그대로 Purge
+================================================================
+
+목적: 실제 게임 CDN 폴더 구조를 통째로 업로드했을 때
+      - 폴더 내 모든 파일이 올바른 S3 경로에 업로드되는지
+      - Purge 시 경로 구조가 CDN에 그대로 반영되는지
+      - 폴더 단위 선택 Purge가 하위 파일까지 모두 무효화하는지
+
+[폴더 구조]
+game-content/
+├── client/
+│   ├── ui/hud/         (HUD 요소 - hud 화면 중 항상 캐시)
+│   ├── ui/lobby/       (로비 화면)
+│   ├── textures/character/
+│   ├── textures/environment/
+│   ├── audio/bgm/
+│   └── audio/sfx/
+├── server/
+│   ├── config/         (서버 설정 - 긴급 배포 빈번)
+│   └── data/items/, quests/
+└── shared/
+    ├── localization/ko/, en/
+    └── assets/icons/
+patch/v1.2.3/client/, server/
+event/summer2024/banner/, reward/
+
+총 16개 폴더, 48개 파일
+
+[테스트 A — 폴더 전체 업로드]
+로컬 패널에서 game-content 폴더 선택 → 업로드
+1. 폴더 구조 유지하여 S3 업로드 확인
+   → contents/game-content/client/ui/hud/data-1.txt
+2. 원격 패널에서 폴더 트리 네비게이션으로 확인
+
+[테스트 B — 하위 폴더 선택적 Purge]
+1. 원격 패널에서 game-content/client/textures/ 폴더 선택
+2. [선택 Purge] → textures/ 하위 파일만 Purge
+3. hud/, lobby/ 등 인접 폴더 캐시는 유지 확인
+
+[테스트 C — 교차 폴더 다중 선택 Purge]
+1. client/audio/bgm/ 와 event/summer2024/banner/ 동시 선택
+2. 서로 다른 경로 2개 폴더 Purge
+3. client/audio/sfx/ 와 event/summer2024/reward/ 캐시 유지 확인
+
+[테스트 D — 패치 폴더 배포 사이클]
+1. patch/v1.2.3/ 폴더 업로드 (신규 패치)
+2. S3에 구 버전이 없으므로 toUpload (신규 업로드)
+3. 같은 폴더 재업로드 → toSkip (변경 없음)
+4. PATCHED 파일로 교체 후 재업로드 → toOverwrite → 자동 Purge
+
+[테스트 E — 로컬라이징 폴더 업로드]
+1. shared/localization/ko/ 와 en/ 동시 업로드
+2. 한글 경로 포함 여부 확인 (localization/ko/)
+3. CDN URL로 각 언어별 파일 접근 확인:
+   curl https://sklb-test.dn.nexoncdn.co.kr/shared/localization/ko/data-1.txt
+
+[기대 결과]
+- 폴더 구조가 S3 경로에 그대로 보존 ✓
+- 하위 폴더 단위 Purge 가능 ✓
+- 교차 폴더 선택 Purge 시 다른 폴더 캐시 불변 ✓
+================================================================

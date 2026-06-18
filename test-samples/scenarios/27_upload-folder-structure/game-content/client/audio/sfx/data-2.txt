@@ -1,0 +1,1 @@
+﻿folder: game-content\client\audio\sfx | file: 2 | category: game-cdn-test

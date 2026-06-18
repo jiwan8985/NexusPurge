@@ -1,0 +1,8 @@
+﻿이 파일은 실제 110MB 파일을 시뮬레이션합니다.
+실제 테스트 시 로컬에서 직접 생성하세요:
+
+[PowerShell]
+$bytes = [byte[]]::new(110 * 1024 * 1024)
+[System.IO.File]::WriteAllBytes('xlarge-110mb.txt', $bytes)
+
+목적: largeSizeMb 기본값(100MB) 초과 → 대용량 확인 팝업 트리거

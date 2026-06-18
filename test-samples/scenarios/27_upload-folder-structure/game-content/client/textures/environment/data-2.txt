@@ -1,0 +1,1 @@
+﻿folder: game-content\client\textures\environment | file: 2 | category: game-cdn-test

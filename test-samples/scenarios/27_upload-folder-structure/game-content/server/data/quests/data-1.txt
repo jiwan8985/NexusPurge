@@ -1,0 +1,1 @@
+﻿folder: game-content\server\data\quests | file: 1 | category: game-cdn-test

@@ -1,0 +1,1 @@
+﻿folder: event\summer2024\banner | file: 1 | category: game-cdn-test
