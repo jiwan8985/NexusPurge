@@ -56,6 +56,7 @@ pub fn run() {
             s3::list_s3_objects,
             s3::delete_s3_objects,
             s3::put_s3_object,
+            s3::ship_operation_log,
             s3::get_presigned_url,
             s3::upload_files,
             s3::rename_s3_object, // H-1

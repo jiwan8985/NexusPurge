@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { saveOperationLog } from "../services/operation-log/operation-log-service";
+import { saveOperationLog, shipLogToS3 } from "../services/operation-log/operation-log-service";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
@@ -309,17 +309,17 @@ export function useTransfer() {
         .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
         .filter((transfer): transfer is TransferItem => Boolean(transfer));
       const uploadStatus = summarizeTransferStatus(uploadTransfers);
-      void saveOperationLog({
+      const uploadLog = {
         id: crypto.randomUUID(),
         profileId: activeProfile.id,
-        operation: "upload",
+        operation: "upload" as const,
         status: uploadStatus,
         bucket: activeProfile.bucket,
         prefix: remote.path,
         files: uploadTransfers.map((item) => ({
           path: item.remotePath,
-          operation: "upload",
-          status: item.status === "complete" ? "success" : item.status === "skipped" ? "success" : "failed",
+          operation: "upload" as const,
+          status: item.status === "complete" ? "success" as const : item.status === "skipped" ? "success" as const : "failed" as const,
           error: item.error,
           startedAt: item.startedAt ?? finishedAt,
           finishedAt: item.completedAt ?? finishedAt,
@@ -329,7 +329,7 @@ export function useTransfer() {
           .map((item) => ({
             provider: activeProfile.cdnProvider!,
             urls: [item.remotePath],
-            status: item.cdnPurgeError ? "failed" : "success",
+            status: item.cdnPurgeError ? "failed" as const : "success" as const,
             requestId: item.cdnInvalidationId,
             error: item.cdnPurgeError,
             startedAt: item.startedAt ?? finishedAt,
@@ -337,7 +337,11 @@ export function useTransfer() {
           })),
         startedAt: finishedAt,
         finishedAt,
-      });
+      };
+      void saveOperationLog(uploadLog);
+      if (activeProfile.logShipping?.enabled) {
+        void shipLogToS3(uploadLog, activeProfile.id, activeProfile.logShipping);
+      }
 
       // autoPurgeEnabled ON: 스킵된 파일(변경 없음)도 포함해 선택한 전체 경로 Purge
       // 이유: CDN 캐시가 S3와 어긋난 경우(이전 Purge 실패, CDN 장애 등)를 커버
@@ -436,17 +440,17 @@ export function useTransfer() {
         .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
         .filter((transfer): transfer is TransferItem => Boolean(transfer));
       const downloadStatus = summarizeTransferStatus(downloadTransfers);
-      void saveOperationLog({
+      const downloadLog = {
         id: crypto.randomUUID(),
         profileId: activeProfile.id,
-        operation: "download",
+        operation: "download" as const,
         status: downloadStatus,
         bucket: activeProfile.bucket,
         prefix: remote.path,
         files: downloadTransfers.map((item) => ({
           path: item.remotePath,
-          operation: "download",
-          status: item.status === "complete" ? "success" : "failed",
+          operation: "download" as const,
+          status: item.status === "complete" ? "success" as const : "failed" as const,
           error: item.error,
           startedAt: item.startedAt ?? finishedAt,
           finishedAt: item.completedAt ?? finishedAt,
@@ -454,7 +458,11 @@ export function useTransfer() {
         purgeResults: [],
         startedAt: finishedAt,
         finishedAt,
-      });
+      };
+      void saveOperationLog(downloadLog);
+      if (activeProfile.logShipping?.enabled) {
+        void shipLogToS3(downloadLog, activeProfile.id, activeProfile.logShipping);
+      }
 
       clearRemoteSelection();
     } catch (err) {

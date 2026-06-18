@@ -60,6 +60,10 @@ interface FormState {
   ktApiKey: string;
   ktApiSecret: string;
   ktEndpoint: string;
+  // 로그 적재 설정
+  logShippingEnabled: boolean;
+  logShippingBucket: string;
+  logShippingPrefix: string;
 }
 
 const emptyForm = (): FormState => ({
@@ -90,6 +94,9 @@ const emptyForm = (): FormState => ({
   ktApiKey: "",
   ktApiSecret: "",
   ktEndpoint: "",
+  logShippingEnabled: false,
+  logShippingBucket: "",
+  logShippingPrefix: "nexuspurge-logs",
 });
 
 export default function ProfileModal() {
@@ -158,6 +165,9 @@ export default function ProfileModal() {
       ktApiKey: profile.ktApiKey ?? "",
       ktApiSecret: "",
       ktEndpoint: profile.ktEndpoint ?? "",
+      logShippingEnabled: profile.logShipping?.enabled ?? false,
+      logShippingBucket: profile.logShipping?.bucket ?? "",
+      logShippingPrefix: profile.logShipping?.prefix ?? "nexuspurge-logs",
     });
   };
 
@@ -260,6 +270,16 @@ export default function ProfileModal() {
         ktApiKey: form.ktApiKey || undefined,
         ktApiSecret: form.ktApiSecret || undefined,
         ktEndpoint: form.ktEndpoint || undefined,
+        logShipping: form.logShippingEnabled
+          ? {
+              enabled: true,
+              bucket: form.logShippingBucket || undefined,
+              prefix: form.logShippingPrefix || "nexuspurge-logs",
+              includeOperations: [],  // 빈 배열 = 모든 오퍼레이션 포함
+              format: "json" as const,
+              retry: { enabled: true, maxAttempts: 3, backoffMs: 500 },
+            }
+          : undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -381,7 +401,7 @@ export default function ProfileModal() {
     setForm((f) => ({ ...f, [field]: e.target.value }));
   };
 
-  const setCheckedField = (field: "purgeOnNewUpload" | "multipartEtagFallback") => (
+  const setCheckedField = (field: "purgeOnNewUpload" | "multipartEtagFallback" | "logShippingEnabled") => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     setTestResult(null);
@@ -935,6 +955,46 @@ export default function ProfileModal() {
                     기본값은 덮어쓰기 파일만 Purge합니다. 이 옵션을 켜면 새 파일도 업로드 직후 CDN 캐시 무효화 대상으로 보냅니다.
                   </small>
                 </label>
+              </fieldset>
+            </details>
+
+            <details className={styles.sectionDetails}>
+              <summary>로그 적재 (S3)</summary>
+              <fieldset className={styles.fieldset}>
+                <label className={styles.field}>
+                  <span>고객 Bucket 로그 적재 사용</span>
+                  <input
+                    type="checkbox"
+                    checked={form.logShippingEnabled}
+                    onChange={setCheckedField("logShippingEnabled")}
+                  />
+                  <small className={styles.helpText}>
+                    업로드·다운로드·Purge 완료 후 운영 로그를 S3에 JSON으로 적재합니다.
+                  </small>
+                </label>
+                {form.logShippingEnabled && (
+                  <>
+                    <label className={styles.field}>
+                      <span>로그 Bucket (비우면 현재 프로필 Bucket 사용)</span>
+                      <input
+                        value={form.logShippingBucket}
+                        onChange={setField("logShippingBucket")}
+                        placeholder={form.bucket || "로그를 저장할 S3 버킷 이름"}
+                      />
+                    </label>
+                    <label className={styles.field}>
+                      <span>로그 Prefix</span>
+                      <input
+                        value={form.logShippingPrefix}
+                        onChange={setField("logShippingPrefix")}
+                        placeholder="nexuspurge-logs"
+                      />
+                      <small className={styles.helpText}>
+                        {`저장 경로: {prefix}/YYYY-MM-DD/{operation}_{id}.json`}
+                      </small>
+                    </label>
+                  </>
+                )}
               </fieldset>
             </details>
             </div>

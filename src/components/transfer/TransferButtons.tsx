@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
 import ConfirmDialog from "../common/ConfirmDialog";
@@ -17,12 +17,14 @@ function fmtSize(bytes: number): string {
 }
 
 export default function TransferButtons() {
-  const { isConnected, isTransferring, local, remote, addLog } = useAppStore((s) => ({
+  const { isConnected, isTransferring, local, remote, addLog, activeProfile, autoPurgeEnabled } = useAppStore((s) => ({
     isConnected: s.isConnected,
     isTransferring: s.isTransferring,
     local: s.local,
     remote: s.remote,
     addLog: s.addLog,
+    activeProfile: s.activeProfile,
+    autoPurgeEnabled: s.autoPurgeEnabled,
   }));
   const { startUpload, startDownload, buildPreview } = useTransfer();
   const [uploadConfirm, setUploadConfirm] = useState<{ totalSize: number; count: number } | null>(null);
@@ -30,8 +32,30 @@ export default function TransferButtons() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [uploadOptions, setUploadOptions] = useState<UploadOptions>(DEFAULT_UPLOAD_OPTIONS);
+  // 자동 Purge 승인 대기 중인 옵션 (승인 팝업 표시 트리거)
+  const [autoPurgeConfirmOpts, setAutoPurgeConfirmOpts] = useState<UploadOptions | null>(null);
   // 옵션 적용 후 즉시 업로드할 파일 수 (크기 경고 통과 후 옵션 모달로 넘어온 경우)
   const [pendingUploadSize, setPendingUploadSize] = useState<{ totalSize: number; count: number } | null>(null);
+
+  // 프로필 기본값 기반 업로드 옵션 초기화 (자동 Metadata 적용)
+  const buildInitialOptions = useCallback((): UploadOptions => {
+    const policy = activeProfile?.metadataPolicy;
+    const autoApply = policy?.autoApply ?? false;
+    return {
+      contentTypeOverride: autoApply && policy?.contentType
+        ? policy.contentType
+        : (activeProfile?.contentTypeOverride ?? ""),
+      cacheControl: autoApply && policy?.cacheControl
+        ? policy.cacheControl
+        : (activeProfile?.defaultCacheControl ?? ""),
+      headers: autoApply && policy?.customHeaders
+        ? Object.entries(policy.customHeaders).map(([key, value]) => ({ key, value }))
+        : [],
+      metadata: autoApply && policy?.userMetadata
+        ? Object.entries(policy.userMetadata).map(([key, value]) => ({ key, value }))
+        : [],
+    };
+  }, [activeProfile]);
 
   const canUpload = isConnected && !isTransferring && local.selectedPaths.size > 0;
   const canDownload = isConnected && !isTransferring && remote.selectedPaths.size > 0;
@@ -39,6 +63,7 @@ export default function TransferButtons() {
 
   const proceedToOptions = (totalSize: number, count: number) => {
     setPendingUploadSize({ totalSize, count });
+    setUploadOptions(buildInitialOptions());
     setShowOptions(true);
   };
 
@@ -101,7 +126,7 @@ export default function TransferButtons() {
         </button>
         <button
           className={styles.optionsBtn}
-          onClick={() => { setPendingUploadSize(null); setShowOptions(true); }}
+          onClick={() => { setPendingUploadSize(null); setUploadOptions(buildInitialOptions()); setShowOptions(true); }}
           disabled={!canUpload}
           title="업로드 옵션 설정 (Content-Type, Cache-Control, 헤더, 메타데이터)"
         >
@@ -159,9 +184,39 @@ export default function TransferButtons() {
             setUploadOptions(opts);
             setShowOptions(false);
             setPendingUploadSize(null);
-            startUpload(opts);
+            // 자동 Purge 활성화 + CDN 설정 시 → 업로드 전 Purge 승인 팝업
+            if (autoPurgeEnabled && activeProfile?.cdnProvider) {
+              setAutoPurgeConfirmOpts(opts);
+            } else {
+              startUpload(opts);
+            }
           }}
           onCancel={() => { setShowOptions(false); setPendingUploadSize(null); }}
+        />
+      )}
+
+      {autoPurgeConfirmOpts && (
+        <ConfirmDialog
+          title="자동 Purge 확인"
+          message={
+            <>
+              <p>
+                <strong>자동 Purge</strong>가 활성화되어 있습니다.
+              </p>
+              <p>
+                업로드 완료 후 선택된 파일의 CDN 캐시({activeProfile?.cdnProvider?.toUpperCase()})를
+                자동으로 Purge합니다.
+              </p>
+              <p>미변경(스킵) 파일도 포함하여 전체 경로를 Purge합니다.</p>
+            </>
+          }
+          confirmLabel="업로드 + 자동 Purge 실행"
+          onConfirm={() => {
+            const opts = autoPurgeConfirmOpts;
+            setAutoPurgeConfirmOpts(null);
+            startUpload(opts);
+          }}
+          onCancel={() => setAutoPurgeConfirmOpts(null)}
         />
       )}
 
