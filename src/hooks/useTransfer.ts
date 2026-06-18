@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { saveOperationLog, shipLogToS3 } from "../services/operation-log/operation-log-service";
+import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
@@ -339,9 +339,6 @@ export function useTransfer() {
         finishedAt,
       };
       void saveOperationLog(uploadLog);
-      if (activeProfile.logShipping?.enabled) {
-        void shipLogToS3(uploadLog, activeProfile.id, activeProfile.logShipping);
-      }
 
       // autoPurgeEnabled ON: 스킵된 파일(변경 없음)도 포함해 선택한 전체 경로 Purge
       // 이유: CDN 캐시가 S3와 어긋난 경우(이전 Purge 실패, CDN 장애 등)를 커버
@@ -460,9 +457,6 @@ export function useTransfer() {
         finishedAt,
       };
       void saveOperationLog(downloadLog);
-      if (activeProfile.logShipping?.enabled) {
-        void shipLogToS3(downloadLog, activeProfile.id, activeProfile.logShipping);
-      }
 
       clearRemoteSelection();
     } catch (err) {

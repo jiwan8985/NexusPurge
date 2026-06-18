@@ -1,5 +1,5 @@
 import { runtime } from "../runtime";
-import type { OperationLog, LogShippingConfig } from "../../types";
+import type { OperationLog } from "./operation-log-types";
 
 const STORAGE_KEY = "nexuspurge.operationLogs";
 const MAX_LOGS = 500;
@@ -53,38 +53,6 @@ export class OperationLogStore {
   async clearPersisted(): Promise<void> {
     this.clear();
     await runtime.invoke("clear_operation_logs");
-  }
-
-  // 고객 제공 S3 버킷으로 로그 적재
-  // logShipping.enabled가 false이면 조용히 스킵
-  async shipToS3(log: OperationLog, profileId: string, logShipping: LogShippingConfig): Promise<void> {
-    if (!logShipping.enabled) return;
-    if (logShipping.includeOperations.length > 0 && !logShipping.includeOperations.includes(log.operation)) return;
-
-    const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const prefix = logShipping.prefix ? logShipping.prefix.replace(/\/$/, "") : "nexuspurge-logs";
-    const key = `${prefix}/${dateStr}/${log.operation}_${log.id}.json`;
-    const content = new TextEncoder().encode(JSON.stringify(log, null, 2));
-
-    const maxAttempts = logShipping.retry?.enabled ? (logShipping.retry.maxAttempts ?? 3) : 1;
-    const backoffMs = logShipping.retry?.backoffMs ?? 500;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        await runtime.invoke("ship_operation_log", {
-          profileId,
-          logBucket: logShipping.bucket ?? null,
-          key,
-          content: Array.from(content),
-        });
-        return;
-      } catch {
-        if (attempt < maxAttempts - 1) {
-          await new Promise((r) => setTimeout(r, backoffMs * Math.pow(2, attempt)));
-        }
-        // 마지막 시도 실패 시 조용히 무시 (로그 적재 실패가 업로드 흐름을 막으면 안 됨)
-      }
-    }
   }
 
   // TODO: Add CSV export after the customer confirms required report columns.

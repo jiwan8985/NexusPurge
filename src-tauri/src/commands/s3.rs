@@ -274,31 +274,6 @@ pub async fn put_s3_object(
         .map_err(|e| e.to_string())
 }
 
-/// 운영 로그를 고객 제공 S3 버킷에 JSON으로 적재한다.
-/// log_bucket이 None이면 프로필의 기본 버킷을 사용한다.
-/// 어댑터 캐시를 우회해 독립 연결을 생성하므로 로그 버킷이 달라도 안전하다.
-#[tauri::command]
-pub async fn ship_operation_log(
-    profile_id: String,
-    log_bucket: Option<String>,
-    key: String,
-    content: Vec<u8>,
-    store: State<'_, ProfileStore>,
-) -> Result<(), String> {
-    let (creds, region, bucket, endpoint) = store
-        .get_connection_info(&profile_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let target_bucket = log_bucket.unwrap_or(bucket);
-    S3Adapter::new(&region, &target_bucket, &creds, endpoint.as_deref())
-        .await
-        .map_err(|e| e.to_string())?
-        .put_object(&key, content, "application/json")
-        .await
-        .map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 pub async fn get_presigned_url(
     profile_id:         String,
