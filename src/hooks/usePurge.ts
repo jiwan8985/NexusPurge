@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { readBatchSettings } from "../utils/batch-settings";
+import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { useAppStore } from "../store/appStore";
 import { runtime } from "../services/runtime";
 import type { CdnPurgeResult } from "../types";
@@ -7,8 +8,8 @@ import type { CdnPurgeResult } from "../types";
 export function usePurge() {
   const { activeProfile, remote, addLog } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
-    remote: s.remote,
-    addLog: s.addLog,
+    remote:        s.remote,
+    addLog:        s.addLog,
   }));
 
   const [isPurging, setIsPurging] = useState(false);
@@ -32,6 +33,7 @@ export function usePurge() {
       }
 
       const totalBatches = batches.length;
+      const startedAt = new Date().toISOString();
       addLog(
         "info",
         totalBatches > 1
@@ -42,10 +44,20 @@ export function usePurge() {
 
       let lastResult: CdnPurgeResult | null = null;
       let failedCount = 0;
+      const purgeResults: Array<{
+        provider: typeof activeProfile.cdnProvider;
+        batch: string[];
+        success: boolean;
+        invalidationId?: string;
+        error?: string;
+        startedAt: string;
+        finishedAt: string;
+      }> = [];
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
         const batchLabel = totalBatches > 1 ? ` (배치 ${i + 1}/${totalBatches})` : "";
+        const batchStartedAt = new Date().toISOString();
 
         try {
           const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
@@ -56,6 +68,15 @@ export function usePurge() {
           });
 
           lastResult = result;
+          purgeResults.push({
+            provider: activeProfile.cdnProvider,
+            batch,
+            success: result.success,
+            invalidationId: result.invalidationId ?? undefined,
+            error: result.error ?? undefined,
+            startedAt: batchStartedAt,
+            finishedAt: new Date().toISOString(),
+          });
 
           if (result.success) {
             const inv = result.invalidationId ? ` (${result.invalidationId})` : "";
@@ -66,9 +87,19 @@ export function usePurge() {
           }
         } catch (err) {
           failedCount += batch.length;
+          purgeResults.push({
+            provider: activeProfile.cdnProvider,
+            batch,
+            success: false,
+            error: String(err),
+            startedAt: batchStartedAt,
+            finishedAt: new Date().toISOString(),
+          });
           addLog("error", `CDN Purge 오류${batchLabel}: ${err}`, "cdn");
         }
       }
+
+      const finishedAt = new Date().toISOString();
 
       if (totalBatches > 1) {
         const successCount = paths.length - failedCount;
@@ -79,11 +110,38 @@ export function usePurge() {
         }
       }
 
+      // 영구 Purge 로그 저장 (operation log)
+      const overallStatus = failedCount === 0
+        ? "success" as const
+        : failedCount === paths.length
+          ? "failed" as const
+          : "partial" as const;
+      void saveOperationLog({
+        id: crypto.randomUUID(),
+        profileId: activeProfile.id,
+        operation: "purge",
+        status: overallStatus,
+        bucket: activeProfile.bucket,
+        prefix: remote.path,
+        files: [],
+        purgeResults: purgeResults.map((r) => ({
+          provider: r.provider!,
+          urls: r.batch,
+          status: r.success ? "success" as const : "failed" as const,
+          requestId: r.invalidationId,
+          error: r.error,
+          startedAt: r.startedAt,
+          finishedAt: r.finishedAt,
+        })),
+        startedAt,
+        finishedAt,
+      });
+
       isPurgingRef.current = false;
       setIsPurging(false);
       return lastResult;
     },
-    [activeProfile, addLog]
+    [activeProfile, remote.path, addLog]
   );
 
   const selectedPaths = Array.from(remote.selectedPaths);

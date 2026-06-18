@@ -6,6 +6,14 @@ import styles from "./LogPanel.module.css";
 
 type Tab = "log" | "queue" | "errors";
 type LevelFilter = "all" | "error" | "warn";
+type CategoryFilter = "all" | "cdn" | "transfer";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  cdn:      "CDN",
+  transfer: "전송",
+  profile:  "프로필",
+  system:   "시스템",
+};
 
 function LogRow({ entry }: { entry: LogEntry }) {
   const time = new Date(entry.timestamp).toLocaleTimeString("ko-KR", {
@@ -25,6 +33,11 @@ function LogRow({ entry }: { entry: LogEntry }) {
     <div className={`${styles.logRow} ${styles[entry.level]}`}>
       <span className={styles.logTime}>{time}</span>
       <span className={styles.logLevel}>{prefix[entry.level]}</span>
+      {entry.category && (
+        <span className={`${styles.logCategory} ${styles[`cat_${entry.category}`]}`}>
+          {CATEGORY_LABEL[entry.category] ?? entry.category}
+        </span>
+      )}
       <span className={styles.logMsg}>{entry.message}</span>
     </div>
   );
@@ -76,6 +89,7 @@ export default function LogPanel() {
 
   const [tab, setTab] = useState<Tab>("log");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -87,8 +101,10 @@ export default function LogPanel() {
   const errorTransfers = transfers.filter((t) => t.status === "error");
 
   const filteredLogs = logs.filter((log) => {
-    if (levelFilter === "error") return log.level === "error";
-    if (levelFilter === "warn")  return log.level === "error" || log.level === "warn";
+    if (levelFilter === "error") { if (log.level !== "error") return false; }
+    else if (levelFilter === "warn") { if (log.level !== "error" && log.level !== "warn") return false; }
+    if (categoryFilter === "cdn")      return log.category === "cdn";
+    if (categoryFilter === "transfer") return log.category === "transfer";
     return true;
   });
 
@@ -183,17 +199,30 @@ export default function LogPanel() {
 
         <div className={styles.headerActions}>
           {tab === "log" && (
-            <div className={styles.levelFilters}>
-              {(["all", "warn", "error"] as LevelFilter[]).map((f) => (
-                <button
-                  key={f}
-                  className={`${styles.filterBtn} ${levelFilter === f ? styles.filterActive : ""} ${f !== "all" ? styles[`filter_${f}`] : ""}`}
-                  onClick={() => setLevelFilter(f)}
-                >
-                  {f === "all" ? "전체" : f === "warn" ? "경고+" : "오류"}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className={styles.levelFilters}>
+                {(["all", "cdn", "transfer"] as CategoryFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    className={`${styles.filterBtn} ${categoryFilter === f ? styles.filterActive : ""}`}
+                    onClick={() => setCategoryFilter(f)}
+                  >
+                    {f === "all" ? "전체" : f === "cdn" ? "CDN/Purge" : "전송"}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.levelFilters}>
+                {(["all", "warn", "error"] as LevelFilter[]).map((f) => (
+                  <button
+                    key={f}
+                    className={`${styles.filterBtn} ${levelFilter === f ? styles.filterActive : ""} ${f !== "all" ? styles[`filter_${f}`] : ""}`}
+                    onClick={() => setLevelFilter(f)}
+                  >
+                    {f === "all" ? "전체" : f === "warn" ? "경고+" : "오류"}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           <button className={styles.actionBtn} onClick={copyLog} disabled={logs.length === 0}>
             {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}

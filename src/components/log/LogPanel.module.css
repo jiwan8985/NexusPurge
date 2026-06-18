@@ -156,6 +156,25 @@
   word-break: break-all;
 }
 
+/* ── Category Badge ──────────────────────────────────────────────────────────── */
+.logCategory {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: 0.85;
+  background: var(--color-surface-2, #2a2a2a);
+  color: var(--color-text-secondary);
+}
+
+.cat_cdn      { background: color-mix(in srgb, var(--color-info) 20%, transparent);    color: var(--color-info);    }
+.cat_transfer { background: color-mix(in srgb, var(--color-success) 20%, transparent); color: var(--color-success); }
+.cat_system   { background: color-mix(in srgb, var(--color-text-disabled) 20%, transparent); color: var(--color-text-disabled); }
+.cat_profile  { background: color-mix(in srgb, var(--color-warning) 15%, transparent); color: var(--color-warning); }
+
 /* ── Level Colors ─────────────────────────────────────────────────────────────── */
 .info    .logLevel { color: var(--color-info);             }
 .warn    .logLevel { color: var(--color-warning);          }
