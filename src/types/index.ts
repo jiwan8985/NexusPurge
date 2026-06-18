@@ -226,6 +226,26 @@ export interface CdnPurgeResult {
   error?: string;
 }
 
+export interface PurgeBatchResult {
+  paths: string[];
+  success: boolean;
+  invalidationId?: string;
+  error?: string;
+  startedAt: string;
+  finishedAt: string;
+}
+
+export interface PurgeExecutionResult {
+  provider: CdnProvider;
+  domain?: string;
+  totalPaths: number;
+  batches: PurgeBatchResult[];
+  successCount: number;
+  failedCount: number;
+  startedAt: string;
+  finishedAt: string;
+}
+
 export interface CdnConnectionTestResult {
   success: boolean;
   provider: CdnProvider;

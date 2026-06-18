@@ -3,7 +3,7 @@ import { readBatchSettings } from "../utils/batch-settings";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { useAppStore } from "../store/appStore";
 import { runtime } from "../services/runtime";
-import type { CdnPurgeResult } from "../types";
+import type { CdnPurgeResult, PurgeExecutionResult } from "../types";
 
 export function usePurge() {
   const { activeProfile, remote, addLog } = useAppStore((s) => ({
@@ -16,7 +16,7 @@ export function usePurge() {
   const isPurgingRef = useRef(false);
 
   const executePurge = useCallback(
-    async (paths: string[]): Promise<CdnPurgeResult | null> => {
+    async (paths: string[]): Promise<PurgeExecutionResult | null> => {
       if (!activeProfile?.cdnProvider) return null;
       if (isPurgingRef.current) {
         addLog("warn", "CDN Purge가 이미 진행 중입니다. 완료 후 재시도하세요.", "cdn");
@@ -27,12 +27,12 @@ export function usePurge() {
       setIsPurging(true);
 
       const { purgeBatchSize } = readBatchSettings();
-      const batches: string[][] = [];
+      const batchArrays: string[][] = [];
       for (let i = 0; i < paths.length; i += purgeBatchSize) {
-        batches.push(paths.slice(i, i + purgeBatchSize));
+        batchArrays.push(paths.slice(i, i + purgeBatchSize));
       }
 
-      const totalBatches = batches.length;
+      const totalBatches = batchArrays.length;
       const startedAt = new Date().toISOString();
       addLog(
         "info",
@@ -42,20 +42,11 @@ export function usePurge() {
         "cdn"
       );
 
-      let lastResult: CdnPurgeResult | null = null;
       let failedCount = 0;
-      const purgeResults: Array<{
-        provider: typeof activeProfile.cdnProvider;
-        batch: string[];
-        success: boolean;
-        invalidationId?: string;
-        error?: string;
-        startedAt: string;
-        finishedAt: string;
-      }> = [];
+      const batchResults: PurgeExecutionResult["batches"] = [];
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
+      for (let i = 0; i < batchArrays.length; i++) {
+        const batch = batchArrays[i];
         const batchLabel = totalBatches > 1 ? ` (배치 ${i + 1}/${totalBatches})` : "";
         const batchStartedAt = new Date().toISOString();
 
@@ -67,10 +58,8 @@ export function usePurge() {
             paths: batch,
           });
 
-          lastResult = result;
-          purgeResults.push({
-            provider: activeProfile.cdnProvider,
-            batch,
+          batchResults.push({
+            paths: batch,
             success: result.success,
             invalidationId: result.invalidationId ?? undefined,
             error: result.error ?? undefined,
@@ -87,9 +76,8 @@ export function usePurge() {
           }
         } catch (err) {
           failedCount += batch.length;
-          purgeResults.push({
-            provider: activeProfile.cdnProvider,
-            batch,
+          batchResults.push({
+            paths: batch,
             success: false,
             error: String(err),
             startedAt: batchStartedAt,
@@ -100,9 +88,9 @@ export function usePurge() {
       }
 
       const finishedAt = new Date().toISOString();
+      const successCount = paths.length - failedCount;
 
       if (totalBatches > 1) {
-        const successCount = paths.length - failedCount;
         if (failedCount === 0) {
           addLog("success", `CDN Purge 전체 완료: 총 ${paths.length}개 (${totalBatches}배치)`, "cdn");
         } else {
@@ -110,12 +98,10 @@ export function usePurge() {
         }
       }
 
-      // 영구 Purge 로그 저장 (operation log)
       const overallStatus = failedCount === 0
         ? "success" as const
-        : failedCount === paths.length
-          ? "failed" as const
-          : "partial" as const;
+        : failedCount === paths.length ? "failed" as const : "partial" as const;
+
       void saveOperationLog({
         id: crypto.randomUUID(),
         profileId: activeProfile.id,
@@ -124,9 +110,9 @@ export function usePurge() {
         bucket: activeProfile.bucket,
         prefix: remote.path,
         files: [],
-        purgeResults: purgeResults.map((r) => ({
-          provider: r.provider!,
-          urls: r.batch,
+        purgeResults: batchResults.map((r) => ({
+          provider: activeProfile.cdnProvider!,
+          urls: r.paths,
           status: r.success ? "success" as const : "failed" as const,
           requestId: r.invalidationId,
           error: r.error,
@@ -139,13 +125,22 @@ export function usePurge() {
 
       isPurgingRef.current = false;
       setIsPurging(false);
-      return lastResult;
+
+      return {
+        provider: activeProfile.cdnProvider,
+        domain: activeProfile.cdnDomain,
+        totalPaths: paths.length,
+        batches: batchResults,
+        successCount,
+        failedCount,
+        startedAt,
+        finishedAt,
+      };
     },
     [activeProfile, remote.path, addLog]
   );
 
   const selectedPaths = Array.from(remote.selectedPaths);
-
   const allPrefix = remote.path
     ? `${remote.path.replace(/\/$/, "")}/*`
     : "/*";

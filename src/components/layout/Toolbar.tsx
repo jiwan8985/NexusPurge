@@ -5,8 +5,9 @@ import { useS3 } from "../../hooks/useS3";
 import { useLocalFs } from "../../hooks/useLocalFs";
 import { usePurge } from "../../hooks/usePurge";
 import PurgeDialog from "../modals/PurgeDialog";
+import PurgeResultDialog from "../modals/PurgeResultDialog";
 import { runtime } from "../../services/runtime";
-import type { SyncPreviewResult } from "../../types";
+import type { PurgeExecutionResult, SyncPreviewResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
 export default function Toolbar() {
@@ -55,6 +56,7 @@ export default function Toolbar() {
   const { executePurge, isPurging, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
 
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
 
   // H-1: 새 폴더
   const handleNewFolder = async () => {
@@ -280,10 +282,17 @@ export default function Toolbar() {
           paths={purgeDialog.paths}
           mode={purgeDialog.mode}
           onConfirm={async () => {
-            await executePurge(purgeDialog.paths);
+            const result = await executePurge(purgeDialog.paths);
             setPurgeDialog(null);
+            if (result) setPurgeResult(result);
           }}
           onCancel={() => setPurgeDialog(null)}
+        />
+      )}
+      {purgeResult && (
+        <PurgeResultDialog
+          result={purgeResult}
+          onClose={() => setPurgeResult(null)}
         />
       )}
     </div>
