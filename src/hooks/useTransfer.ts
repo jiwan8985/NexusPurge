@@ -3,7 +3,7 @@ import { saveOperationLog } from "../services/operation-log/operation-log-servic
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
-import type { CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
+import type { CdnPurgeResult, CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
 import type { UploadOptions } from "../components/transfer/UploadOptionsModal";
 import { readBatchSettings } from "../utils/batch-settings";
 
@@ -226,7 +226,7 @@ export function useTransfer() {
 
       setShowProgressDialog(true);
 
-      // 2. 스킵 항목 등록
+      // 2. 스킵 항목 등록 (autoPurgeEnabled ON이면 나중에 Purge 예정으로 표시)
       for (const file of plan.toSkip) {
         const id = crypto.randomUUID();
         addTransfer({
@@ -239,6 +239,8 @@ export function useTransfer() {
           status: "skipped",
           progress: 100,
           transferredBytes: file.size,
+          cdnPurgeStatus:
+            autoPurgeEnabled && activeProfile.cdnProvider ? "pending" : "notRequested",
           startedAt: new Date().toISOString(),
           completedAt: new Date().toISOString(),
         });
@@ -286,11 +288,12 @@ export function useTransfer() {
           };
         });
 
-      // autoPurgeEnabled가 켜져 있으면 신규 파일도 Purge 대상으로 처리
-      const purgeNewUploads = autoPurgeEnabled || (activeProfile.purgeOnNewUpload ?? false);
+      // CDN이 설정된 경우 신규 파일도 항상 Purge:
+      // 해당 경로에 CDN이 404를 캐싱하고 있을 수 있으므로 업로드 즉시 무효화 필요
+      const hasCdn = !!activeProfile.cdnProvider;
       const uploadItems = [
-        ...makeItems(plan.toUpload, purgeNewUploads),
-        ...makeItems(plan.toOverwrite, true),
+        ...makeItems(plan.toUpload, hasCdn),       // 신규: CDN 설정 시 항상 Purge
+        ...makeItems(plan.toOverwrite, true),       // 변경: 항상 Purge
       ];
 
       await runtime.invoke("upload_files", {
@@ -335,6 +338,40 @@ export function useTransfer() {
         startedAt: finishedAt,
         finishedAt,
       });
+
+      // autoPurgeEnabled ON: 스킵된 파일(변경 없음)도 포함해 선택한 전체 경로 Purge
+      // 이유: CDN 캐시가 S3와 어긋난 경우(이전 Purge 실패, CDN 장애 등)를 커버
+      if (autoPurgeEnabled && activeProfile.cdnProvider && plan.toSkip.length > 0) {
+        const skipPaths = plan.toSkip.map((f) => remote.path + f.name);
+        addLog(
+          "info",
+          `자동 Purge (스킵 포함): 미변경 ${skipPaths.length}개 경로 추가 Purge`,
+          "cdn"
+        );
+        const { purgeBatchSize } = readBatchSettings();
+        for (let i = 0; i < skipPaths.length; i += purgeBatchSize) {
+          const batch = skipPaths.slice(i, i + purgeBatchSize);
+          const batchLabel =
+            skipPaths.length > purgeBatchSize
+              ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${Math.ceil(skipPaths.length / purgeBatchSize)})`
+              : "";
+          try {
+            const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+              profileId: activeProfile.id,
+              provider: activeProfile.cdnProvider,
+              distributionId: activeProfile.cdnDistributionId ?? "",
+              paths: batch,
+            });
+            if (result.success) {
+              addLog("success", `스킵 경로 Purge 완료${batchLabel}: ${batch.length}개`, "cdn");
+            } else {
+              addLog("error", `스킵 경로 Purge 실패${batchLabel}: ${result.error}`, "cdn");
+            }
+          } catch (err) {
+            addLog("error", `스킵 경로 Purge 오류${batchLabel}: ${err}`, "cdn");
+          }
+        }
+      }
 
       clearLocalSelection();
       setSyncPlan(null);
