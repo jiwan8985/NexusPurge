@@ -282,8 +282,9 @@ export default function Toolbar() {
           paths={purgeDialog.paths}
           mode={purgeDialog.mode}
           onConfirm={async () => {
-            const result = await executePurge(purgeDialog.paths);
-            setPurgeDialog(null);
+            const paths = purgeDialog.paths;
+            setPurgeDialog(null); // 즉시 닫기 — 실행 중엔 하단 칩으로 표시
+            const result = await executePurge(paths);
             if (result) setPurgeResult(result);
           }}
           onCancel={() => setPurgeDialog(null)}
@@ -294,6 +295,13 @@ export default function Toolbar() {
           result={purgeResult}
           onClose={() => setPurgeResult(null)}
         />
+      )}
+
+      {isPurging && (
+        <div className={styles.purgeChip}>
+          <span className={styles.purgeChipDot} />
+          CDN Purge 진행 중...
+        </div>
       )}
     </div>
   );
