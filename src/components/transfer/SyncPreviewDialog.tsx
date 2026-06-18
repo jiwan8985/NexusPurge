@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { SyncPreviewResult, SyncPreviewEntry } from "../../types";
 import styles from "./SyncPreviewDialog.module.css";
 
+type Tab = "new" | "modified" | "purge" | "unchanged";
+
 function fmtSize(b: number) {
   if (b === 0) return "-";
   if (b < 1024) return `${b} B`;
@@ -10,19 +12,33 @@ function fmtSize(b: number) {
   return `${(b / 1073741824).toFixed(2)} GB`;
 }
 
-function baseName(entry: SyncPreviewEntry): string {
+function extIcon(key: string) {
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  if (["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "avif"].includes(ext)) return "IMG";
+  if (["mp4", "mov", "avi", "webm", "mkv"].includes(ext)) return "VID";
+  if (["js", "ts", "jsx", "tsx", "html", "css", "json", "yaml", "yml", "xml", "rs", "go", "py"].includes(ext)) return "DEV";
+  if (["zip", "tar", "gz", "rar", "7z"].includes(ext)) return "ZIP";
+  return "FILE";
+}
+
+function baseName(entry: SyncPreviewEntry) {
   const key = entry.localPath ?? entry.remoteKey;
   return key.replace(/\\/g, "/").split("/").pop() ?? key;
 }
 
-type Tab = "new" | "modified" | "deleted" | "unchanged";
-
-const TAB_LABEL: Record<Tab, string> = {
-  new:       "새 파일",
-  modified:  "수정됨",
-  deleted:   "삭제 예정",
-  unchanged: "변경 없음",
-};
+function FileRow({ entry, overwrite }: { entry: SyncPreviewEntry; overwrite?: boolean }) {
+  return (
+    <div className={styles.fileRow}>
+      <span className={styles.fileExt}>{extIcon(entry.remoteKey)}</span>
+      <span className={styles.fileName}>
+        {baseName(entry)}
+        {overwrite && <span className={styles.overwriteBadge}>⚠ 기존 파일 교체</span>}
+      </span>
+      <span className={styles.fileSize}>{fmtSize(entry.size)}</span>
+      <span className={styles.fileKey} title={entry.remoteKey}>{entry.remoteKey}</span>
+    </div>
+  );
+}
 
 interface Props {
   result: SyncPreviewResult;
@@ -34,60 +50,112 @@ interface Props {
 export default function SyncPreviewDialog({ result, localPath, remotePath, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("new");
 
-  const counts: Record<Tab, number> = {
-    new:       result.new.length,
-    modified:  result.modified.length,
-    deleted:   result.deleted.length,
-    unchanged: result.unchanged.length,
-  };
+  const { new: newFiles, modified, unchanged, purgeTargets } = result;
+  const uploadBytes = [...newFiles, ...modified].reduce((s, e) => s + e.size, 0);
 
-  const entries: SyncPreviewEntry[] = result[tab];
+  const TAB_META: { id: Tab; label: string; count: number; activeCls: string }[] = [
+    { id: "new",       label: "업로드 신규",  count: newFiles.length,     activeCls: styles.tabActiveNew      },
+    { id: "modified",  label: "덮어쓰기",     count: modified.length,     activeCls: styles.tabActiveModified },
+    { id: "purge",     label: "CDN Purge",    count: purgeTargets.length, activeCls: styles.tabActivePurge    },
+    { id: "unchanged", label: "스킵",         count: unchanged.length,    activeCls: styles.tabActiveSkip     },
+  ];
+
+  const isEmpty = newFiles.length === 0 && modified.length === 0 &&
+    purgeTargets.length === 0 && unchanged.length === 0;
 
   return (
-    <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
+    <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={styles.dialog}>
+        {/* 헤더 */}
         <div className={styles.header}>
-          <div>
-            <div className={styles.title}>동기화 미리보기</div>
-            <div className={styles.subtitle}>
-              {localPath} → S3: {remotePath || "(루트)"}
+          <div className={styles.headerTop}>
+            <div>
+              <div className={styles.title}>업로드 계획</div>
+              <div className={styles.subtitle}>
+                로컬: {localPath} → S3: {remotePath || "(루트)"}
+              </div>
             </div>
+            <button className={styles.closeBtn} onClick={onClose}>✕</button>
           </div>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="닫기">✕</button>
+          <div className={styles.summaryRow}>
+            {newFiles.length > 0 && (
+              <span className={`${styles.pill} ${styles.pillNew}`}>
+                신규 {newFiles.length}개 · {fmtSize(uploadBytes)}
+              </span>
+            )}
+            {modified.length > 0 && (
+              <span className={`${styles.pill} ${styles.pillModified}`}>
+                덮어쓰기 {modified.length}개
+              </span>
+            )}
+            {purgeTargets.length > 0 && (
+              <span className={`${styles.pill} ${styles.pillPurge}`}>
+                CDN Purge {purgeTargets.length}개
+              </span>
+            )}
+            {unchanged.length > 0 && (
+              <span className={`${styles.pill} ${styles.pillSkip}`}>
+                스킵 {unchanged.length}개
+              </span>
+            )}
+          </div>
         </div>
 
+        {/* 탭 */}
         <div className={styles.tabs}>
-          {(["new", "modified", "deleted", "unchanged"] as Tab[]).map((t) => (
+          {TAB_META.map(({ id, label, count, activeCls }) => (
             <button
-              key={t}
-              className={`${styles.tab} ${tab === t ? styles.tabActive : ""} ${t === "new" ? styles.tabNew : t === "modified" ? styles.tabModified : t === "deleted" ? styles.tabDeleted : styles.tabUnchanged}`}
-              onClick={() => setTab(t)}
+              key={id}
+              className={`${styles.tab} ${tab === id ? activeCls : ""}`}
+              onClick={() => setTab(id)}
             >
-              {TAB_LABEL[t]}
-              <span className={styles.tabCount}>{counts[t]}</span>
+              {label}
+              <span className={styles.tabCount}>{count}</span>
             </button>
           ))}
         </div>
 
+        {/* 목록 */}
         <div className={styles.list}>
-          {entries.length === 0 ? (
-            <div className={styles.empty}>항목 없음</div>
+          {isEmpty ? (
+            <div className={styles.listEmpty}>
+              <span>업로드할 파일이 없습니다</span>
+              <span style={{ fontSize: 11 }}>모두 최신 상태입니다.</span>
+            </div>
+          ) : tab === "new" ? (
+            newFiles.length === 0
+              ? <div className={styles.listEmpty}>신규 파일 없음</div>
+              : newFiles.map((e, i) => <FileRow key={i} entry={e} />)
+          ) : tab === "modified" ? (
+            modified.length === 0
+              ? <div className={styles.listEmpty}>덮어쓰기 파일 없음</div>
+              : modified.map((e, i) => <FileRow key={i} entry={e} overwrite />)
+          ) : tab === "purge" ? (
+            purgeTargets.length === 0
+              ? <div className={styles.listEmpty}>CDN Purge 대상 없음</div>
+              : (
+                <>
+                  <div className={styles.purgeNote}>
+                    이 파일들은 업로드 완료 후 CDN Purge됩니다.
+                  </div>
+                  {purgeTargets.map((path, i) => (
+                    <div key={i} className={styles.purgeRow}>
+                      <span className={styles.purgeIdx}>{i + 1}</span>
+                      <span className={styles.purgePath} title={path}>{path}</span>
+                    </div>
+                  ))}
+                </>
+              )
           ) : (
-            entries.map((entry, i) => (
-              <div key={i} className={styles.row}>
-                <span className={styles.fileName}>{baseName(entry)}</span>
-                <span className={styles.fileSize}>{fmtSize(entry.size)}</span>
-                <span className={styles.filePath}>{entry.remoteKey}</span>
-              </div>
-            ))
+            unchanged.length === 0
+              ? <div className={styles.listEmpty}>스킵 파일 없음</div>
+              : unchanged.map((e, i) => <FileRow key={i} entry={e} />)
           )}
         </div>
 
+        {/* 푸터 */}
         <div className={styles.footer}>
-          <span className={styles.summary}>
-            신규 {counts.new} · 수정 {counts.modified} · 삭제 {counts.deleted} · 변경 없음 {counts.unchanged}
-          </span>
-          <button className={styles.closeButton} onClick={onClose}>닫기</button>
+          <button className={styles.btn} onClick={onClose}>닫기</button>
         </div>
       </div>
     </div>
