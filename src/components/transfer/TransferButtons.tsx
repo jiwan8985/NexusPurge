@@ -8,9 +8,7 @@ import type { UploadOptions } from "./UploadOptionsModal";
 import type { SyncPreviewResult } from "../../types";
 import styles from "./TransferButtons.module.css";
 
-const LARGE_UPLOAD_THRESHOLD = 100 * 1024 * 1024; // 100 MB
-const LARGE_FILE_COUNT_WARN  = 5_000;
-const LARGE_FILE_COUNT_LIMIT = 10_000;
+import { readBatchSettings } from "../../utils/batch-settings";
 
 function fmtSize(bytes: number): string {
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -45,22 +43,24 @@ export default function TransferButtons() {
   };
 
   const handleUpload = () => {
+    const cfg = readBatchSettings();
     const selectedFiles = local.files.filter((f) => local.selectedPaths.has(f.path));
     const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
     const count = selectedFiles.length;
 
-    if (count >= LARGE_FILE_COUNT_LIMIT) {
-      const msg = `선택한 파일이 ${count}개입니다 (${LARGE_FILE_COUNT_LIMIT.toLocaleString()}개 이상).\n` +
+    if (count >= cfg.fileCountLimit) {
+      const msg = `선택한 파일이 ${count}개입니다 (${cfg.fileCountLimit.toLocaleString()}개 이상).\n` +
         "S3/CDN 제한으로 인해 처리 시간이 매우 오래 걸리거나 실패할 수 있습니다.\n" +
         "계속 진행할까요?";
       if (!window.confirm(msg)) return;
-    } else if (count >= LARGE_FILE_COUNT_WARN) {
-      const msg = `선택한 파일이 ${count}개입니다 (${LARGE_FILE_COUNT_WARN.toLocaleString()}개 이상).\n` +
+    } else if (count >= cfg.fileCountWarn) {
+      const msg = `선택한 파일이 ${count}개입니다 (${cfg.fileCountWarn.toLocaleString()}개 이상).\n` +
         "배치 처리 시간이 오래 걸릴 수 있습니다. 계속할까요?";
       if (!window.confirm(msg)) return;
     }
 
-    if (totalSize > LARGE_UPLOAD_THRESHOLD) {
+    const largeThreshold = cfg.largeSizeMb * 1024 * 1024;
+    if (totalSize > largeThreshold) {
       setUploadConfirm({ totalSize, count });
     } else {
       proceedToOptions(totalSize, count);

@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../store/appStore";
+import { useTransfer } from "../../hooks/useTransfer";
 import type { LogEntry, TransferItem } from "../../types";
 import styles from "./LogPanel.module.css";
 
-type Tab = "log" | "queue" | "purge";
+type Tab = "log" | "queue" | "errors";
+type LevelFilter = "all" | "error" | "warn";
 
 function LogRow({ entry }: { entry: LogEntry }) {
   const time = new Date(entry.timestamp).toLocaleTimeString("ko-KR", {
@@ -12,11 +14,11 @@ function LogRow({ entry }: { entry: LogEntry }) {
     second: "2-digit",
   });
   const prefix: Record<LogEntry["level"], string> = {
-    info: "INFO",
-    warn: "WARN",
-    error: "ERR",
+    info:    "INFO",
+    warn:    "WARN",
+    error:   "ERR",
     success: "OK",
-    debug: "DBG",
+    debug:   "DBG",
   };
 
   return (
@@ -28,27 +30,32 @@ function LogRow({ entry }: { entry: LogEntry }) {
   );
 }
 
-function TransferRow({ item }: { item: TransferItem }) {
+function TransferRow({ item, onRetry }: { item: TransferItem; onRetry?: (item: TransferItem) => void }) {
   const statusLabel: Record<TransferItem["status"], string> = {
-    pending: "대기",
-    uploading: "업로드",
+    pending:     "대기",
+    uploading:   "업로드",
     downloading: "다운로드",
-    hashing: "검증",
-    skipped: "건너뜀",
+    hashing:     "검증",
+    skipped:     "건너뜀",
     overwriting: "교체",
-    complete: "완료",
-    canceled: "취소",
-    error: "오류",
+    complete:    "완료",
+    canceled:    "취소",
+    error:       "오류",
   };
 
   return (
-    <div className={styles.transferRow}>
-      <span className={styles.tFileName}>{item.fileName}</span>
+    <div className={`${styles.transferRow} ${item.status === "error" ? styles.transferError : ""}`}>
+      <span className={styles.tFileName} title={item.localPath}>{item.fileName}</span>
       <span className={`${styles.tStatus} ${styles[`ts_${item.status}`]}`}>
         {statusLabel[item.status]}
         {item.cdnPurged && " + CDN"}
       </span>
       <span className={styles.tSize}>{item.transferredBytes > 0 ? fmtSize(item.transferredBytes) : "-"}</span>
+      {item.status === "error" && onRetry && (
+        <button className={styles.retryBtn} onClick={() => onRetry(item)} title={item.error ?? "재시도"}>
+          재시도
+        </button>
+      )}
     </div>
   );
 }
@@ -65,17 +72,27 @@ export default function LogPanel() {
     transfers: s.transfers,
     clearLogs: s.clearLogs,
   }));
+  const { retryTransfer } = useTransfer();
 
   const [tab, setTab] = useState<Tab>("log");
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (tab === "log") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs.length, tab]);
 
-  // M-10: 문자열 검색 대신 category 필드로 필터링
-  const purgeLogs = logs.filter((log) => log.category === "cdn");
+  const errorTransfers = transfers.filter((t) => t.status === "error");
+
+  const filteredLogs = logs.filter((log) => {
+    if (levelFilter === "error") return log.level === "error";
+    if (levelFilter === "warn")  return log.level === "error" || log.level === "warn";
+    return true;
+  });
+
+  const errorCount = logs.filter((l) => l.level === "error").length;
 
   const formatLogs = () =>
     logs
@@ -103,7 +120,6 @@ export default function LogPanel() {
   const copyLog = async () => {
     const text = formatLogs();
     if (!text) return;
-
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -112,14 +128,9 @@ export default function LogPanel() {
       }
       setCopyStatus("copied");
     } catch {
-      try {
-        copyTextFallback(text);
-        setCopyStatus("copied");
-      } catch {
-        setCopyStatus("failed");
-      }
+      try { copyTextFallback(text); setCopyStatus("copied"); }
+      catch { setCopyStatus("failed"); }
     }
-
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   };
 
@@ -135,45 +146,73 @@ export default function LogPanel() {
     URL.revokeObjectURL(url);
   };
 
-  const tabs: { key: Tab; label: string; count: number }[] = [
-    { key: "log", label: "작업 로그", count: logs.length },
-    { key: "queue", label: "전송 큐", count: transfers.length },
-    { key: "purge", label: "Purge 이력", count: purgeLogs.length },
+  const handleRetry = useCallback(async (item: TransferItem) => {
+    setRetryingIds((s) => new Set(s).add(item.id));
+    try {
+      await retryTransfer(item);
+    } finally {
+      setRetryingIds((s) => { const n = new Set(s); n.delete(item.id); return n; });
+    }
+  }, [retryTransfer]);
+
+  const tabs: { key: Tab; label: string; badge?: number }[] = [
+    { key: "log",    label: "작업 로그",   badge: errorCount > 0 ? errorCount : undefined },
+    { key: "queue",  label: "전송 큐",     badge: undefined },
+    { key: "errors", label: "실패 항목",   badge: errorTransfers.length > 0 ? errorTransfers.length : undefined },
   ];
 
   return (
     <div className={styles.panel}>
       <div className={styles.header}>
         <div className={styles.tabs}>
-          {tabs.map(({ key, label, count }) => (
+          {tabs.map(({ key, label, badge }) => (
             <button
               key={key}
               className={`${styles.tab} ${tab === key ? styles.tabActive : ""}`}
               onClick={() => setTab(key)}
             >
               {label}
-              {count > 0 && <span className={styles.tabCount}>{count}</span>}
+              {badge !== undefined && (
+                <span className={`${styles.tabCount} ${key === "errors" || key === "log" ? styles.tabCountError : ""}`}>
+                  {badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
         <div className={styles.headerActions}>
-          <button className={styles.actionBtn} onClick={copyLog} title="Copy logs" disabled={logs.length === 0}>
+          {tab === "log" && (
+            <div className={styles.levelFilters}>
+              {(["all", "warn", "error"] as LevelFilter[]).map((f) => (
+                <button
+                  key={f}
+                  className={`${styles.filterBtn} ${levelFilter === f ? styles.filterActive : ""} ${f !== "all" ? styles[`filter_${f}`] : ""}`}
+                  onClick={() => setLevelFilter(f)}
+                >
+                  {f === "all" ? "전체" : f === "warn" ? "경고+" : "오류"}
+                </button>
+              ))}
+            </div>
+          )}
+          <button className={styles.actionBtn} onClick={copyLog} disabled={logs.length === 0}>
             {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}
           </button>
-          <button className={styles.actionBtn} onClick={saveLog} title="로그 파일 저장">
-            저장
-          </button>
-          <button className={styles.actionBtn} onClick={clearLogs} title="로그 지우기">
-            지우기
-          </button>
+          <button className={styles.actionBtn} onClick={saveLog}>저장</button>
+          <button className={styles.actionBtn} onClick={clearLogs}>지우기</button>
         </div>
       </div>
 
       <div className={styles.content}>
         {tab === "log" && (
           <div className={styles.logList}>
-            {logs.length === 0 ? <div className={styles.empty}>아직 기록된 로그가 없습니다.</div> : logs.map((entry) => <LogRow key={entry.id} entry={entry} />)}
+            {filteredLogs.length === 0 ? (
+              <div className={styles.empty}>
+                {levelFilter !== "all" ? "해당 레벨의 로그가 없습니다." : "아직 기록된 로그가 없습니다."}
+              </div>
+            ) : (
+              filteredLogs.map((entry) => <LogRow key={entry.id} entry={entry} />)
+            )}
             <div ref={bottomRef} />
           </div>
         )}
@@ -183,17 +222,26 @@ export default function LogPanel() {
             {transfers.length === 0 ? (
               <div className={styles.empty}>전송 대기 항목이 없습니다.</div>
             ) : (
-              [...transfers].reverse().map((transfer) => <TransferRow key={transfer.id} item={transfer} />)
+              [...transfers]
+                .filter((t) => t.status !== "error")
+                .reverse()
+                .map((t) => <TransferRow key={t.id} item={t} />)
             )}
           </div>
         )}
 
-        {tab === "purge" && (
+        {tab === "errors" && (
           <div className={styles.logList}>
-            {purgeLogs.length === 0 ? (
-              <div className={styles.empty}>CDN Purge 이력이 없습니다.</div>
+            {errorTransfers.length === 0 ? (
+              <div className={styles.empty}>실패한 전송 항목이 없습니다.</div>
             ) : (
-              purgeLogs.map((entry) => <LogRow key={entry.id} entry={entry} />)
+              errorTransfers.map((t) => (
+                <TransferRow
+                  key={t.id}
+                  item={retryingIds.has(t.id) ? { ...t, status: "uploading" } : t}
+                  onRetry={!retryingIds.has(t.id) ? handleRetry : undefined}
+                />
+              ))
             )}
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
+import { readBatchSettings, writeBatchSetting, BATCH_DEFAULTS } from "../../utils/batch-settings";
 import styles from "./SettingsModal.module.css";
 
 const readPref = (key: string, fallback: boolean) => {
@@ -29,6 +30,21 @@ export default function SettingsModal() {
     clearLogs: s.clearLogs,
     addLog: s.addLog,
   }));
+
+  const [batch, setBatch] = useState(() => readBatchSettings());
+
+  const updateBatch = <K extends keyof typeof batch>(key: K, value: number) => {
+    const next = { ...batch, [key]: value };
+    setBatch(next);
+    writeBatchSetting(key as Parameters<typeof writeBatchSetting>[0], value);
+  };
+
+  const resetBatch = () => {
+    setBatch({ ...BATCH_DEFAULTS });
+    (Object.keys(BATCH_DEFAULTS) as Array<keyof typeof BATCH_DEFAULTS>).forEach((k) =>
+      writeBatchSetting(k, BATCH_DEFAULTS[k])
+    );
+  };
 
   const [restoreLastProfile, setRestoreLastProfile] = useState(() =>
     readPref("nexuspurge.restoreLastProfile", true)
@@ -120,6 +136,93 @@ export default function SettingsModal() {
                 onChange={(e) => updateConfirmExternalRequests(e.target.checked)}
               />
             </label>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}>
+              전송 성능
+              <button type="button" className={styles.resetBtn} onClick={resetBatch}>기본값으로</button>
+            </div>
+            <div className={styles.numberGrid}>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>동시 전송 수</strong>
+                  <small>업로드/다운로드 병렬 처리 개수 (1~16)</small>
+                </span>
+                <input
+                  type="number" min={1} max={16}
+                  className={styles.numberInput}
+                  value={batch.maxConcurrentTransfers}
+                  onChange={(e) => updateBatch("maxConcurrentTransfers", parseInt(e.target.value) || BATCH_DEFAULTS.maxConcurrentTransfers)}
+                />
+              </label>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>파일 수 경고 기준</strong>
+                  <small>이 개수 이상 선택 시 주의 확인 창 표시</small>
+                </span>
+                <input
+                  type="number" min={100}
+                  className={styles.numberInput}
+                  value={batch.fileCountWarn}
+                  onChange={(e) => updateBatch("fileCountWarn", parseInt(e.target.value) || BATCH_DEFAULTS.fileCountWarn)}
+                />
+              </label>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>파일 수 제한 기준</strong>
+                  <small>이 개수 이상 선택 시 강한 경고 표시</small>
+                </span>
+                <input
+                  type="number" min={100}
+                  className={styles.numberInput}
+                  value={batch.fileCountLimit}
+                  onChange={(e) => updateBatch("fileCountLimit", parseInt(e.target.value) || BATCH_DEFAULTS.fileCountLimit)}
+                />
+              </label>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>대용량 파일 확인 기준 (MB)</strong>
+                  <small>이 크기 이상 업로드 시 확인 창 표시</small>
+                </span>
+                <input
+                  type="number" min={1}
+                  className={styles.numberInput}
+                  value={batch.largeSizeMb}
+                  onChange={(e) => updateBatch("largeSizeMb", parseInt(e.target.value) || BATCH_DEFAULTS.largeSizeMb)}
+                />
+              </label>
+            </div>
+
+            <div className={styles.sectionTitle} style={{ marginTop: 12 }}>
+              Purge 정책
+            </div>
+            <div className={styles.numberGrid}>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>Purge 경고 기준</strong>
+                  <small>이 경로 수 이상 Purge 시 주의 표시</small>
+                </span>
+                <input
+                  type="number" min={1}
+                  className={styles.numberInput}
+                  value={batch.purgeWarnThreshold}
+                  onChange={(e) => updateBatch("purgeWarnThreshold", parseInt(e.target.value) || BATCH_DEFAULTS.purgeWarnThreshold)}
+                />
+              </label>
+              <label className={styles.numberRow}>
+                <span>
+                  <strong>Purge 배치 크기</strong>
+                  <small>한 번의 API 호출에 포함할 최대 경로 수</small>
+                </span>
+                <input
+                  type="number" min={1} max={3000}
+                  className={styles.numberInput}
+                  value={batch.purgeBatchSize}
+                  onChange={(e) => updateBatch("purgeBatchSize", parseInt(e.target.value) || BATCH_DEFAULTS.purgeBatchSize)}
+                />
+              </label>
+            </div>
           </section>
 
           <section className={styles.section}>

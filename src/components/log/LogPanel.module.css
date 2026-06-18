@@ -218,3 +218,67 @@
 .ts_complete    { color: var(--color-status-complete);  }
 .ts_canceled    { color: var(--color-status-skipped);   }
 .ts_error       { color: var(--color-status-error);     }
+
+.transferError {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.retryBtn {
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 var(--spacing-2);
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-error);
+  color: var(--color-error);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.retryBtn:hover {
+  background: var(--color-error);
+  color: #fff;
+}
+
+/* ── Level filter buttons ──────────────────────────────────────────────────────── */
+.levelFilters {
+  display: flex;
+  gap: var(--spacing-1);
+}
+
+.filterBtn {
+  height: 20px;
+  padding: 0 var(--spacing-3);
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--color-border);
+  color: var(--color-text-tertiary);
+  background: transparent;
+}
+
+.filterBtn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+.filterActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.filter_warn.filterActive {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
+.filter_error.filterActive {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.tabCountError {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-error);
+}

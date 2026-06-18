@@ -370,11 +370,12 @@ pub async fn sync_preview(
 /// H-6: CdnCredentials 기반 CDN Purge.
 #[tauri::command]
 pub async fn start_uploads(
-    app:                  AppHandle,
-    profile_id:           String,
-    items:                Vec<UploadItem>,
-    cdn_distribution_id:  Option<String>,
-    cdn_provider:         Option<String>,
+    app:                    AppHandle,
+    profile_id:             String,
+    items:                  Vec<UploadItem>,
+    cdn_distribution_id:    Option<String>,
+    cdn_provider:           Option<String>,
+    max_concurrent_files:   Option<usize>,
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
@@ -403,8 +404,8 @@ pub async fn start_uploads(
         };
     let cdn_info = Arc::new(cdn_info);
 
-    // H-2: 동시 실행 제한
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
+    let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
+    let semaphore = Arc::new(Semaphore::new(concurrent));
     let successful_purge_targets = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
@@ -528,12 +529,12 @@ pub async fn start_uploads(
 }
 
 /// 다운로드 실행 (병렬, 진행률 이벤트 emit)
-/// H-2: Semaphore로 동시 다운로드 4개 제한.
 #[tauri::command]
 pub async fn start_downloads(
-    app:        AppHandle,
-    profile_id: String,
-    items:      Vec<DownloadItem>,
+    app:                  AppHandle,
+    profile_id:           String,
+    items:                Vec<DownloadItem>,
+    max_concurrent_files: Option<usize>,
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
@@ -550,7 +551,8 @@ pub async fn start_downloads(
         .await
         .map_err(|e| e.to_string())?;
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
+    let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
+    let semaphore = Arc::new(Semaphore::new(concurrent));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {

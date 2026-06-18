@@ -5,6 +5,7 @@ import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
 import type { CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
 import type { UploadOptions } from "../components/transfer/UploadOptionsModal";
+import { readBatchSettings } from "../utils/batch-settings";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -296,6 +297,7 @@ export function useTransfer() {
         items: uploadItems,
         cdnDistributionId: activeProfile.cdnDistributionId,
         cdnProvider: activeProfile.cdnProvider,
+        maxConcurrentFiles: readBatchSettings().maxConcurrentTransfers,
       });
       const finishedAt = new Date().toISOString();
       const transferState = useAppStore.getState();
@@ -388,6 +390,7 @@ export function useTransfer() {
       await runtime.invoke("start_downloads", {
         profileId: activeProfile.id,
         items: downloadItems,
+        maxConcurrentFiles: readBatchSettings().maxConcurrentTransfers,
       });
       const finishedAt = new Date().toISOString();
       const transferState = useAppStore.getState();
@@ -436,7 +439,49 @@ export function useTransfer() {
     });
   }, [activeProfile, local.path, remote.path]);
 
-  return { startUpload, startDownload, buildSyncPlan, buildPreview };
+  const retryTransfer = useCallback(async (item: TransferItem) => {
+    if (!activeProfile) return;
+
+    updateTransfer(item.id, { status: "pending", progress: 0, transferredBytes: 0, error: undefined });
+
+    if (item.direction === "upload") {
+      const retryItem = {
+        id: item.id,
+        localPath: item.localPath,
+        remotePath: item.remotePath,
+        isOverwrite: false,
+        contentTypeOverride: undefined,
+        cacheControl: undefined,
+        headers: {},
+        metadata: {},
+      };
+      try {
+        await runtime.invoke("upload_files", {
+          profileId: activeProfile.id,
+          items: [retryItem],
+          cdnDistributionId: activeProfile.cdnDistributionId,
+          cdnProvider: activeProfile.cdnProvider,
+          maxConcurrentFiles: 1,
+        });
+      } catch (err) {
+        updateTransfer(item.id, { status: "error", error: String(err) });
+        addLog("error", `재시도 실패 [${item.fileName}]: ${err}`, "transfer");
+      }
+    } else {
+      try {
+        await runtime.invoke("start_downloads", {
+          profileId: activeProfile.id,
+          items: [{ id: item.id, remotePath: item.remotePath, localPath: item.localPath }],
+          maxConcurrentFiles: 1,
+        });
+      } catch (err) {
+        updateTransfer(item.id, { status: "error", error: String(err) });
+        addLog("error", `재시도 실패 [${item.fileName}]: ${err}`, "transfer");
+      }
+    }
+  }, [activeProfile, updateTransfer, addLog]);
+
+  return { startUpload, startDownload, buildSyncPlan, buildPreview, retryTransfer };
 }
 
 function summarizeTransferStatus(transfers: TransferItem[]): "success" | "failed" | "partial" {

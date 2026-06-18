@@ -454,11 +454,12 @@ pub async fn get_last_profile_id(
 /// H-6: CdnCredentials 기반 CDN Purge (Akamai 지원).
 #[tauri::command]
 pub async fn upload_files(
-    app:                 AppHandle,
-    profile_id:          String,
-    items:               Vec<UploadFileItem>,
-    cdn_distribution_id: Option<String>,
-    cdn_provider:        Option<String>,
+    app:                  AppHandle,
+    profile_id:           String,
+    items:                Vec<UploadFileItem>,
+    cdn_distribution_id:  Option<String>,
+    cdn_provider:         Option<String>,
+    max_concurrent_files: Option<usize>,
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
@@ -487,8 +488,8 @@ pub async fn upload_files(
         };
     let cdn_info = Arc::new(cdn_info);
 
-    // H-2: 동시 실행 제한
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FILES));
+    let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
+    let semaphore = Arc::new(Semaphore::new(concurrent));
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {

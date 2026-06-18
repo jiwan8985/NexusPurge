@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PURGE_WARN_THRESHOLD, PURGE_LIMIT_THRESHOLD } from "../../hooks/usePurge";
+import { readBatchSettings } from "../../utils/batch-settings";
 import styles from "./PurgeDialog.module.css";
 
 const PREVIEW_MAX = 8;
@@ -14,9 +14,10 @@ interface Props {
 export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props) {
   const [isPurging, setIsPurging] = useState(false);
 
+  const { purgeWarnThreshold, purgeBatchSize } = readBatchSettings();
   const count = paths.length;
-  const isWarn  = count >= PURGE_WARN_THRESHOLD;
-  const isLimit = count >= PURGE_LIMIT_THRESHOLD;
+  const isWarn  = count >= purgeWarnThreshold;
+  const isLimit = count >= purgeBatchSize;
 
   const preview = paths.slice(0, PREVIEW_MAX);
   const remainder = count - preview.length;
@@ -46,13 +47,13 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
 
           {isLimit && (
             <div className={`${styles.alert} ${styles.alertError}`}>
-              {PURGE_LIMIT_THRESHOLD.toLocaleString()}개 이상 Purge는 CDN 제한에 도달할 수 있습니다.
+              배치 크기({purgeBatchSize.toLocaleString()}개) 이상 Purge는 CDN 제한에 도달할 수 있습니다.
               분할 실행을 권장합니다.
             </div>
           )}
           {!isLimit && isWarn && (
             <div className={`${styles.alert} ${styles.alertWarn}`}>
-              {PURGE_WARN_THRESHOLD.toLocaleString()}개 이상 Purge — 처리 시간이 길어질 수 있습니다.
+              {purgeWarnThreshold.toLocaleString()}개 이상 Purge — 처리 시간이 길어질 수 있습니다.
             </div>
           )}
 
