@@ -18,6 +18,11 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
   const count = paths.length;
   const isWarn  = count >= purgeWarnThreshold;
   const isLimit = count >= purgeBatchSize;
+  // 루트 전체 Purge 감지: "/*" 또는 단일 경로가 와일드카드로 끝나는 경우
+  const isRootPurge = mode === "all" && (
+    paths[0] === "/*" || paths[0] === "*" || paths[0] === "/"
+  );
+  const batchCount = Math.ceil(count / purgeBatchSize);
 
   const preview = paths.slice(0, PREVIEW_MAX);
   const remainder = count - preview.length;
@@ -45,10 +50,17 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
               : `선택한 ${count}개 경로를 CDN에서 무효화합니다.`}
           </p>
 
+          {isRootPurge && (
+            <div className={`${styles.alert} ${styles.alertDanger}`}>
+              ⚠️ 루트 전체 Purge — CDN 캐시 전체가 무효화됩니다.<br />
+              모든 사용자에게 즉시 영향을 미치며, 트래픽 급증이 발생할 수 있습니다.<br />
+              <strong>반드시 테스트 환경에서만 실행하세요.</strong>
+            </div>
+          )}
           {isLimit && (
             <div className={`${styles.alert} ${styles.alertError}`}>
-              배치 크기({purgeBatchSize.toLocaleString()}개) 이상 Purge는 CDN 제한에 도달할 수 있습니다.
-              분할 실행을 권장합니다.
+              {batchCount}개 배치로 분할하여 자동 처리됩니다 (배치당 {purgeBatchSize.toLocaleString()}개).
+              완료까지 다소 시간이 걸릴 수 있습니다.
             </div>
           )}
           {!isLimit && isWarn && (
@@ -74,11 +86,15 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
             취소
           </button>
           <button
-            className={`${styles.btnConfirm} ${isLimit ? styles.btnDanger : ""}`}
+            className={`${styles.btnConfirm} ${isLimit || isRootPurge ? styles.btnDanger : ""}`}
             onClick={handleConfirm}
             disabled={isPurging}
           >
-            {isPurging ? "Purge 중..." : `Purge 실행 (${count}개)`}
+            {isPurging
+              ? "Purge 중..."
+              : isRootPurge
+                ? "전체 Purge 실행 (주의)"
+                : `Purge 실행 (${count}개)`}
           </button>
         </div>
       </div>

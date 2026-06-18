@@ -8,6 +8,7 @@ pub mod mock;
 
 use crate::utils::config::CdnCredentials;
 use anyhow::Result;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use std::time::Duration;
 
 pub async fn purge_with_credentials(
@@ -102,8 +103,23 @@ pub fn build_cdn_url(cdn_domain: &str, object_path: &str) -> String {
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
-    let path = object_path.trim_start_matches('/');
-    format!("https://{}/{}", domain, path)
+
+    // 경로를 슬래시 단위로 분리하여 각 세그먼트만 percent-encode
+    // (슬래시 자체는 그대로 유지, 한글/공백/특수문자만 인코딩)
+    const PATH_SAFE: &percent_encoding::AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'~');
+
+    let raw = object_path.trim_start_matches('/');
+    let encoded = raw
+        .split('/')
+        .map(|seg| utf8_percent_encode(seg, PATH_SAFE).to_string())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    format!("https://{}/{}", domain, encoded)
 }
 
 pub fn build_cdn_urls(cdn_domain: &str, paths: &[String]) -> Vec<String> {

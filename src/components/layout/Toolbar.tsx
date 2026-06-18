@@ -52,7 +52,7 @@ export default function Toolbar() {
   const { disconnect, connectWithProfile } = useProfile();
   const { deleteObjects, createDirectory, renameObject } = useS3();
   const { createDir, deleteFiles, renameFile } = useLocalFs();
-  const { executePurge, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
+  const { executePurge, isPurging, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
 
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
 
@@ -251,14 +251,15 @@ export default function Toolbar() {
             <div className={styles.separator} />
             <button
               className={styles.toolBtn}
-              disabled={remotePurgePaths.length === 0}
+              disabled={remotePurgePaths.length === 0 || isPurging}
               onClick={() => setPurgeDialog({ paths: remotePurgePaths, mode: "selected" })}
               title="원격 패널에서 선택한 파일의 CDN 캐시를 무효화합니다"
             >
-              선택 Purge
+              {isPurging ? "Purge 중..." : "선택 Purge"}
             </button>
             <button
               className={`${styles.toolBtn} ${styles.purgeInactive}`}
+              disabled={isPurging}
               onClick={() => setPurgeDialog({ paths: [allPrefix], mode: "all" })}
               title={`현재 원격 경로 전체 (${allPrefix})를 CDN에서 무효화합니다`}
             >

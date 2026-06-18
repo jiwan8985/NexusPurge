@@ -66,6 +66,14 @@
   border: var(--border-width) solid var(--color-error-muted);
 }
 
+.alertDanger {
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+  font-weight: 600;
+  line-height: 1.6;
+}
+
 .pathList {
   background: var(--color-bg-base);
   border: var(--border-width) solid var(--color-border);
