@@ -2,19 +2,21 @@
   display: flex;
   align-items: center;
   height: var(--titlebar-height);
-  background: var(--color-bg-base);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   position: relative;
   z-index: 100;
   -webkit-app-region: drag;
+  padding: 0 var(--spacing-4);
 }
 
 .left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: 0 var(--spacing-5);
+  gap: var(--spacing-4);
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
@@ -22,47 +24,53 @@
 /* 브랜드와 프로필 사이 구분선 */
 .leftSep {
   width: 1px;
-  height: 16px;
-  background: var(--color-border);
+  height: 18px;
+  background: var(--color-border-strong);
   flex-shrink: 0;
-  margin: 0 var(--spacing-1);
+  opacity: 0.5;
 }
 
 .brandMark {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-md);
+  background: var(--gradient-brand);
   color: #ffffff;
   font-size: 11px;
   font-weight: 800;
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+  letter-spacing: -0.02em;
 }
 
 .brandText {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
 }
 
 .appName {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--color-text-primary);
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .appSub {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--color-text-tertiary);
-  font-weight: 500;
-  line-height: 1.2;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
 /* 순수 드래그 공간 — 내용 없음 */
@@ -79,14 +87,15 @@
 .profileBtn {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  height: 26px;
-  max-width: 260px;
-  padding: 0 var(--spacing-3);
+  gap: var(--spacing-3);
+  height: 28px;
+  max-width: 280px;
+  padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-strong);
+  background: rgba(255, 255, 255, 0.05);
   font-size: var(--font-size-sm);
+  font-weight: 600;
   color: var(--color-text-secondary);
   transition: all var(--transition-fast);
   white-space: nowrap;
@@ -94,46 +103,55 @@
 
 .profileBtn:hover {
   background: var(--color-bg-hover);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-accent);
   color: var(--color-text-primary);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
 }
 
 .profileBtn.connected {
-  border-color: var(--color-accent-muted);
+  border-color: rgba(99, 102, 241, 0.3);
   background: var(--color-accent-subtle);
   color: var(--color-text-primary);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.05);
 }
 
 .connDot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--color-text-disabled);
   flex-shrink: 0;
+  transition: all var(--transition-base);
 }
 
 .connDot.on {
   background: var(--color-success);
-  box-shadow: 0 0 6px var(--color-success-muted);
+  box-shadow: 0 0 8px var(--color-success);
+  animation: pulseGlow 2s infinite;
 }
 
 .profileLabel {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .bucketLabel {
-  max-width: 120px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--color-text-tertiary);
   font-family: var(--font-family-mono);
   font-size: 10px;
+  opacity: 0.8;
+  background: var(--color-bg-subtle);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--color-border);
 }
 
 .caret {
   color: var(--color-text-tertiary);
   font-size: 9px;
-  transition: transform var(--transition-fast);
+  transition: transform var(--transition-base);
 }
 
 .profileBtn[aria-expanded="true"] .caret {
@@ -143,31 +161,33 @@
 /* ── 드롭다운 — 글래스모피즘 ──────────────────────────────────────────────── */
 .dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   left: 0;
-  min-width: 272px;
-  background: var(--color-bg-elevated);
+  min-width: 290px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
   z-index: 200;
   overflow: hidden;
-  padding: var(--spacing-2);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  padding: var(--spacing-3);
+  animation: scaleIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .ddHeader {
   padding: var(--spacing-2) var(--spacing-3);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9px;
+  font-weight: 800;
   color: var(--color-text-tertiary);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  opacity: 0.8;
 }
 
 .ddEmpty {
-  padding: var(--spacing-4);
+  padding: var(--spacing-5);
   font-size: var(--font-size-sm);
   color: var(--color-text-disabled);
   text-align: center;
@@ -178,26 +198,31 @@
   flex-direction: column;
   align-items: flex-start;
   width: 100%;
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: var(--spacing-3) var(--spacing-4);
   color: var(--color-text-primary);
-  border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
   text-align: left;
-  gap: 1px;
+  gap: 2px;
+  border: 1px solid transparent;
+  margin-top: 2px;
 }
 
 .ddItem:hover {
   background: var(--color-bg-hover);
+  border-color: var(--color-border);
+  transform: translateX(2px);
 }
 
 .ddActive {
   color: var(--color-accent);
   background: var(--color-accent-subtle);
+  border-color: rgba(99, 102, 241, 0.2);
 }
 
 .ddName {
   font-size: var(--font-size-sm);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .ddMeta {
@@ -209,7 +234,7 @@
 .ddDivider {
   height: 1px;
   background: var(--color-border);
-  margin: var(--spacing-1) 0;
+  margin: var(--spacing-3) 0;
 }
 
 .ddDanger {
@@ -218,6 +243,7 @@
 
 .ddDanger:hover {
   background: var(--color-error-muted);
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 .ddBackdrop {
@@ -231,12 +257,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 24px;
-  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 28px;
+  border-radius: var(--radius-md);
   color: var(--color-text-tertiary);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-strong);
+  background: rgba(255, 255, 255, 0.05);
   margin: 0 var(--spacing-3);
   flex-shrink: 0;
   -webkit-app-region: no-drag;
@@ -246,7 +272,9 @@
 .themeBtn:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
 }
 
 .themeBtn:active {
@@ -259,13 +287,14 @@
   align-items: stretch;
   flex-shrink: 0;
   -webkit-app-region: no-drag;
+  margin-left: var(--spacing-3);
 }
 
 .controlBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  width: 46px;
   height: var(--titlebar-height);
   color: var(--color-text-tertiary);
   transition: all var(--transition-fast);

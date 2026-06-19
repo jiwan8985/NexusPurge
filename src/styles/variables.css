@@ -1,50 +1,62 @@
 /* ── 색상 전환 트랜지션 ─────────────────────────────────────────────────────── */
 *, *::before, *::after {
-  transition-property: background-color, border-color, color;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-property: background-color, border-color, color, box-shadow, transform, backdrop-filter;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── 라이트 모드 기본값 ───────────────────────────────────────────────────────── */
 :root {
-  /* Accent — Indigo */
-  --color-accent:          #5b5ee8;
-  --color-accent-hover:    #4f46e5;
+  /* Accent — Premium Aurora Indigo-Violet */
+  --color-accent:          #4f46e5;
+  --color-accent-hover:    #6366f1;
   --color-accent-active:   #4338ca;
-  --color-accent-muted:    rgba(91, 94, 232, 0.14);
-  --color-accent-subtle:   rgba(91, 94, 232, 0.07);
+  --color-accent-muted:    rgba(79, 70, 229, 0.12);
+  --color-accent-subtle:   rgba(79, 70, 229, 0.05);
   --color-text-on-accent:  #ffffff;
 
-  /* Base — Light */
-  --color-bg-base:              #ffffff;
-  --color-bg-secondary:         #f2f3f7;
-  --color-bg-subtle:            #f7f8fb;
-  --color-bg-elevated:          #ffffff;
-  --color-bg-overlay:           rgba(8, 12, 28, 0.06);
-  --color-bg-hover:             rgba(8, 12, 28, 0.04);
-  --color-bg-active:            rgba(8, 12, 28, 0.08);
-  --color-bg-selected:          rgba(91, 94, 232, 0.09);
-  --color-bg-selected-inactive: rgba(8, 12, 28, 0.04);
+  /* Base — Light Clean SaaS Theme (Stripe/Linear inspired) */
+  --color-bg-base:              #f8fafc;
+  --color-bg-secondary:         #ffffff;
+  --color-bg-subtle:            #f1f5f9;
+  --color-bg-elevated:          rgba(255, 255, 255, 0.85);
+  --color-bg-overlay:           rgba(15, 23, 42, 0.3);
+  --color-bg-hover:             rgba(79, 70, 229, 0.04);
+  --color-bg-active:            rgba(79, 70, 229, 0.08);
+  --color-bg-selected:          rgba(79, 70, 229, 0.08);
+  --color-bg-selected-inactive: rgba(15, 23, 42, 0.03);
 
-  --color-border:        rgba(0, 0, 0, 0.09);
-  --color-border-strong: rgba(0, 0, 0, 0.16);
+  --color-border:        rgba(79, 70, 229, 0.08);
+  --color-border-strong: rgba(79, 70, 229, 0.16);
   --color-border-focus:  #6366f1;
   --border-width:        1px;
 
-  --color-text-primary:   #0d1120;
-  --color-text-secondary: #4a5068;
-  --color-text-tertiary:  #8b92a8;
-  --color-text-disabled:  #c4c9d6;
-  --color-text-link:      #5b5ee8;
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-tertiary:  #64748b;
+  --color-text-disabled:  #94a3b8;
+  --color-text-link:      #4f46e5;
+
+  /* Glassmorphism */
+  --glass-bg:             rgba(255, 255, 255, 0.7);
+  --glass-border:         rgba(255, 255, 255, 0.6);
+  --glass-filter:         blur(20px) saturate(190%);
+
+  /* Gradient system */
+  --gradient-brand:       linear-gradient(135deg, #4f46e5 0%, #8b5cf6 50%, #d946ef 100%);
+  --gradient-hover:       linear-gradient(135deg, #6366f1 0%, #a78bfa 50%, #e879f9 100%);
+  --gradient-active:      linear-gradient(135deg, #4338ca 0%, #7c3aed 50%, #c084fc 100%);
+  --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+  --gradient-panel:       linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.95) 100%);
 
   /* Status */
   --color-success:       #10b981;
-  --color-success-muted: rgba(16, 185, 129, 0.14);
+  --color-success-muted: rgba(16, 185, 129, 0.1);
   --color-warning:       #f59e0b;
-  --color-warning-muted: rgba(245, 158, 11, 0.14);
+  --color-warning-muted: rgba(245, 158, 11, 0.1);
   --color-error:         #ef4444;
-  --color-error-muted:   rgba(239, 68, 68, 0.14);
-  --color-info:          #0ea5e9;
+  --color-error-muted:   rgba(239, 68, 68, 0.1);
+  --color-info:          #3b82f6;
 
   --color-status-pending:   #94a3b8;
   --color-status-active:    #6366f1;
@@ -55,17 +67,17 @@
 
   /* Badges */
   --badge-new:            #10b981;
-  --badge-new-bg:         rgba(16, 185, 129, 0.10);
-  --badge-new-border:     rgba(16, 185, 129, 0.20);
+  --badge-new-bg:         rgba(16, 185, 129, 0.08);
+  --badge-new-border:     rgba(16, 185, 129, 0.2);
   --badge-modified:       #f59e0b;
-  --badge-modified-bg:    rgba(245, 158, 11, 0.10);
-  --badge-modified-border:rgba(245, 158, 11, 0.20);
-  --badge-purge:          #0ea5e9;
-  --badge-purge-bg:       rgba(14, 165, 233, 0.10);
-  --badge-purge-border:   rgba(14, 165, 233, 0.20);
+  --badge-modified-bg:    rgba(245, 158, 11, 0.08);
+  --badge-modified-border:rgba(245, 158, 11, 0.2);
+  --badge-purge:          #06b6d4;
+  --badge-purge-bg:       rgba(6, 182, 212, 0.08);
+  --badge-purge-border:   rgba(6, 182, 212, 0.2);
 
   /* 타이포그래피 */
-  --font-family:      "Inter", "Pretendard", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-family:      "Plus Jakarta Sans", "Inter", "Pretendard", system-ui, -apple-system, sans-serif;
   --font-family-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
   --font-size-xs:   11px;
   --font-size-sm:   12px;
@@ -78,28 +90,28 @@
   --spacing-4: 8px;  --spacing-5: 12px; --spacing-6: 16px; --spacing-7: 24px;
 
   /* 레이아웃 — compact fullscreen */
-  --titlebar-height:    36px;
-  --toolbar-height:     40px;
-  --statusbar-height:   22px;
-  --panel-min-width:    280px;
-  --transfer-btn-width: 40px;
-  --log-panel-height:   180px;
+  --titlebar-height:    44px;
+  --toolbar-height:     50px;
+  --statusbar-height:   26px;
+  --panel-min-width:    300px;
+  --transfer-btn-width: 52px;
+  --log-panel-height:   220px;
 
-  --radius-xs: 3px;  --radius-sm: 5px;  --radius-md: 7px;
-  --radius-lg: 9px;  --radius-xl: 11px;
+  --radius-xs: 4px;  --radius-sm: 6px;  --radius-md: 10px;
+  --radius-lg: 14px;  --radius-xl: 18px;  --radius-2xl: 24px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.10), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 12px 24px -4px rgba(0, 0, 0, 0.12), 0 4px 8px -2px rgba(0, 0, 0, 0.06);
-  --shadow-xl: 0 24px 48px -8px rgba(0, 0, 0, 0.20), 0 10px 20px -4px rgba(0, 0, 0, 0.12);
-  --glow-focus: 0 0 0 2px #ffffff, 0 0 0 4px #6366f1;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.02);
+  --shadow-lg: 0 16px 32px -4px rgba(79, 70, 229, 0.08), 0 8px 16px -2px rgba(15, 23, 42, 0.03);
+  --shadow-xl: 0 24px 50px -12px rgba(15, 23, 42, 0.15);
+  --glow-focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(79, 70, 229, 0.35);
 
-  --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 180ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 280ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base: 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
 
-  --scrollbar-size:  5px;
-  --scrollbar-thumb: rgba(0, 0, 0, 0.14);
+  --scrollbar-size:  6px;
+  --scrollbar-thumb: rgba(15, 23, 42, 0.12);
   --scrollbar-track: transparent;
 }
 
@@ -109,36 +121,56 @@
     --color-accent:          #6366f1;
     --color-accent-hover:    #818cf8;
     --color-accent-active:   #4f46e5;
-    --color-accent-muted:    rgba(99, 102, 241, 0.20);
-    --color-accent-subtle:   rgba(99, 102, 241, 0.10);
+    --color-accent-muted:    rgba(99, 102, 241, 0.2);
+    --color-accent-subtle:   rgba(99, 102, 241, 0.08);
 
-    --color-bg-base:              #0a0d14;
-    --color-bg-secondary:         #0d1018;
-    --color-bg-subtle:            #111520;
-    --color-bg-elevated:          #161b28;
-    --color-bg-overlay:           rgba(0, 0, 0, 0.72);
-    --color-bg-hover:             rgba(255, 255, 255, 0.05);
-    --color-bg-active:            rgba(255, 255, 255, 0.09);
-    --color-bg-selected:          rgba(99, 102, 241, 0.18);
-    --color-bg-selected-inactive: rgba(255, 255, 255, 0.06);
+    /* Deep Cyber Dark / Obsidian Palette */
+    --color-bg-base:              #030712;
+    --color-bg-secondary:         #0b0f19;
+    --color-bg-subtle:            #0e1526;
+    --color-bg-elevated:          rgba(15, 23, 42, 0.7);
+    --color-bg-overlay:           rgba(0, 0, 0, 0.6);
+    --color-bg-hover:             rgba(99, 102, 241, 0.08);
+    --color-bg-active:            rgba(99, 102, 241, 0.15);
+    --color-bg-selected:          rgba(99, 102, 241, 0.15);
+    --color-bg-selected-inactive: rgba(255, 255, 255, 0.03);
 
-    --color-border:        rgba(255, 255, 255, 0.07);
-    --color-border-strong: rgba(255, 255, 255, 0.14);
+    --color-border:        rgba(99, 102, 241, 0.12);
+    --color-border-strong: rgba(99, 102, 241, 0.22);
     --color-border-focus:  #818cf8;
 
-    --color-text-primary:   rgba(255, 255, 255, 0.90);
-    --color-text-secondary: rgba(255, 255, 255, 0.50);
-    --color-text-tertiary:  rgba(255, 255, 255, 0.28);
-    --color-text-disabled:  rgba(255, 255, 255, 0.14);
+    --color-text-primary:   #f8fafc;
+    --color-text-secondary: #94a3b8;
+    --color-text-tertiary:  #64748b;
+    --color-text-disabled:  #475569;
     --color-text-link:      #818cf8;
 
-    --glow-focus:      0 0 0 2px #0a0d14, 0 0 0 4px #818cf8;
-    --scrollbar-thumb: rgba(255, 255, 255, 0.11);
+    /* Glassmorphism */
+    --glass-bg:             rgba(11, 15, 25, 0.75);
+    --glass-border:         rgba(255, 255, 255, 0.08);
+    --glass-filter:         blur(20px) saturate(180%);
+
+    --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.85) 0%, rgba(3, 7, 18, 0.95) 100%);
+    --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 60%);
+
+    --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(99, 102, 241, 0.45);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.30);
-    --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.40);
-    --shadow-xl: 0 24px 52px rgba(0, 0, 0, 0.65), 0 12px 24px rgba(0, 0, 0, 0.40);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 16px 36px rgba(99, 102, 241, 0.05), 0 8px 16px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+    /* Badges */
+    --badge-new:            #34d399;
+    --badge-new-bg:         rgba(52, 211, 153, 0.08);
+    --badge-new-border:     rgba(52, 211, 153, 0.2);
+    --badge-modified:       #fbbf24;
+    --badge-modified-bg:    rgba(251, 191, 36, 0.08);
+    --badge-modified-border:rgba(251, 191, 36, 0.2);
+    --badge-purge:          #22d3ee;
+    --badge-purge-bg:       rgba(34, 211, 238, 0.08);
+    --badge-purge-border:   rgba(34, 211, 238, 0.2);
   }
 }
 
@@ -147,34 +179,53 @@
   --color-accent:          #6366f1;
   --color-accent-hover:    #818cf8;
   --color-accent-active:   #4f46e5;
-  --color-accent-muted:    rgba(99, 102, 241, 0.20);
-  --color-accent-subtle:   rgba(99, 102, 241, 0.10);
+  --color-accent-muted:    rgba(99, 102, 241, 0.2);
+  --color-accent-subtle:   rgba(99, 102, 241, 0.08);
 
-  --color-bg-base:              #0a0d14;
-  --color-bg-secondary:         #0d1018;
-  --color-bg-subtle:            #111520;
-  --color-bg-elevated:          #161b28;
-  --color-bg-overlay:           rgba(0, 0, 0, 0.72);
-  --color-bg-hover:             rgba(255, 255, 255, 0.05);
-  --color-bg-active:            rgba(255, 255, 255, 0.09);
-  --color-bg-selected:          rgba(99, 102, 241, 0.18);
-  --color-bg-selected-inactive: rgba(255, 255, 255, 0.06);
+  --color-bg-base:              #030712;
+  --color-bg-secondary:         #0b0f19;
+  --color-bg-subtle:            #0e1526;
+  --color-bg-elevated:          rgba(15, 23, 42, 0.7);
+  --color-bg-overlay:           rgba(0, 0, 0, 0.6);
+  --color-bg-hover:             rgba(99, 102, 241, 0.08);
+  --color-bg-active:            rgba(99, 102, 241, 0.15);
+  --color-bg-selected:          rgba(99, 102, 241, 0.15);
+  --color-bg-selected-inactive: rgba(255, 255, 255, 0.03);
 
-  --color-border:        rgba(255, 255, 255, 0.07);
-  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-border:        rgba(99, 102, 241, 0.12);
+  --color-border-strong: rgba(99, 102, 241, 0.22);
   --color-border-focus:  #818cf8;
 
-  --color-text-primary:   rgba(255, 255, 255, 0.90);
-  --color-text-secondary: rgba(255, 255, 255, 0.50);
-  --color-text-tertiary:  rgba(255, 255, 255, 0.28);
-  --color-text-disabled:  rgba(255, 255, 255, 0.14);
+  --color-text-primary:   #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary:  #64748b;
+  --color-text-disabled:  #475569;
   --color-text-link:      #818cf8;
 
-  --glow-focus:      0 0 0 2px #0a0d14, 0 0 0 4px #818cf8;
-  --scrollbar-thumb: rgba(255, 255, 255, 0.11);
+  /* Glassmorphism */
+  --glass-bg:             rgba(11, 15, 25, 0.75);
+  --glass-border:         rgba(255, 255, 255, 0.08);
+  --glass-filter:         blur(20px) saturate(180%);
+
+  --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.85) 0%, rgba(3, 7, 18, 0.95) 100%);
+  --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 60%);
+
+  --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(99, 102, 241, 0.45);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.30);
-  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.40);
-  --shadow-xl: 0 24px 52px rgba(0, 0, 0, 0.65), 0 12px 24px rgba(0, 0, 0, 0.40);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 36px rgba(99, 102, 241, 0.05), 0 8px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.6);
+
+  /* Badges */
+  --badge-new:            #34d399;
+  --badge-new-bg:         rgba(52, 211, 153, 0.08);
+  --badge-new-border:     rgba(52, 211, 153, 0.2);
+  --badge-modified:       #fbbf24;
+  --badge-modified-bg:    rgba(251, 191, 36, 0.08);
+  --badge-modified-border:rgba(251, 191, 36, 0.2);
+  --badge-purge:          #22d3ee;
+  --badge-purge-bg:       rgba(34, 211, 238, 0.08);
+  --badge-purge-border:   rgba(34, 211, 238, 0.2);
 }

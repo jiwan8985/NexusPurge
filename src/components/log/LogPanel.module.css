@@ -3,8 +3,10 @@
   display: flex;
   flex-direction: column;
   border-top: var(--border-width) solid var(--color-border);
-  background: var(--color-bg-base);
+  background: var(--gradient-panel);
   flex-shrink: 0;
+  position: relative;
+  z-index: 80;
 }
 
 /* ── Header + Tabs ───────────────────────────────────────────────────────────── */
@@ -12,10 +14,10 @@
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  background: var(--color-bg-base);
+  background: rgba(255, 255, 255, 0.01);
   border-bottom: var(--border-width) solid var(--color-border);
   flex-shrink: 0;
-  height: 28px;
+  height: 32px;
 }
 
 .tabs {
@@ -26,10 +28,10 @@
 .tab {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: var(--spacing-3);
   padding: 0 var(--spacing-5);
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-text-tertiary);
   border-right: var(--border-width) solid var(--color-border);
   cursor: pointer;
@@ -45,7 +47,7 @@
 
 .tabActive {
   color: var(--color-accent);
-  background: var(--color-bg-subtle);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .tabActive::after {
@@ -55,20 +57,20 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: var(--color-accent);
+  background: var(--gradient-brand);
 }
 
 .tabCount {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 14px;
-  padding: 0 4px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
   border-radius: var(--radius-xs);
-  background: var(--color-bg-elevated);
-  font-size: 10px;
-  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 9px;
+  font-weight: 800;
   color: var(--color-text-tertiary);
 }
 
@@ -80,18 +82,19 @@
 .headerActions {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
-  padding: 0 var(--spacing-4);
+  gap: var(--spacing-3);
+  padding: 0 var(--spacing-5);
 }
 
 .actionBtn {
   font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   padding: 0 var(--spacing-3);
   height: 22px;
   border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
   transition: all var(--transition-fast);
-  font-weight: 600;
+  font-weight: 700;
   display: flex;
   align-items: center;
 }
@@ -99,6 +102,12 @@
 .actionBtn:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
+  border-color: var(--color-accent);
+  transform: translateY(-0.5px);
+}
+
+.actionBtn:active {
+  transform: scale(0.96);
 }
 
 /* ── Content ─────────────────────────────────────────────────────────────────── */
@@ -116,9 +125,10 @@
 }
 
 .empty {
-  padding: var(--spacing-4) var(--spacing-5);
+  padding: var(--spacing-5) var(--spacing-6);
   font-size: var(--font-size-xs);
   color: var(--color-text-disabled);
+  font-weight: 500;
 }
 
 /* ── Log Row ─────────────────────────────────────────────────────────────────── */
@@ -126,11 +136,12 @@
   display: flex;
   align-items: baseline;
   gap: var(--spacing-3);
-  padding: 2px var(--spacing-5);
+  padding: 3px var(--spacing-6);
   font-family: var(--font-family-mono);
   font-size: 11px;
   line-height: 1.6;
   transition: background var(--transition-fast);
+  border-left: 2px solid transparent;
 }
 
 .logRow:hover {
@@ -138,42 +149,43 @@
 }
 
 .logTime {
-  color: var(--color-text-disabled);
+  color: var(--color-text-tertiary);
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 9px;
+  opacity: 0.7;
 }
 
 .logLevel {
   flex-shrink: 0;
-  width: 48px;
-  font-weight: 700;
-  font-size: 10px;
+  width: 52px;
+  font-weight: 800;
+  font-size: 9px;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .logMsg {
   flex: 1;
   word-break: break-all;
+  font-weight: 500;
 }
 
 /* ── Category Badge ──────────────────────────────────────────────────────────── */
 .logCategory {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
   white-space: nowrap;
   flex-shrink: 0;
-  opacity: 0.85;
-  background: var(--color-bg-subtle);
-  color: var(--color-text-secondary);
+  text-transform: uppercase;
 }
 
-.cat_cdn      { background: color-mix(in srgb, var(--color-info) 20%, transparent);    color: var(--color-info);    }
-.cat_transfer { background: color-mix(in srgb, var(--color-success) 20%, transparent); color: var(--color-success); }
-.cat_system   { background: color-mix(in srgb, var(--color-text-disabled) 20%, transparent); color: var(--color-text-disabled); }
-.cat_profile  { background: color-mix(in srgb, var(--color-warning) 15%, transparent); color: var(--color-warning); }
+.cat_cdn      { background: rgba(6, 182, 212, 0.1);    color: var(--badge-purge);    border: 1px solid rgba(6, 182, 212, 0.2); }
+.cat_transfer { background: rgba(16, 185, 129, 0.1);   color: var(--color-success); border: 1px solid rgba(16, 185, 129, 0.2); }
+.cat_system   { background: rgba(148, 163, 184, 0.1);  color: var(--color-text-secondary); border: 1px solid rgba(148, 163, 184, 0.2); }
+.cat_profile  { background: rgba(245, 158, 11, 0.1);   color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.2); }
 
 /* ── Level Colors ─────────────────────────────────────────────────────────────── */
 .info    .logLevel { color: var(--color-info);             }
@@ -186,16 +198,21 @@
 .warn    .logMsg { color: var(--color-warning);            }
 .error   .logMsg { color: var(--color-error);              }
 .success .logMsg { color: var(--color-success);            }
-.debug   .logMsg { color: var(--color-text-disabled);      }
+.debug   .logMsg { color: var(--color-text-tertiary);      }
+
+.error.logRow   { border-left-color: var(--color-error); background: rgba(239, 68, 68, 0.02); }
+.warn.logRow    { border-left-color: var(--color-warning); background: rgba(245, 158, 11, 0.02); }
+.success.logRow { border-left-color: var(--color-success); background: rgba(16, 185, 129, 0.02); }
 
 /* ── Transfer Row ────────────────────────────────────────────────────────────── */
 .transferRow {
   display: flex;
   align-items: center;
-  gap: var(--spacing-3);
-  padding: 4px var(--spacing-5);
+  gap: var(--spacing-4);
+  padding: 6px var(--spacing-6);
   font-size: 11px;
   transition: background var(--transition-fast);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.01);
 }
 
 .transferRow:hover {
@@ -209,21 +226,23 @@
   white-space: nowrap;
   font-family: var(--font-family-mono);
   color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .tStatus {
   flex-shrink: 0;
-  font-weight: 700;
-  font-size: 10px;
+  font-weight: 800;
+  font-size: 9px;
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .tSize {
   flex-shrink: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
   font-variant-numeric: tabular-nums;
-  width: 70px;
+  width: 80px;
   text-align: right;
   font-size: 10px;
 }
@@ -239,62 +258,72 @@
 .ts_error       { color: var(--color-status-error);     }
 
 .transferError {
-  background: rgba(239, 68, 68, 0.05);
+  background: rgba(239, 68, 68, 0.03);
+  border-left: 2px solid var(--color-error);
 }
 
 .retryBtn {
   flex-shrink: 0;
   height: 20px;
-  padding: 0 var(--spacing-2);
-  font-size: 10px;
-  font-weight: 700;
+  padding: 0 var(--spacing-3);
+  font-size: 9px;
+  font-weight: 800;
   border-radius: var(--radius-sm);
   border: var(--border-width) solid var(--color-error);
   color: var(--color-error);
   background: transparent;
   white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all var(--transition-fast);
 }
 
 .retryBtn:hover {
   background: var(--color-error);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2);
 }
 
 /* ── Level filter buttons ──────────────────────────────────────────────────────── */
 .levelFilters {
   display: flex;
-  gap: var(--spacing-1);
+  gap: var(--spacing-2);
 }
 
 .filterBtn {
   height: 20px;
   padding: 0 var(--spacing-3);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   border-radius: var(--radius-sm);
-  border: var(--border-width) solid var(--color-border);
-  color: var(--color-text-tertiary);
-  background: transparent;
+  border: var(--border-width) solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .filterBtn:hover {
   color: var(--color-text-primary);
-  border-color: var(--color-border-strong);
+  border-color: var(--color-border-focus);
 }
 
 .filterActive {
   border-color: var(--color-accent);
   color: var(--color-accent);
+  background: var(--color-accent-subtle);
 }
 
 .filter_warn.filterActive {
   border-color: var(--color-warning);
   color: var(--color-warning);
+  background: var(--color-warning-muted);
 }
 
 .filter_error.filterActive {
   border-color: var(--color-error);
   color: var(--color-error);
+  background: var(--color-error-muted);
 }
 
 .tabCountError {

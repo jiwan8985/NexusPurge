@@ -2,69 +2,77 @@
   display: flex;
   align-items: center;
   height: var(--toolbar-height);
-  background: var(--color-bg-subtle);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border-bottom: var(--border-width) solid var(--color-border);
   padding: 0 var(--spacing-5);
-  gap: var(--spacing-2);
+  gap: var(--spacing-3);
   flex-shrink: 0;
 }
 
 .group {
   display: flex;
   align-items: center;
-  gap: var(--spacing-1);
+  gap: var(--spacing-2);
 }
 
 .toolBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--spacing-2);
-  height: 26px;
-  padding: 0 var(--spacing-3);
+  height: 30px;
+  padding: 0 var(--spacing-4);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-secondary);
-  background: transparent;
-  border: var(--border-width) solid transparent;
+  background: rgba(255, 255, 255, 0.05);
+  border: var(--border-width) solid var(--color-border-strong);
   white-space: nowrap;
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition: all var(--transition-fast);
 }
 
 .toolBtn:hover:not(:disabled) {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-  border-color: var(--color-border);
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
 }
 
 .toolBtn:active:not(:disabled) {
   background: var(--color-bg-active);
-  transform: scale(0.98);
+  transform: scale(0.96);
 }
 
 .icon {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.8;
+  transition: transform var(--transition-fast);
 }
 
 .toolBtn:hover:not(:disabled) .icon,
 .toolBtn:focus-visible .icon {
   opacity: 1;
+  transform: scale(1.08);
 }
 
 /* ── 연결됨 상태 버튼 ────────────────────────────────────────────────────── */
 .connected {
   color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 25%, transparent);
-  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .connected:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
-  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: rgba(16, 185, 129, 0.12);
+  border-color: var(--color-success);
   color: var(--color-success);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
 }
 
 .connDotInline {
@@ -72,42 +80,53 @@
   height: 6px;
   border-radius: 50%;
   background: var(--color-success);
-  box-shadow: 0 0 6px var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
   flex-shrink: 0;
 }
 
-/* ── Primary ────────────────────────────────────────────────────────────── */
+/* ── Primary — Premium Gradient Button ── */
 .primary {
   color: var(--color-text-on-accent);
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  font-weight: 600;
+  background: var(--gradient-brand);
+  border: none;
+  font-weight: 700;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+  position: relative;
+  overflow: hidden;
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
+  background: var(--gradient-hover);
   color: var(--color-text-on-accent);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+  transform: translateY(-1.5px);
+}
+
+.primary:active:not(:disabled) {
+  background: var(--gradient-active);
+  transform: scale(0.96);
 }
 
 /* ── 자동 Purge 토글 ────────────────────────────────────────────────────── */
 .purgeOn {
   color: #fff;
-  background: #c94e20;
-  border-color: #b04219;
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  border: none;
   font-weight: 700;
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
 }
 
 .purgeOn:hover:not(:disabled) {
-  background: #b04219;
-  border-color: #943613;
+  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
   color: #fff;
+  box-shadow: 0 6px 16px rgba(234, 88, 12, 0.45);
+  transform: translateY(-1px);
 }
 
 .purgeOff {
   color: var(--color-text-secondary);
   border-color: var(--color-border-strong);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .purgeOff:hover:not(:disabled) {
@@ -119,10 +138,11 @@
 /* ── Separator ──────────────────────────────────────────────────────────── */
 .sep {
   width: var(--border-width);
-  height: 18px;
-  background: var(--color-border);
+  height: 20px;
+  background: var(--color-border-strong);
   margin: 0 var(--spacing-2);
   flex-shrink: 0;
+  opacity: 0.5;
 }
 
 .spacer { flex: 1; }
@@ -130,21 +150,23 @@
 /* ── Purge 진행 중 플로팅 칩 ────────────────────────────────────────────── */
 .purgeChip {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: 24px;
+  right: 24px;
   z-index: 900;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--color-bg-elevated);
+  gap: 10px;
+  padding: 10px 18px;
+  border-radius: 9999px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border: 1px solid var(--color-border-strong);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl), 0 0 20px rgba(99, 102, 241, 0.1);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--color-text-primary);
-  animation: chipIn 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: chipIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .purgeChipDot {
@@ -152,16 +174,17 @@
   height: 8px;
   border-radius: 50%;
   background: var(--color-info);
+  box-shadow: 0 0 10px var(--color-info);
   animation: pulse 1.2s ease-in-out infinite;
   flex-shrink: 0;
 }
 
 @keyframes chipIn {
-  from { opacity: 0; transform: translateY(8px) scale(0.95); }
+  from { opacity: 0; transform: translateY(12px) scale(0.92); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.5; transform: scale(0.85); }
+  50%       { opacity: 0.4; transform: scale(0.8); }
 }

@@ -22,17 +22,28 @@ body {
   background-color: var(--color-bg-base);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.011em;
+  letter-spacing: -0.015em;
 }
 
-::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
-::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+/* ── 스크롤바 디자인 ── */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 10px;
+  border: 1px solid transparent;
 }
-::-webkit-scrollbar-thumb:hover { background-color: var(--color-text-disabled); }
-::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-tertiary);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 :focus-visible {
   outline: none;
@@ -48,12 +59,12 @@ button {
   background: none;
   color: inherit;
   -webkit-app-region: no-drag;
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.35;
 }
 
 input, select, textarea {
@@ -66,15 +77,44 @@ input, select, textarea {
   outline: none;
 }
 
-select option { background: var(--color-bg-elevated); }
+select option {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
 
-/* ── 앱 레이아웃 — 풀스크린 ─────────────────────────────────────────────────── */
+/* ── 애니메이션 키프레임 ── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 4px var(--color-accent-muted); }
+  50% { box-shadow: 0 0 12px var(--color-accent); }
+}
+
+/* ── 앱 레이아웃 — 풀스크린 ── */
 .app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
   background: var(--color-bg-base);
+  background-image: 
+    radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 100% 100%, 20px 20px;
+  position: relative;
 }
 
 /* 패널/로그/사이드바 영역 — 패딩 없이 엣지까지 */
@@ -84,8 +124,8 @@ select option { background: var(--color-bg-elevated); }
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  /* 패딩 제거 — 풀스크린 */
   background-color: var(--color-border);  /* 얇은 구분선 색으로 빈 공간 채움 */
+  position: relative;
 }
 
 /* 패널 가로 행 — 1px 갭이 분리선 역할 */

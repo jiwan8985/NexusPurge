@@ -1,19 +1,21 @@
 .menu {
   position: fixed;
   z-index: 9000;
-  min-width: 180px;
-  background: var(--color-bg-elevated);
+  min-width: 190px;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border: var(--border-width) solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-2) 0;
-  box-shadow: var(--shadow-lg);
-  animation: menuIn 100ms cubic-bezier(0.2, 0, 0, 1) both;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2);
+  box-shadow: var(--shadow-xl);
+  animation: menuIn 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes menuIn {
   from {
     opacity: 0;
-    transform: scale(0.95) translateY(-4px);
+    transform: scale(0.96) translateY(-4px);
   }
   to {
     opacity: 1;
@@ -26,27 +28,33 @@
   align-items: center;
   gap: var(--spacing-3);
   width: 100%;
-  padding: var(--spacing-2) var(--spacing-5);
+  padding: var(--spacing-3) var(--spacing-4);
   font-size: var(--font-size-sm);
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
+  border-radius: var(--radius-sm);
   text-align: left;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
   cursor: pointer;
   letter-spacing: -0.01em;
+  font-weight: 600;
 }
 
 .item:hover:not(:disabled) {
-  background: var(--color-accent-muted);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
+  border-color: rgba(99, 102, 241, 0.15);
+  transform: translateX(2px);
 }
 
 .item:active:not(:disabled) {
-  background: var(--color-accent-subtle);
+  background: var(--color-accent-muted);
 }
 
 .item:disabled {
   color: var(--color-text-disabled);
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .item.danger {
@@ -56,11 +64,12 @@
 .item.danger:hover:not(:disabled) {
   background: var(--color-error-muted);
   color: var(--color-error);
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 .itemIcon {
   font-size: 12px;
-  opacity: 0.75;
+  opacity: 0.85;
   width: 14px;
   text-align: center;
   flex-shrink: 0;

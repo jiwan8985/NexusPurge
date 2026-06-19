@@ -1,34 +1,68 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.yarn/
 
-# pnpm (npm lockfile는 제거, pnpm-lock.yaml 사용)
+# Package locks (keep pnpm-lock.yaml, ignore others)
 package-lock.json
+yarn.lock
+bun.lockb
 
 # Build output
 dist/
 dist-ssr/
+out/
+build/
+coverage/
+.eslintcache
 
-# Tauri build output
+# Vite cache
+.vite/
+
+# Tauri build outputs & Rust artifacts
 src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+*.dmp
+*.pdb
 
-# Environment
+# Local environment / Secrets
 .env
 .env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env.*.local
+*.pem
+*.key
+*.pub
+*.cert
+*.pfx
 
-# Editor
+# IDE / Editors
 .vscode/
+!.vscode/extensions.json
 .idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+.classpath
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # Logs
 .logs/
@@ -36,6 +70,12 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Test files & temporary snapshots
+.vitest/
+.nyc_output/
+/test-samples/temp/
