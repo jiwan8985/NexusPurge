@@ -147,7 +147,7 @@ pnpm tauri build
 | Access Key ID | ✓ | IAM 액세스 키 |
 | Secret Access Key | ✓ | OS 키링에 암호화 보관 |
 | 커스텀 엔드포인트 | | MinIO 등 S3 호환 서비스 |
-| CDN 제공자 | | CloudFront / Akamai / LG U+ / 효성 ITX |
+| CDN 제공자 | | CloudFront / Akamai / LG U+ / KT CDN / 효성 ITX |
 | Distribution ID | | CDN 자동 Purge용 |
 
 ### 최소 IAM 권한
@@ -288,55 +288,11 @@ CI는 `.github/workflows/ci.yml`에 정의된 GitHub Actions로 `main` 브랜치
 
 ## 알려진 제한
 
-- LG U+ · 효성 ITX · KT CDN Purge는 API 문서 수령 전까지 NotImplemented Stub 상태를 유지합니다.
+- 효성 ITX CDN Purge는 API 문서 수령 전까지 NotImplemented Stub 상태를 유지합니다.
 - 대용량 파일(≥10MB) 다운로드는 단일 GET으로 처리 (멀티파트 다운로드 미지원)
-
----
-
-## 2026-06-16 Requirements Update
-
-추가 요구사항은 기존 CloudFront/Akamai 구현을 유지하는 전제로 반영합니다.
-
-- Purge 기본값은 수동입니다. 자동 Purge는 미리보기 영역 근처의 옵션으로 제공하고, 실행 전 승인 팝업을 요구합니다.
-- Purge는 전체/개별/일부 대상을 지원하는 정책 모델을 둡니다. Overwrite/Skip 정책과 연계하며, 5,000개 이상 경고 및 10,000개 이상 미권고 경고 기준은 고객 확인 TODO로 관리합니다.
-- 기본 Purge Batch Size는 1,000개입니다.
-- 업로드 Header/Metadata는 Content-Type, Cache-Control, 사용자 정의 Header, 사용자 Metadata를 수동 입력할 수 있는 모델을 둡니다. 자동 Metadata 적용과 실패 시 수동 재시도 구조를 준비합니다.
-- 프로필은 프로젝트 단위/사용자 단위 분리, 프로필 내 복수 CDN Provider, 권한 정보, AI LB 또는 외부 인증 세션 연동 Stub 구조를 포함할 수 있습니다.
-- 자체 로그인/계정 DB는 만들지 않습니다. 인증은 Adapter/Stub 구조로만 준비합니다.
-- 고객 제공 S3 Bucket 로그 적재는 JSON 포맷, Bucket/Prefix 설정, 실패 재시도 구조를 모델과 Stub 서비스로만 준비합니다.
-- 테스트 버전은 설치형 기준입니다. Windows Server 2025/2022/2019, Windows/macOS/Linux 최근 3개년 지원 범위, Unix 서버 지원 가능 여부, 자동 패치/보안 업데이트, 재시작 없는 패치 가능 여부는 TODO/고객 확인사항으로 관리합니다.
 
 ---
 
 ## 라이선스
 
 MIT
-
----
-
-## 2026-05-21 Development Scope Update
-
-NexusPurge is scoped as a replacement implementation of the existing customer CDN upload and purge tool, not as a broad new feature expansion. The primary storage target is AWS S3. CDN provider support is modeled for AWS CloudFront, Akamai, LG U+ CDN, and Hyosung CDN.
-
-- CloudFront and Akamai remain the implemented purge paths.
-- LG U+ CDN and Hyosung CDN are available in profile configuration and backend credential dispatch, but purge calls intentionally return NotImplemented errors until the customer provides API specifications.
-- External authentication is represented by adapter interfaces only. NexusPurge does not implement its own account database, password login, or standalone login screen.
-- Operation log/result data structures were added for upload/download/delete/mkdir/rename/purge/sync outcomes, retry context, and future JSON/CSV reporting.
-
----
-
-## 2026-05-22 Performance and Runtime Delivery Update
-
-Large CDN deployments must be handled as bounded batch work, not as one network/API operation per visible UI row.
-
-- Upload/download concurrency remains capped at 4 files to avoid CPU, disk, memory, and network spikes on customer PCs.
-- CDN purge after overwrite is batched after successful uploads, with up to 1000 paths per purge request, instead of creating one purge request per file.
-- UI lists should stay virtualized and logs/transfers should keep bounded retained history for large folders.
-- Hashing and multipart ETag comparison should remain streaming/file-based on the Rust side; do not load large files fully into frontend memory.
-
-Runtime direction:
-
-- Final delivery remains a desktop executable unless the contract changes.
-- PC and Web are now treated as two runtime targets behind a runtime bridge concept.
-- Desktop runtime uses Tauri IPC, local filesystem access, and OS keyring.
-- Web runtime requires a backend API service for S3/CDN operations and cannot use OS keyring or unrestricted local filesystem access directly.
