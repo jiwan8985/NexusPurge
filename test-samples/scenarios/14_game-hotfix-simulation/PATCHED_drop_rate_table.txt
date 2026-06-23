@@ -1,5 +1,0 @@
-﻿HOTFIX TARGET: drop_rate_table
-Version: AFTER_PATCH
-Critical: YES
-Deploy: COMPLETE
-Fixed: BUG-2024-001

@@ -1,1 +1,0 @@
-﻿folder: game-content\server\data\items | file: 2 | category: game-cdn-test

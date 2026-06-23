@@ -1,1 +1,0 @@
-﻿folder: game-content\shared\assets\icons | file: 2 | category: game-cdn-test

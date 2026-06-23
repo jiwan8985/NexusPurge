@@ -1,4 +1,0 @@
-﻿HOTFIX TARGET: patch_manifest
-Version: BEFORE_PATCH
-Critical: YES
-Deploy: EMERGENCY

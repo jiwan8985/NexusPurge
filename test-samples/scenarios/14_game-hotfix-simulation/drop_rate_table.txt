@@ -1,4 +1,0 @@
-﻿HOTFIX TARGET: drop_rate_table
-Version: BEFORE_PATCH
-Critical: YES
-Deploy: EMERGENCY

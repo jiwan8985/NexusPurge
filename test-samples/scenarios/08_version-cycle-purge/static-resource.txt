@@ -1,6 +1,0 @@
-Static Resource
-===============
-이 파일은 버전과 무관하게 변경되지 않는 정적 리소스입니다.
-Purge 대상에서 제외되어야 합니다.
-Cache-Control: max-age=31536000, immutable
-Version: fixed

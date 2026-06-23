@@ -5,6 +5,8 @@
   min-width: var(--panel-min-width);
   min-height: 0;
   background: var(--gradient-panel);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   border: none;
   border-radius: 0;
   overflow: hidden;
@@ -212,13 +214,14 @@
 
 .fileRow:hover {
   background: var(--color-bg-hover);
-  box-shadow: inset 3px 0 0 rgba(99, 102, 241, 0.4);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+  transform: scale(0.995);
 }
 
 .fileRow:focus-visible {
   outline: none;
   background: var(--color-bg-selected);
-  box-shadow: inset 3px 0 0 var(--color-accent);
+  box-shadow: inset 3px 0 0 var(--color-accent), 0 0 10px rgba(99, 102, 241, 0.15);
 }
 
 .fileRow.selected {

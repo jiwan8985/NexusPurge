@@ -1,3 +1,0 @@
-Special Filename Purge — 대문자 파일명
-S3는 대소문자를 구분합니다. CDN Purge 경로도 대소문자 일치 필요.
-Version: 1

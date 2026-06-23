@@ -4,6 +4,8 @@
   flex-direction: column;
   border-top: var(--border-width) solid var(--color-border);
   background: var(--gradient-panel);
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
   flex-shrink: 0;
   position: relative;
   z-index: 80;

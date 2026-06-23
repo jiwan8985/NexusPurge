@@ -1,5 +1,0 @@
-ROLLBACK TARGET — Stable Version 1
-====================================
-Status: STABLE
-Deploy Date: 2026-06-01
-Build: 1.0.0-stable

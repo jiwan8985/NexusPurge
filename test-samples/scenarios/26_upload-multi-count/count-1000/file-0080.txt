@@ -1,1 +1,0 @@
-﻿count-1000 | file 80 | size: small

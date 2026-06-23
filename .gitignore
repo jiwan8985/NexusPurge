@@ -79,3 +79,4 @@ pnpm-debug.log*
 .vitest/
 .nyc_output/
 /test-samples/temp/
+/test-samples/scenarios/

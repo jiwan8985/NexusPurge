@@ -1,1 +1,0 @@
-﻿folder: game-content\client\textures\character | file: 2 | category: game-cdn-test

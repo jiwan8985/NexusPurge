@@ -1,7 +1,0 @@
-ROLLBACK TARGET — Broken Version 2
-====================================
-Status: BROKEN (버그 발생)
-Deploy Date: 2026-06-18
-Build: 2.0.0-broken
-Bug: 아이템 드롭률 0% 버그 포함
-Action Required: 즉시 v1으로 롤백 필요

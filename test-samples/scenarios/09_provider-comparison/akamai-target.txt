@@ -1,9 +1,0 @@
-Provider Comparison — Akamai Target
-=====================================
-이 파일은 Akamai CDN Purge 테스트용입니다.
-
-Akamai EdgeGrid API 호출 확인:
-- HOST, CLIENT_TOKEN, CLIENT_SECRET, ACCESS_TOKEN, CP_CODE 사용
-- Purge URL: https://{HOST}/ccu/v3/invalidate/cpcode
-
-Version: 1

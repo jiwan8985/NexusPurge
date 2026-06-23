@@ -48,6 +48,22 @@
   letter-spacing: -0.02em;
 }
 
+.brandMark::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(45deg, transparent 45%, rgba(255, 255, 255, 0.3) 50%, transparent 55%);
+  animation: logoShine 4s infinite linear;
+}
+
+@keyframes logoShine {
+  0% { transform: translate(-30%, -30%); }
+  100% { transform: translate(30%, 30%); }
+}
+
 .brandText {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,0 @@
-﻿HOTFIX TARGET: server_notice
-Version: BEFORE_PATCH
-Critical: YES
-Deploy: EMERGENCY

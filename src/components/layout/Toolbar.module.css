@@ -28,7 +28,7 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-secondary);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.03);
   border: var(--border-width) solid var(--color-border-strong);
   white-space: nowrap;
   transition: all var(--transition-fast);
@@ -38,13 +38,13 @@
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
   border-color: var(--color-accent);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 14px var(--color-accent-muted);
 }
 
 .toolBtn:active:not(:disabled) {
   background: var(--color-bg-active);
-  transform: scale(0.96);
+  transform: translateY(0) scale(0.96);
 }
 
 .icon {

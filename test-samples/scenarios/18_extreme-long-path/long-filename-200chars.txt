@@ -1,4 +1,0 @@
-﻿Extreme long filename test
-이 파일은 실제로 200자 파일명 테스트를 나타냅니다.
-실제 테스트 시 파일명을 x를 180개 붙인 이름으로 로컬에서 직접 만들어 업로드하세요.
-Example: 'very-long-filename-' + 'x'*180 + '.txt'

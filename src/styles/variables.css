@@ -1,89 +1,89 @@
 /* ── 색상 전환 트랜지션 ─────────────────────────────────────────────────────── */
 *, *::before, *::after {
   transition-property: background-color, border-color, color, box-shadow, transform, backdrop-filter;
-  transition-duration: 200ms;
+  transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── 라이트 모드 기본값 ───────────────────────────────────────────────────────── */
 :root {
-  /* Accent — Premium Aurora Indigo-Violet */
-  --color-accent:          #4f46e5;
-  --color-accent-hover:    #6366f1;
-  --color-accent-active:   #4338ca;
-  --color-accent-muted:    rgba(79, 70, 229, 0.12);
-  --color-accent-subtle:   rgba(79, 70, 229, 0.05);
+  /* Accent — Premium Cosmic Violet-Indigo */
+  --color-accent:          #6366f1;
+  --color-accent-hover:    #4f46e5;
+  --color-accent-active:   #3730a3;
+  --color-accent-muted:    rgba(99, 102, 241, 0.15);
+  --color-accent-subtle:   rgba(99, 102, 241, 0.06);
   --color-text-on-accent:  #ffffff;
 
-  /* Base — Light Clean SaaS Theme (Stripe/Linear inspired) */
-  --color-bg-base:              #f8fafc;
-  --color-bg-secondary:         #ffffff;
-  --color-bg-subtle:            #f1f5f9;
-  --color-bg-elevated:          rgba(255, 255, 255, 0.85);
-  --color-bg-overlay:           rgba(15, 23, 42, 0.3);
-  --color-bg-hover:             rgba(79, 70, 229, 0.04);
-  --color-bg-active:            rgba(79, 70, 229, 0.08);
-  --color-bg-selected:          rgba(79, 70, 229, 0.08);
-  --color-bg-selected-inactive: rgba(15, 23, 42, 0.03);
+  /* Base — Light Clean Frosted SaaS Theme */
+  --color-bg-base:              #f3f4f6;
+  --color-bg-secondary:         rgba(255, 255, 255, 0.7);
+  --color-bg-subtle:            rgba(243, 244, 246, 0.8);
+  --color-bg-elevated:          rgba(255, 255, 255, 0.9);
+  --color-bg-overlay:           rgba(15, 23, 42, 0.4);
+  --color-bg-hover:             rgba(99, 102, 241, 0.06);
+  --color-bg-active:            rgba(99, 102, 241, 0.12);
+  --color-bg-selected:          rgba(99, 102, 241, 0.1);
+  --color-bg-selected-inactive: rgba(15, 23, 42, 0.04);
 
-  --color-border:        rgba(79, 70, 229, 0.08);
-  --color-border-strong: rgba(79, 70, 229, 0.16);
-  --color-border-focus:  #6366f1;
+  --color-border:        rgba(99, 102, 241, 0.1);
+  --color-border-strong: rgba(99, 102, 241, 0.2);
+  --color-border-focus:  #4f46e5;
   --border-width:        1px;
 
-  --color-text-primary:   #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-tertiary:  #64748b;
-  --color-text-disabled:  #94a3b8;
-  --color-text-link:      #4f46e5;
+  --color-text-primary:   #1f2937;
+  --color-text-secondary: #4b5563;
+  --color-text-tertiary:  #9ca3af;
+  --color-text-disabled:  #d1d5db;
+  --color-text-link:      #6366f1;
 
   /* Glassmorphism */
-  --glass-bg:             rgba(255, 255, 255, 0.7);
-  --glass-border:         rgba(255, 255, 255, 0.6);
-  --glass-filter:         blur(20px) saturate(190%);
+  --glass-bg:             rgba(255, 255, 255, 0.55);
+  --glass-border:         rgba(255, 255, 255, 0.4);
+  --glass-filter:         blur(24px) saturate(190%);
 
-  /* Gradient system */
-  --gradient-brand:       linear-gradient(135deg, #4f46e5 0%, #8b5cf6 50%, #d946ef 100%);
-  --gradient-hover:       linear-gradient(135deg, #6366f1 0%, #a78bfa 50%, #e879f9 100%);
-  --gradient-active:      linear-gradient(135deg, #4338ca 0%, #7c3aed 50%, #c084fc 100%);
-  --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
-  --gradient-panel:       linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.95) 100%);
+  /* Gradient system - Cosmic Violet-Pink */
+  --gradient-brand:       linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
+  --gradient-hover:       linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%);
+  --gradient-active:      linear-gradient(135deg, #3730a3 0%, #6d28d9 50%, #be185d 100%);
+  --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, transparent 70%);
+  --gradient-panel:       linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(243, 244, 246, 0.75) 100%);
 
   /* Status */
   --color-success:       #10b981;
-  --color-success-muted: rgba(16, 185, 129, 0.1);
+  --color-success-muted: rgba(16, 185, 129, 0.12);
   --color-warning:       #f59e0b;
-  --color-warning-muted: rgba(245, 158, 11, 0.1);
+  --color-warning-muted: rgba(245, 158, 11, 0.12);
   --color-error:         #ef4444;
-  --color-error-muted:   rgba(239, 68, 68, 0.1);
+  --color-error-muted:   rgba(239, 68, 68, 0.12);
   --color-info:          #3b82f6;
 
-  --color-status-pending:   #94a3b8;
+  --color-status-pending:   #9ca3af;
   --color-status-active:    #6366f1;
   --color-status-complete:  #10b981;
-  --color-status-skipped:   #64748b;
+  --color-status-skipped:   #9ca3af;
   --color-status-overwrite: #f59e0b;
   --color-status-error:     #ef4444;
 
   /* Badges */
   --badge-new:            #10b981;
-  --badge-new-bg:         rgba(16, 185, 129, 0.08);
-  --badge-new-border:     rgba(16, 185, 129, 0.2);
+  --badge-new-bg:         rgba(16, 185, 129, 0.1);
+  --badge-new-border:     rgba(16, 185, 129, 0.25);
   --badge-modified:       #f59e0b;
-  --badge-modified-bg:    rgba(245, 158, 11, 0.08);
-  --badge-modified-border:rgba(245, 158, 11, 0.2);
+  --badge-modified-bg:    rgba(245, 158, 11, 0.1);
+  --badge-modified-border:rgba(245, 158, 11, 0.25);
   --badge-purge:          #06b6d4;
-  --badge-purge-bg:       rgba(6, 182, 212, 0.08);
-  --badge-purge-border:   rgba(6, 182, 212, 0.2);
+  --badge-purge-bg:       rgba(6, 182, 212, 0.1);
+  --badge-purge-border:   rgba(6, 182, 212, 0.25);
 
-  /* 타이포그래피 */
-  --font-family:      "Plus Jakarta Sans", "Inter", "Pretendard", system-ui, -apple-system, sans-serif;
+  /* 타이포그래피 (Premium "Outfit" Font Applied) */
+  --font-family:      "Outfit", "Plus Jakarta Sans", "Inter", "Pretendard", system-ui, -apple-system, sans-serif;
   --font-family-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace;
   --font-size-xs:   11px;
   --font-size-sm:   12px;
-  --font-size-base: 13px;
-  --font-size-lg:   14px;
-  --font-size-xl:   16px;
+  --font-size-base: 13.5px;
+  --font-size-lg:   15px;
+  --font-size-xl:   17px;
 
   /* 간격 */
   --spacing-1: 2px;  --spacing-2: 4px;  --spacing-3: 6px;
@@ -91,141 +91,141 @@
 
   /* 레이아웃 — compact fullscreen */
   --titlebar-height:    44px;
-  --toolbar-height:     50px;
+  --toolbar-height:     52px;
   --statusbar-height:   26px;
   --panel-min-width:    300px;
   --transfer-btn-width: 52px;
   --log-panel-height:   220px;
 
-  --radius-xs: 4px;  --radius-sm: 6px;  --radius-md: 10px;
-  --radius-lg: 14px;  --radius-xl: 18px;  --radius-2xl: 24px;
+  --radius-xs: 5px;  --radius-sm: 8px;  --radius-md: 12px;
+  --radius-lg: 16px;  --radius-xl: 20px;  --radius-2xl: 26px;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.02);
-  --shadow-lg: 0 16px 32px -4px rgba(79, 70, 229, 0.08), 0 8px 16px -2px rgba(15, 23, 42, 0.03);
-  --shadow-xl: 0 24px 50px -12px rgba(15, 23, 42, 0.15);
-  --glow-focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(79, 70, 229, 0.35);
+  --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.03);
+  --shadow-lg: 0 20px 40px -4px rgba(99, 102, 241, 0.1), 0 8px 20px -2px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 24px 60px -12px rgba(15, 23, 42, 0.18);
+  --glow-focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(99, 102, 241, 0.4);
 
-  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-base: 250ms cubic-bezier(0.16, 1, 0.3, 1);
-  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-fast: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-base: 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 380ms cubic-bezier(0.16, 1, 0.3, 1);
 
   --scrollbar-size:  6px;
-  --scrollbar-thumb: rgba(15, 23, 42, 0.12);
+  --scrollbar-thumb: rgba(15, 23, 42, 0.15);
   --scrollbar-track: transparent;
 }
 
-/* ── 다크 모드 ───────────────────────────────────────────────────────────────── */
+/* ── 다크 모드 (Sleek Obsidian Cyber Dark) ────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-accent:          #6366f1;
-    --color-accent-hover:    #818cf8;
-    --color-accent-active:   #4f46e5;
-    --color-accent-muted:    rgba(99, 102, 241, 0.2);
-    --color-accent-subtle:   rgba(99, 102, 241, 0.08);
+    --color-accent:          #818cf8;
+    --color-accent-hover:    #a5b4fc;
+    --color-accent-active:   #6366f1;
+    --color-accent-muted:    rgba(129, 140, 248, 0.25);
+    --color-accent-subtle:   rgba(129, 140, 248, 0.08);
 
-    /* Deep Cyber Dark / Obsidian Palette */
+    /* Obsidian glass layout */
     --color-bg-base:              #030712;
-    --color-bg-secondary:         #0b0f19;
-    --color-bg-subtle:            #0e1526;
-    --color-bg-elevated:          rgba(15, 23, 42, 0.7);
-    --color-bg-overlay:           rgba(0, 0, 0, 0.6);
-    --color-bg-hover:             rgba(99, 102, 241, 0.08);
-    --color-bg-active:            rgba(99, 102, 241, 0.15);
-    --color-bg-selected:          rgba(99, 102, 241, 0.15);
+    --color-bg-secondary:         rgba(15, 23, 42, 0.45);
+    --color-bg-subtle:            rgba(31, 41, 55, 0.55);
+    --color-bg-elevated:          rgba(17, 24, 39, 0.85);
+    --color-bg-overlay:           rgba(0, 0, 0, 0.7);
+    --color-bg-hover:             rgba(129, 140, 248, 0.08);
+    --color-bg-active:            rgba(129, 140, 248, 0.18);
+    --color-bg-selected:          rgba(129, 140, 248, 0.15);
     --color-bg-selected-inactive: rgba(255, 255, 255, 0.03);
 
-    --color-border:        rgba(99, 102, 241, 0.12);
-    --color-border-strong: rgba(99, 102, 241, 0.22);
-    --color-border-focus:  #818cf8;
+    --color-border:        rgba(129, 140, 248, 0.14);
+    --color-border-strong: rgba(129, 140, 248, 0.25);
+    --color-border-focus:  #a5b4fc;
 
-    --color-text-primary:   #f8fafc;
-    --color-text-secondary: #94a3b8;
-    --color-text-tertiary:  #64748b;
-    --color-text-disabled:  #475569;
+    --color-text-primary:   #f9fafb;
+    --color-text-secondary: #9ca3af;
+    --color-text-tertiary:  #6b7280;
+    --color-text-disabled:  #4b5563;
     --color-text-link:      #818cf8;
 
     /* Glassmorphism */
-    --glass-bg:             rgba(11, 15, 25, 0.75);
-    --glass-border:         rgba(255, 255, 255, 0.08);
-    --glass-filter:         blur(20px) saturate(180%);
+    --glass-bg:             rgba(11, 15, 25, 0.5);
+    --glass-border:         rgba(255, 255, 255, 0.05);
+    --glass-filter:         blur(24px) saturate(180%);
 
-    --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.85) 0%, rgba(3, 7, 18, 0.95) 100%);
-    --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 60%);
+    --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.5) 0%, rgba(3, 7, 18, 0.65) 100%);
+    --gradient-glow:        radial-gradient(circle, rgba(129, 140, 248, 0.12) 0%, transparent 60%);
 
-    --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(99, 102, 241, 0.45);
-    --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+    --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(129, 140, 248, 0.5);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.12);
 
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 16px 36px rgba(99, 102, 241, 0.05), 0 8px 16px rgba(0, 0, 0, 0.4);
-    --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+    --shadow-md: 0 4px 18px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 40px rgba(129, 140, 248, 0.04), 0 8px 16px rgba(0, 0, 0, 0.5);
+    --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.7);
 
     /* Badges */
     --badge-new:            #34d399;
-    --badge-new-bg:         rgba(52, 211, 153, 0.08);
-    --badge-new-border:     rgba(52, 211, 153, 0.2);
+    --badge-new-bg:         rgba(52, 211, 153, 0.12);
+    --badge-new-border:     rgba(52, 211, 153, 0.25);
     --badge-modified:       #fbbf24;
-    --badge-modified-bg:    rgba(251, 191, 36, 0.08);
-    --badge-modified-border:rgba(251, 191, 36, 0.2);
+    --badge-modified-bg:    rgba(251, 191, 36, 0.12);
+    --badge-modified-border:rgba(251, 191, 36, 0.25);
     --badge-purge:          #22d3ee;
-    --badge-purge-bg:       rgba(34, 211, 238, 0.08);
-    --badge-purge-border:   rgba(34, 211, 238, 0.2);
+    --badge-purge-bg:       rgba(34, 211, 238, 0.12);
+    --badge-purge-border:   rgba(34, 211, 238, 0.25);
   }
 }
 
-/* ── 강제 다크 모드 ──────────────────────────────────────────────────────────── */
+/* ── 강제 다크 모드 (Sleek Obsidian Cyber Dark) ────────────────────────────────────────── */
 :root[data-theme="dark"] {
-  --color-accent:          #6366f1;
-  --color-accent-hover:    #818cf8;
-  --color-accent-active:   #4f46e5;
-  --color-accent-muted:    rgba(99, 102, 241, 0.2);
-  --color-accent-subtle:   rgba(99, 102, 241, 0.08);
+  --color-accent:          #818cf8;
+  --color-accent-hover:    #a5b4fc;
+  --color-accent-active:   #6366f1;
+  --color-accent-muted:    rgba(129, 140, 248, 0.25);
+  --color-accent-subtle:   rgba(129, 140, 248, 0.08);
 
   --color-bg-base:              #030712;
-  --color-bg-secondary:         #0b0f19;
-  --color-bg-subtle:            #0e1526;
-  --color-bg-elevated:          rgba(15, 23, 42, 0.7);
-  --color-bg-overlay:           rgba(0, 0, 0, 0.6);
-  --color-bg-hover:             rgba(99, 102, 241, 0.08);
-  --color-bg-active:            rgba(99, 102, 241, 0.15);
-  --color-bg-selected:          rgba(99, 102, 241, 0.15);
+  --color-bg-secondary:         rgba(15, 23, 42, 0.45);
+  --color-bg-subtle:            rgba(31, 41, 55, 0.55);
+  --color-bg-elevated:          rgba(17, 24, 39, 0.85);
+  --color-bg-overlay:           rgba(0, 0, 0, 0.7);
+  --color-bg-hover:             rgba(129, 140, 248, 0.08);
+  --color-bg-active:            rgba(129, 140, 248, 0.18);
+  --color-bg-selected:          rgba(129, 140, 248, 0.15);
   --color-bg-selected-inactive: rgba(255, 255, 255, 0.03);
 
-  --color-border:        rgba(99, 102, 241, 0.12);
-  --color-border-strong: rgba(99, 102, 241, 0.22);
-  --color-border-focus:  #818cf8;
+  --color-border:        rgba(129, 140, 248, 0.14);
+  --color-border-strong: rgba(129, 140, 248, 0.25);
+  --color-border-focus:  #a5b4fc;
 
-  --color-text-primary:   #f8fafc;
-  --color-text-secondary: #94a3b8;
-  --color-text-tertiary:  #64748b;
-  --color-text-disabled:  #475569;
+  --color-text-primary:   #f9fafb;
+  --color-text-secondary: #9ca3af;
+  --color-text-tertiary:  #6b7280;
+  --color-text-disabled:  #4b5563;
   --color-text-link:      #818cf8;
 
   /* Glassmorphism */
-  --glass-bg:             rgba(11, 15, 25, 0.75);
-  --glass-border:         rgba(255, 255, 255, 0.08);
-  --glass-filter:         blur(20px) saturate(180%);
+  --glass-bg:             rgba(11, 15, 25, 0.5);
+  --glass-border:         rgba(255, 255, 255, 0.05);
+  --glass-filter:         blur(24px) saturate(180%);
 
-  --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.85) 0%, rgba(3, 7, 18, 0.95) 100%);
-  --gradient-glow:        radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 60%);
+  --gradient-panel:       linear-gradient(180deg, rgba(11, 15, 25, 0.5) 0%, rgba(3, 7, 18, 0.65) 100%);
+  --gradient-glow:        radial-gradient(circle, rgba(129, 140, 248, 0.12) 0%, transparent 60%);
 
-  --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(99, 102, 241, 0.45);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --glow-focus:      0 0 0 2px #030712, 0 0 0 4px rgba(129, 140, 248, 0.5);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 16px 36px rgba(99, 102, 241, 0.05), 0 8px 16px rgba(0, 0, 0, 0.4);
-  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 18px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 40px rgba(129, 140, 248, 0.04), 0 8px 16px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.7);
 
   /* Badges */
   --badge-new:            #34d399;
-  --badge-new-bg:         rgba(52, 211, 153, 0.08);
-  --badge-new-border:     rgba(52, 211, 153, 0.2);
+  --badge-new-bg:         rgba(52, 211, 153, 0.12);
+  --badge-new-border:     rgba(52, 211, 153, 0.25);
   --badge-modified:       #fbbf24;
-  --badge-modified-bg:    rgba(251, 191, 36, 0.08);
-  --badge-modified-border:rgba(251, 191, 36, 0.2);
+  --badge-modified-bg:    rgba(251, 191, 36, 0.12);
+  --badge-modified-border:rgba(251, 191, 36, 0.25);
   --badge-purge:          #22d3ee;
-  --badge-purge-bg:       rgba(34, 211, 238, 0.08);
-  --badge-purge-border:   rgba(34, 211, 238, 0.2);
+  --badge-purge-bg:       rgba(34, 211, 238, 0.12);
+  --badge-purge-border:   rgba(34, 211, 238, 0.25);
 }

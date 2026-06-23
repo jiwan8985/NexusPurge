@@ -1,1 +1,0 @@
-EVENT_OLD PATH: /event_old/banner.txt | Version: OLD (삭제 예정)
