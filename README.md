@@ -197,34 +197,6 @@ pnpm tauri build
 
 ---
 
-## CI / CD
-
-`main` 브랜치 push 및 PR 시 GitHub Actions가 자동으로 검증합니다.
-
-**CI 워크플로우** (`.github/workflows/ci.yml`):
-
-```
-push / PR → main
-  ├─ frontend job (ubuntu-latest)
-  │   ├─ pnpm typecheck
-  │   ├─ pnpm test      ← Vitest 단위 테스트
-  │   └─ pnpm build
-  └─ backend job (ubuntu-latest)
-      ├─ cargo check --release
-      └─ cargo test
-```
-
-**릴리즈 빌드** (`.github/workflows/build.yml`):
-
-```
-workflow_dispatch → release_tag 입력
-  ├─ windows-latest  →  .msi  +  .exe
-  ├─ macos-latest    →  .dmg  +  .app
-  └─ ubuntu-latest   →  .AppImage
-```
-
----
-
 ## 프로젝트 구조
 
 ```
@@ -281,8 +253,6 @@ pnpm test:watch
 # Rust 단위 테스트
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
-
-CI는 `.github/workflows/ci.yml`에 정의된 GitHub Actions로 `main` 브랜치 push 및 PR 시 자동 실행됩니다.
 
 ---
 
