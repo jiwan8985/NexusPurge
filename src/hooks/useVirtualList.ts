@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-export const ITEM_H = 22; // px — Panel.module.css의 .row height와 동기화
+export const ITEM_H = 30; // px — Panel.module.css의 .row height와 동기화
 
 const BUFFER = 14; // 뷰포트 위아래로 미리 렌더링할 행 수
 

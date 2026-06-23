@@ -30,18 +30,22 @@ export interface S3Profile {
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
   akamaiAccessToken?: string;     // Akamai EdgeGrid access token
   akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
+  akamaiCpCode?: string;          // Akamai CP Code (콘텐츠 제공자 코드)
+  akamaiCdnDomain?: string;       // Akamai CDN 도메인 (CloudFront cdnDomain과 별도)
   // LG U+ CDN (Solbox CDN v2)
   lguplusUsername?: string;
   lguplusPassword?: string;    // keyring에 저장, 로드 시 빈 값
   lguplusServiceName?: string;
   lguplusVolumeName?: string;
   lguplusEndpoint?: string;
+  lguplusCdnDomain?: string;   // LG U+ CDN 도메인 (CloudFront/Akamai cdnDomain과 별도)
   // KT CDN (Solbox CDN v3)
   ktUsername?: string;
   ktPassword?: string;         // keyring에 저장, 로드 시 빈 값
   ktServiceName?: string;
   ktVolumeName?: string;
   ktEndpoint?: string;
+  ktCdnDomain?: string;        // KT CDN 도메인 (CloudFront/Akamai cdnDomain과 별도)
   // Hyosung CDN (미지원, 하위 호환)
   hyosungApiKey?: string;
   hyosungApiSecret?: string;
@@ -234,6 +238,7 @@ export interface CdnPurgeResult {
 }
 
 export interface PurgeBatchResult {
+  provider?: CdnProvider;
   paths: string[];
   success: boolean;
   invalidationId?: string;

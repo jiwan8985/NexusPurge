@@ -373,8 +373,13 @@ export default function RemotePanel() {
           onConfirm={async () => {
             const target = deleteConfirm;
             setDeleteConfirm(null);
-            await deleteObjects([target.path]);
-            await loadPrefix(remote.path);
+            try {
+              await deleteObjects([target.path]);
+            } catch (err) {
+              // 에러 로그는 이미 useS3 내부에서 기록함
+            } finally {
+              await loadPrefix(remote.path);
+            }
           }}
           onCancel={() => setDeleteConfirm(null)}
         />

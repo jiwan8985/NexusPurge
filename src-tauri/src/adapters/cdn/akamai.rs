@@ -12,6 +12,7 @@ pub struct AkamaiAdapter {
     client_secret: String,
     access_token:  String,
     host:          String, // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
+    pub cp_code:   String, // Akamai CP Code (콘텐츠 제공자 코드)
 }
 
 impl AkamaiAdapter {
@@ -20,12 +21,13 @@ impl AkamaiAdapter {
         client_secret: String,
         access_token:  String,
         host:          String,
+        cp_code:       String,
     ) -> Result<Self> {
         let client = Client::builder()
             .use_native_tls()
             .build()
             .context("HTTP 클라이언트 생성 실패")?;
-        Ok(Self { client, client_token, client_secret, access_token, host })
+        Ok(Self { client, client_token, client_secret, access_token, host, cp_code })
     }
 
     /// Akamai EdgeGrid 서명 생성
@@ -117,6 +119,45 @@ impl AkamaiAdapter {
         }
 
         tracing::info!("Akamai Purge 성공: {} URL", urls.len());
+        Ok(())
+    }
+
+    /// Akamai Fast Purge CCU v3 — CP Code 기반 전체 무효화
+    pub async fn purge_by_cpcode(&self) -> Result<()> {
+        if self.cp_code.trim().is_empty() {
+            return Err(anyhow::anyhow!("Akamai CP Code가 필요합니다"));
+        }
+        let cp_code_num: u64 = self.cp_code.trim().parse()
+            .map_err(|_| anyhow::anyhow!("CP Code는 숫자여야 합니다: {}", self.cp_code))?;
+
+        let endpoint = format!("https://{}/ccu/v3/invalidate/cpcode/production", &self.host);
+        let url = Url::parse(&endpoint).context("Akamai URL 파싱 실패")?;
+
+        let body = serde_json::json!({ "objects": [cp_code_num] }).to_string();
+        let body_bytes = body.as_bytes();
+        let auth_header = self.sign_request("POST", &url, body_bytes);
+
+        let resp = self
+            .client
+            .post(url.as_str())
+            .header("Authorization", &auth_header)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .context("Akamai CP Code Purge 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "Akamai CP Code Purge 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        tracing::info!("Akamai CP Code Purge 성공: CP Code {}", self.cp_code);
         Ok(())
     }
 

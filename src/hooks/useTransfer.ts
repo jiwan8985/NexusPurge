@@ -3,7 +3,7 @@ import { saveOperationLog } from "../services/operation-log/operation-log-servic
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
-import type { CdnPurgeResult, CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult } from "../types";
+import type { CdnPurgeResult, CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult, CdnProvider } from "../types";
 import type { UploadOptions } from "../components/transfer/UploadOptionsModal";
 import { readBatchSettings } from "../utils/batch-settings";
 
@@ -358,6 +358,18 @@ export function useTransfer() {
           `자동 Purge (스킵 포함): 미변경 ${skipPaths.length}개 경로 추가 Purge`,
           "cdn"
         );
+
+        const providersToPurge: { provider: CdnProvider; distributionId?: string }[] = [];
+        if ((activeProfile.cdnProvider as string) === "multiple" && activeProfile.cdnProviders) {
+          activeProfile.cdnProviders.forEach((c) => {
+            if (c.enabled) {
+              providersToPurge.push({ provider: c.provider, distributionId: c.distributionId });
+            }
+          });
+        } else {
+          providersToPurge.push({ provider: activeProfile.cdnProvider, distributionId: activeProfile.cdnDistributionId });
+        }
+
         const { purgeBatchSize } = readBatchSettings();
         for (let i = 0; i < skipPaths.length; i += purgeBatchSize) {
           const batch = skipPaths.slice(i, i + purgeBatchSize);
@@ -365,20 +377,23 @@ export function useTransfer() {
             skipPaths.length > purgeBatchSize
               ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${Math.ceil(skipPaths.length / purgeBatchSize)})`
               : "";
-          try {
-            const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-              profileId: activeProfile.id,
-              provider: activeProfile.cdnProvider,
-              distributionId: activeProfile.cdnDistributionId ?? "",
-              paths: batch,
-            });
-            if (result.success) {
-              addLog("success", `스킵 경로 Purge 완료${batchLabel}: ${batch.length}개`, "cdn");
-            } else {
-              addLog("error", `스킵 경로 Purge 실패${batchLabel}: ${result.error}`, "cdn");
+
+          for (const p of providersToPurge) {
+            try {
+              const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+                profileId: activeProfile.id,
+                provider: p.provider,
+                distributionId: p.distributionId ?? "",
+                paths: batch,
+              });
+              if (result.success) {
+                addLog("success", `스킵 경로 Purge 완료 (${p.provider})${batchLabel}: ${batch.length}개`, "cdn");
+              } else {
+                addLog("error", `스킵 경로 Purge 실패 (${p.provider})${batchLabel}: ${result.error}`, "cdn");
+              }
+            } catch (err) {
+              addLog("error", `스킵 경로 Purge 오류 (${p.provider})${batchLabel}: ${err}`, "cdn");
             }
-          } catch (err) {
-            addLog("error", `스킵 경로 Purge 오류${batchLabel}: ${err}`, "cdn");
           }
         }
       }
@@ -401,15 +416,26 @@ export function useTransfer() {
   const startDownload = useCallback(async () => {
     if (!activeProfile || remote.selectedPaths.size === 0) return;
 
-    // M-7: 다운로드 대상 폴더 선택 다이얼로그
-    const selectedDir = await runtime.openDirectory({
-      defaultPath: local.path || undefined,
-      title: "다운로드 폴더 선택",
-    });
+    addLog("info", "다운로드 폴더 선택 대화상자를 엽니다…", "transfer");
+
+    let selectedDir: string | null = null;
+    try {
+      selectedDir = await runtime.openDirectory({
+        defaultPath: local.path || undefined,
+        title: "다운로드 폴더 선택",
+      });
+    } catch (dialogErr) {
+      addLog("error", `폴더 선택 대화상자 오류: ${dialogErr}`, "transfer");
+      return;
+    }
 
     // 사용자가 취소했을 때
-    if (!selectedDir) return;
+    if (!selectedDir) {
+      addLog("info", "폴더 선택이 취소되었습니다.", "transfer");
+      return;
+    }
 
+    addLog("info", `다운로드 대상 폴더: ${selectedDir}`, "transfer");
     setTransferring(true);
     setShowProgressDialog(true);
 
@@ -417,9 +443,14 @@ export function useTransfer() {
     addLog("info", `다운로드 시작: ${selectedKeys.length}개 파일`, "transfer");
 
     try {
-      const downloadItems = selectedKeys.map((key) => {
+      const downloadItems = selectedKeys.flatMap((key) => {
         const id = crypto.randomUUID();
-        const fileName = key.split("/").pop() ?? key;
+        const rawName = key.split("/").pop() ?? "";
+        const fileName = rawName || key.replace(/\//g, "_");
+        if (!fileName) {
+          addLog("warn", `다운로드 건너뜀 (파일명 없음): ${key}`, "transfer");
+          return [];
+        }
         // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준)
         const localPath = joinPath(selectedDir, fileName);
         addTransfer({

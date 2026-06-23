@@ -1,5 +1,5 @@
 .overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: var(--color-bg-overlay);
   backdrop-filter: var(--glass-filter);

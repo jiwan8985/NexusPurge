@@ -40,13 +40,14 @@ pub async fn purge_with_credentials(
             client_secret,
             access_token,
             host,
+            cp_code,
             cdn_domain,
         } => {
             if cdn_domain.trim().is_empty() {
                 return Err(anyhow::anyhow!("Akamai CDN domain is required"));
             }
             let adapter =
-                akamai::AkamaiAdapter::new(client_token, client_secret, access_token, host)?;
+                akamai::AkamaiAdapter::new(client_token, client_secret, access_token, host, cp_code)?;
             let urls = build_cdn_urls(&cdn_domain, paths);
             let mut last_err = None;
             for attempt in 0..3 {

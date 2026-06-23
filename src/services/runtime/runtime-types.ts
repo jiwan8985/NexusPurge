@@ -13,4 +13,6 @@ export interface RuntimeBridge {
   toggleMaximizeWindow(): Promise<void>;
   closeWindow(): Promise<void>;
   getVersion(): Promise<string>;
+  isWindowMaximized(): Promise<boolean>;
+  onWindowResize(handler: () => void): Promise<() => void>;
 }

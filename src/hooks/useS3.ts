@@ -8,6 +8,7 @@ import type {
   OperationStatus,
   OperationType,
   S3ListResponse,
+  CdnProvider,
 } from "../types";
 
 export function useS3() {
@@ -56,23 +57,36 @@ export function useS3() {
         addLog("success", `S3 delete completed: ${deletedKeys.length}`, "transfer");
 
         if (activeProfile.cdnProvider && deletedKeys.length > 0) {
-          try {
-            purgeResult = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-              profileId: activeProfile.id,
-              provider: activeProfile.cdnProvider,
-              distributionId: activeProfile.cdnDistributionId ?? "",
-              paths: deletedKeys,
+          const providersToPurge: { provider: CdnProvider; distributionId?: string }[] = [];
+          if ((activeProfile.cdnProvider as string) === "multiple" && activeProfile.cdnProviders) {
+            activeProfile.cdnProviders.forEach((c) => {
+              if (c.enabled) {
+                providersToPurge.push({ provider: c.provider, distributionId: c.distributionId });
+              }
             });
+          } else {
+            providersToPurge.push({ provider: activeProfile.cdnProvider, distributionId: activeProfile.cdnDistributionId });
+          }
 
-            if (purgeResult.success) {
-              const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
-              addLog("success", `Delete CDN purge completed: ${deletedKeys.length}${id}`, "cdn");
-            } else {
-              addLog("error", `Delete CDN purge failed: ${purgeResult.error}`, "cdn");
+          for (const p of providersToPurge) {
+            try {
+              purgeResult = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+                profileId: activeProfile.id,
+                provider: p.provider,
+                distributionId: p.distributionId ?? "",
+                paths: deletedKeys,
+              });
+
+              if (purgeResult.success) {
+                const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
+                addLog("success", `Delete CDN purge completed (${p.provider}): ${deletedKeys.length}${id}`, "cdn");
+              } else {
+                addLog("error", `Delete CDN purge failed (${p.provider}): ${purgeResult.error}`, "cdn");
+              }
+            } catch (err) {
+              purgeError = String(err);
+              addLog("error", `Delete CDN purge failed (${p.provider}): ${purgeError}`, "cdn");
             }
-          } catch (err) {
-            purgeError = String(err);
-            addLog("error", `Delete CDN purge failed: ${purgeError}`, "cdn");
           }
         }
 

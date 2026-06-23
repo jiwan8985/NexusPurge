@@ -479,17 +479,24 @@ pub async fn upload_files(
         .await
         .map_err(|e| e.to_string())?;
 
-    // H-6: CDN 자격증명 사전 조회 (태스크 외부에서 한 번만 실행)
-    let cdn_info: Option<(String, crate::utils::config::CdnCredentials)> =
-        match &cdn_provider {
-            Some(prov) => store
-                .get_cdn_credentials(&profile_id, prov)
-                .await
-                .ok()
-                .map(|c| (cdn_distribution_id.clone().unwrap_or_default(), c)),
-            None => None,
-        };
-    let cdn_info = Arc::new(cdn_info);
+    // CDN 자격증명 사전 조회 (다중 CDN 지원)
+    let mut cdns = Vec::new();
+    if let Ok(profile) = store.get_profile(&profile_id).await {
+        if profile.cdn_provider.as_deref() == Some("multiple") {
+            for c in &profile.cdn_providers {
+                if c.enabled {
+                    if let Ok(creds) = store.get_cdn_credentials(&profile_id, &c.provider).await {
+                        cdns.push((c.provider.clone(), c.distribution_id.clone().unwrap_or_default(), creds));
+                    }
+                }
+            }
+        } else if let Some(prov) = &profile.cdn_provider {
+            if let Ok(creds) = store.get_cdn_credentials(&profile_id, prov).await {
+                cdns.push((prov.clone(), profile.cdn_distribution_id.clone().unwrap_or_default(), creds));
+            }
+        }
+    }
+    let cdns = Arc::new(cdns);
 
     let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
     let semaphore = Arc::new(Semaphore::new(concurrent));
@@ -498,7 +505,7 @@ pub async fn upload_files(
     for item in items {
         let adapter   = adapter.clone();
         let app       = app.clone();
-        let cdn_info  = cdn_info.clone();
+        let cdns      = cdns.clone();
         let permit    = semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
@@ -573,25 +580,41 @@ pub async fn upload_files(
             };
 
             // is_overwrite == true 인 경우에만 CDN Purge 실행 (C-1)
-            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) =
-                if result.is_ok() && item.is_overwrite {
-                    if let Some((dist, cdn_creds)) = cdn_info.as_ref() {
-                        match crate::adapters::cdn::purge_with_credentials(
-                            dist,
-                            &[item.remote_path.clone()],
-                            cdn_creds.clone(),
-                        )
-                        .await
-                        {
-                            Ok(id)  => (true, None, id),
-                            Err(e) => (false, Some(e.to_string()), None),
+            let mut cdn_purged = false;
+            let mut cdn_purge_error = None;
+            let mut cdn_invalidation_id = None;
+
+            if result.is_ok() && item.is_overwrite && !cdns.is_empty() {
+                let mut errors = Vec::new();
+                let mut invalidation_ids = Vec::new();
+                for (provider, dist, cdn_creds) in cdns.iter() {
+                    match crate::adapters::cdn::purge_with_credentials(
+                        dist,
+                        &[item.remote_path.clone()],
+                        cdn_creds.clone(),
+                    )
+                    .await
+                    {
+                        Ok(id) => {
+                            cdn_purged = true;
+                            if let Some(id_str) = id {
+                                invalidation_ids.push(format!("{}:{}", provider, id_str));
+                            } else {
+                                invalidation_ids.push(format!("{}:success", provider));
+                            }
                         }
-                    } else {
-                        (false, None, None)
+                        Err(e) => {
+                            errors.push(format!("{}: {}", provider, e));
+                        }
                     }
-                } else {
-                    (false, None, None)
-                };
+                }
+                if !errors.is_empty() {
+                    cdn_purge_error = Some(errors.join(", "));
+                }
+                if !invalidation_ids.is_empty() {
+                    cdn_invalidation_id = Some(invalidation_ids.join(", "));
+                }
+            }
 
             let _ = app.emit(
                 "transfer:complete",

@@ -3,7 +3,7 @@ import { readBatchSettings } from "../utils/batch-settings";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { useAppStore } from "../store/appStore";
 import { runtime } from "../services/runtime";
-import type { CdnPurgeResult, PurgeExecutionResult } from "../types";
+import type { CdnPurgeResult, PurgeExecutionResult, CdnProvider } from "../types";
 
 export function usePurge() {
   const { activeProfile, remote, addLog } = useAppStore((s) => ({
@@ -45,45 +45,61 @@ export function usePurge() {
       let failedCount = 0;
       const batchResults: PurgeExecutionResult["batches"] = [];
 
+      // Determine active providers to purge
+      const providersToPurge: { provider: CdnProvider; distributionId?: string }[] = [];
+      if ((activeProfile.cdnProvider as string) === "multiple" && activeProfile.cdnProviders) {
+        activeProfile.cdnProviders.forEach((c) => {
+          if (c.enabled) {
+            providersToPurge.push({ provider: c.provider, distributionId: c.distributionId });
+          }
+        });
+      } else if (activeProfile.cdnProvider) {
+        providersToPurge.push({ provider: activeProfile.cdnProvider, distributionId: activeProfile.cdnDistributionId });
+      }
+
       for (let i = 0; i < batchArrays.length; i++) {
         const batch = batchArrays[i];
         const batchLabel = totalBatches > 1 ? ` (배치 ${i + 1}/${totalBatches})` : "";
         const batchStartedAt = new Date().toISOString();
 
-        try {
-          const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-            profileId: activeProfile.id,
-            provider: activeProfile.cdnProvider,
-            distributionId: activeProfile.cdnDistributionId ?? "",
-            paths: batch,
-          });
+        for (const p of providersToPurge) {
+          try {
+            const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+              profileId: activeProfile.id,
+              provider: p.provider,
+              distributionId: p.distributionId ?? "",
+              paths: batch,
+            });
 
-          batchResults.push({
-            paths: batch,
-            success: result.success,
-            invalidationId: result.invalidationId ?? undefined,
-            error: result.error ?? undefined,
-            startedAt: batchStartedAt,
-            finishedAt: new Date().toISOString(),
-          });
+            batchResults.push({
+              provider: p.provider,
+              paths: batch,
+              success: result.success,
+              invalidationId: result.invalidationId ?? undefined,
+              error: result.error ?? undefined,
+              startedAt: batchStartedAt,
+              finishedAt: new Date().toISOString(),
+            });
 
-          if (result.success) {
-            const inv = result.invalidationId ? ` (${result.invalidationId})` : "";
-            addLog("success", `CDN Purge 완료${batchLabel}: ${batch.length}개${inv}`, "cdn");
-          } else {
+            if (result.success) {
+              const inv = result.invalidationId ? ` (${result.invalidationId})` : "";
+              addLog("success", `CDN Purge 완료 (${p.provider})${batchLabel}: ${batch.length}개${inv}`, "cdn");
+            } else {
+              failedCount += batch.length;
+              addLog("error", `CDN Purge 실패 (${p.provider})${batchLabel}: ${result.error}`, "cdn");
+            }
+          } catch (err) {
             failedCount += batch.length;
-            addLog("error", `CDN Purge 실패${batchLabel}: ${result.error}`, "cdn");
+            batchResults.push({
+              provider: p.provider,
+              paths: batch,
+              success: false,
+              error: String(err),
+              startedAt: batchStartedAt,
+              finishedAt: new Date().toISOString(),
+            });
+            addLog("error", `CDN Purge 오류 (${p.provider})${batchLabel}: ${err}`, "cdn");
           }
-        } catch (err) {
-          failedCount += batch.length;
-          batchResults.push({
-            paths: batch,
-            success: false,
-            error: String(err),
-            startedAt: batchStartedAt,
-            finishedAt: new Date().toISOString(),
-          });
-          addLog("error", `CDN Purge 오류${batchLabel}: ${err}`, "cdn");
         }
       }
 
@@ -111,7 +127,7 @@ export function usePurge() {
         prefix: remote.path,
         files: [],
         purgeResults: batchResults.map((r) => ({
-          provider: activeProfile.cdnProvider!,
+          provider: r.provider || activeProfile.cdnProvider || ("multiple" as CdnProvider),
           urls: r.paths,
           status: r.success ? "success" as const : "failed" as const,
           requestId: r.invalidationId,

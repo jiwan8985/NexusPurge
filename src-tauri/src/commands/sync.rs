@@ -426,8 +426,8 @@ pub async fn start_uploads(
     app:                    AppHandle,
     profile_id:             String,
     items:                  Vec<UploadItem>,
-    cdn_distribution_id:    Option<String>,
-    cdn_provider:           Option<String>,
+    _cdn_distribution_id:   Option<String>,
+    _cdn_provider:          Option<String>,
     max_concurrent_files:   Option<usize>,
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
@@ -445,17 +445,24 @@ pub async fn start_uploads(
         .await
         .map_err(|e| e.to_string())?;
 
-    // H-6: CDN 자격증명 사전 조회
-    let cdn_info: Option<(String, crate::utils::config::CdnCredentials)> =
-        match &cdn_provider {
-            Some(prov) => store
-                .get_cdn_credentials(&profile_id, prov)
-                .await
-                .ok()
-                .map(|c| (cdn_distribution_id.clone().unwrap_or_default(), c)),
-            None => None,
-        };
-    let cdn_info = Arc::new(cdn_info);
+    // CDN 자격증명 사전 조회 (다중 CDN 지원)
+    let mut cdns = Vec::new();
+    if let Ok(profile) = store.get_profile(&profile_id).await {
+        if profile.cdn_provider.as_deref() == Some("multiple") {
+            for c in &profile.cdn_providers {
+                if c.enabled {
+                    if let Ok(creds) = store.get_cdn_credentials(&profile_id, &c.provider).await {
+                        cdns.push((c.provider.clone(), c.distribution_id.clone().unwrap_or_default(), creds));
+                    }
+                }
+            }
+        } else if let Some(prov) = &profile.cdn_provider {
+            if let Ok(creds) = store.get_cdn_credentials(&profile_id, prov).await {
+                cdns.push((prov.clone(), profile.cdn_distribution_id.clone().unwrap_or_default(), creds));
+            }
+        }
+    }
+    let cdns = Arc::new(cdns);
 
     let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
     let semaphore = Arc::new(Semaphore::new(concurrent));
@@ -548,33 +555,36 @@ pub async fn start_uploads(
     while tasks.join_next().await.is_some() {}
 
     let targets = successful_purge_targets.lock().await.clone();
-    if let Some((distribution_id, cdn_creds)) = cdn_info.as_ref() {
-        for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
-            let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
-            let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
-            let purge_result = crate::adapters::cdn::purge_with_credentials(
-                distribution_id,
-                &paths,
-                cdn_creds.clone(),
-            )
-            .await;
-            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = match purge_result {
-                Ok(id) => (true, None, id),
-                Err(err) => (false, Some(err.to_string()), None),
-            };
+    if !cdns.is_empty() && !targets.is_empty() {
+        for (provider, distribution_id, cdn_creds) in cdns.iter() {
+            for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
+                let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
+                let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
+                let purge_result = crate::adapters::cdn::purge_with_credentials(
+                    distribution_id,
+                    &paths,
+                    cdn_creds.clone(),
+                )
+                .await;
+                
+                let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = match purge_result {
+                    Ok(id) => (true, None, id),
+                    Err(err) => (false, Some(err.to_string()), None),
+                };
 
-            for id in ids {
-                let _ = app.emit(
-                    "transfer:complete",
-                    TransferCompletePayload {
-                        id,
-                        status: "complete".to_string(),
-                        cdn_purged,
-                        cdn_purge_error: cdn_purge_error.clone(),
-                        cdn_invalidation_id: cdn_invalidation_id.clone(),
-                        error: None,
-                    },
-                );
+                for id in ids {
+                    let _ = app.emit(
+                        "transfer:complete",
+                        TransferCompletePayload {
+                            id,
+                            status: "complete".to_string(),
+                            cdn_purged,
+                            cdn_purge_error: cdn_purge_error.clone().map(|e| format!("{}: {}", provider, e)),
+                            cdn_invalidation_id: cdn_invalidation_id.clone().map(|i| format!("{}: {}", provider, i)),
+                            error: None,
+                        },
+                    );
+                }
             }
         }
     }

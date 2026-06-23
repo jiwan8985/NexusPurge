@@ -6,11 +6,12 @@ import ConfirmDialog from "../common/ConfirmDialog";
 import type { S3Profile, CdnProvider, CdnConnectionTestResult } from "../../types";
 import styles from "./ProfileModal.module.css";
 
-const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
+const CDN_PROVIDERS: { value: CdnProvider | "multiple"; label: string }[] = [
   { value: "cloudfront", label: "AWS CloudFront" },
   { value: "akamai",     label: "Akamai" },
   { value: "lguplus",    label: "LG U+ CDN" },
   { value: "kt",         label: "KT CDN" },
+  { value: "multiple",   label: "다중 CDN 사용" },
 ];
 
 const REGION_SUGGESTIONS = [
@@ -38,7 +39,7 @@ interface FormState {
   accessKeyId: string;
   secretAccessKey: string;
   endpoint: string;
-  cdnProvider: CdnProvider | "";
+  cdnProvider: CdnProvider | "" | "multiple";
   cdnDistributionId: string;
   cdnDomain: string;
   cdnBasePath: string;
@@ -47,22 +48,27 @@ interface FormState {
   contentTypeOverride: string;
   multipartEtagFallback: boolean;
   // Akamai EdgeGrid
+  akamaiHost: string;
   akamaiClientToken: string;
   akamaiClientSecret: string;
   akamaiAccessToken: string;
-  akamaiHost: string;
+  akamaiCpCode: string;
+  akamaiCdnDomain: string;
   // LG U+ CDN
   lguplusUsername: string;
   lguplusPassword: string;
   lguplusServiceName: string;
   lguplusVolumeName: string;
   lguplusEndpoint: string;
+  lguplusCdnDomain: string;
   // KT CDN
   ktUsername: string;
   ktPassword: string;
   ktServiceName: string;
   ktVolumeName: string;
   ktEndpoint: string;
+  ktCdnDomain: string;
+  cdnProviders: { provider: CdnProvider; enabled: boolean; distributionId: string; domain: string }[];
 }
 
 const emptyForm = (): FormState => ({
@@ -81,20 +87,30 @@ const emptyForm = (): FormState => ({
   defaultCacheControl: "",
   contentTypeOverride: "",
   multipartEtagFallback: true,
+  akamaiHost: "",
   akamaiClientToken: "",
   akamaiClientSecret: "",
   akamaiAccessToken: "",
-  akamaiHost: "",
+  akamaiCpCode: "",
+  akamaiCdnDomain: "",
   lguplusUsername: "",
   lguplusPassword: "",
   lguplusServiceName: "",
   lguplusVolumeName: "",
   lguplusEndpoint: "",
+  lguplusCdnDomain: "",
   ktUsername: "",
   ktPassword: "",
   ktServiceName: "",
   ktVolumeName: "",
   ktEndpoint: "",
+  ktCdnDomain: "",
+  cdnProviders: [
+    { provider: "cloudfront", enabled: false, distributionId: "", domain: "" },
+    { provider: "akamai",     enabled: false, distributionId: "", domain: "" },
+    { provider: "lguplus",    enabled: false, distributionId: "", domain: "" },
+    { provider: "kt",         enabled: false, distributionId: "", domain: "" },
+  ],
 });
 
 export default function ProfileModal() {
@@ -107,13 +123,48 @@ export default function ProfileModal() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [isTestingCdn, setIsTestingCdn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string; warnings?: string[] } | null>(null);
-  const [cdnTestResult, setCdnTestResult] = useState<CdnConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
+
+  const [cdnTestResults, setCdnTestResults] = useState<Record<string, CdnConnectionTestResult | null>>({});
+  const [testingCdnProviders, setTestingCdnProviders] = useState<Record<string, boolean>>({});
+
+  const setProviderField = (provider: CdnProvider, field: "distributionId" | "domain", value: string) => {
+    setForm((f) => ({
+      ...f,
+      cdnProviders: f.cdnProviders.map((c) =>
+        c.provider === provider ? { ...c, [field]: value } : c
+      ),
+    }));
+  };
+
+  const toggleProviderEnabled = (provider: CdnProvider) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((f) => ({
+      ...f,
+      cdnProviders: f.cdnProviders.map((c) =>
+        c.provider === provider ? { ...c, enabled: e.target.checked } : c
+      ),
+    }));
+  };
+
+  const getProviderVal = (provider: CdnProvider, field: "distributionId" | "domain", fallback: string) => {
+    if (form.cdnProvider === "multiple") {
+      return form.cdnProviders.find((p) => p.provider === provider)?.[field] || "";
+    }
+    return fallback;
+  };
+
+  const handleProviderValChange = (provider: CdnProvider, field: "distributionId" | "domain", rootField: "cdnDistributionId" | "cdnDomain") => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (form.cdnProvider === "multiple") {
+      setProviderField(provider, field, val);
+    } else {
+      setForm((f) => ({ ...f, [rootField]: val }));
+    }
+  };
 
   // 검색
   const [search, setSearch] = useState("");
@@ -134,8 +185,27 @@ export default function ProfileModal() {
   const handleEdit = (profile: S3Profile) => {
     setEditingId(profile.id);
     setTestResult(null);
-    setCdnTestResult(null);
+    setCdnTestResults({});
+    setTestingCdnProviders({});
     setError(null);
+
+    const cdnProviders = [
+      { provider: "cloudfront" as CdnProvider, enabled: false, distributionId: "", domain: "" },
+      { provider: "akamai" as CdnProvider,     enabled: false, distributionId: "", domain: "" },
+      { provider: "lguplus" as CdnProvider,    enabled: false, distributionId: "", domain: "" },
+      { provider: "kt" as CdnProvider,         enabled: false, distributionId: "", domain: "" },
+    ];
+    if (profile.cdnProviders) {
+      profile.cdnProviders.forEach((c) => {
+        const found = cdnProviders.find((p) => p.provider === c.provider);
+        if (found) {
+          found.enabled = c.enabled;
+          found.distributionId = c.distributionId ?? "";
+          found.domain = c.domain ?? "";
+        }
+      });
+    }
+
     setForm({
       name: profile.name,
       region: profile.region,
@@ -144,7 +214,7 @@ export default function ProfileModal() {
       accessKeyId: profile.accessKeyId,
       secretAccessKey: "",  // 보안상 마스킹
       endpoint: profile.endpoint ?? "",
-      cdnProvider: profile.cdnProvider ?? "",
+      cdnProvider: (profile.cdnProvider as any) || "",
       cdnDistributionId: profile.cdnDistributionId ?? "",
       cdnDomain: profile.cdnDomain ?? "",
       cdnBasePath: profile.cdnBasePath ?? "",
@@ -152,20 +222,25 @@ export default function ProfileModal() {
       defaultCacheControl: profile.defaultCacheControl ?? "",
       contentTypeOverride: profile.contentTypeOverride ?? "",
       multipartEtagFallback: profile.multipartEtagFallback ?? true,
+      akamaiHost: profile.akamaiHost ?? "",
       akamaiClientToken: profile.akamaiClientToken ?? "",
       akamaiClientSecret: "",  // 보안상 마스킹
       akamaiAccessToken: profile.akamaiAccessToken ?? "",
-      akamaiHost: profile.akamaiHost ?? "",
+      akamaiCpCode: profile.akamaiCpCode ?? "",
+      akamaiCdnDomain: profile.akamaiCdnDomain ?? "",
       lguplusUsername: profile.lguplusUsername ?? "",
       lguplusPassword: "",     // 보안상 마스킹
       lguplusServiceName: profile.lguplusServiceName ?? "",
       lguplusVolumeName: profile.lguplusVolumeName ?? "",
       lguplusEndpoint: profile.lguplusEndpoint ?? "",
+      lguplusCdnDomain: profile.lguplusCdnDomain ?? "",
       ktUsername: profile.ktUsername ?? "",
       ktPassword: "",          // 보안상 마스킹
       ktServiceName: profile.ktServiceName ?? "",
       ktVolumeName: profile.ktVolumeName ?? "",
       ktEndpoint: profile.ktEndpoint ?? "",
+      ktCdnDomain: profile.ktCdnDomain ?? "",
+      cdnProviders,
     });
   };
 
@@ -174,7 +249,7 @@ export default function ProfileModal() {
     setForm(emptyForm());
     setError(null);
     setTestResult(null);
-    setCdnTestResult(null);
+    setCdnTestResults({});
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -248,28 +323,42 @@ export default function ProfileModal() {
         accessKeyId,
         secretAccessKey,
         endpoint: form.endpoint.trim() || undefined,
-        cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
-        cdnDistributionId: form.cdnDistributionId || undefined,
-        cdnDomain: form.cdnDomain || undefined,
+        cdnProvider: form.cdnProvider === "multiple" ? "multiple" as any : (form.cdnProvider as CdnProvider) || undefined,
+        cdnDistributionId: form.cdnProvider === "multiple" ? undefined : (form.cdnDistributionId || undefined),
+        cdnDomain: form.cdnProvider === "multiple" ? undefined : (form.cdnDomain || undefined),
         cdnBasePath: form.cdnBasePath || undefined,
         purgeOnNewUpload: form.purgeOnNewUpload,
         defaultCacheControl: form.defaultCacheControl || undefined,
         contentTypeOverride: form.contentTypeOverride || undefined,
         multipartEtagFallback: form.multipartEtagFallback,
+        akamaiHost: form.akamaiHost || undefined,
         akamaiClientToken: form.akamaiClientToken || undefined,
         akamaiClientSecret: form.akamaiClientSecret || undefined,
         akamaiAccessToken: form.akamaiAccessToken || undefined,
-        akamaiHost: form.akamaiHost || undefined,
+        akamaiCpCode: form.akamaiCpCode || undefined,
+        akamaiCdnDomain: form.akamaiCdnDomain || undefined,
         lguplusUsername: form.lguplusUsername || undefined,
         lguplusPassword: form.lguplusPassword || undefined,
         lguplusServiceName: form.lguplusServiceName || undefined,
         lguplusVolumeName: form.lguplusVolumeName || undefined,
         lguplusEndpoint: form.lguplusEndpoint || undefined,
+        lguplusCdnDomain: form.lguplusCdnDomain || undefined,
         ktUsername: form.ktUsername || undefined,
         ktPassword: form.ktPassword || undefined,
         ktServiceName: form.ktServiceName || undefined,
         ktVolumeName: form.ktVolumeName || undefined,
         ktEndpoint: form.ktEndpoint || undefined,
+        ktCdnDomain: form.ktCdnDomain || undefined,
+        cdnProviders: form.cdnProvider === "multiple"
+          ? form.cdnProviders
+              .filter((c) => c.enabled)
+              .map((c) => ({
+                provider: c.provider,
+                enabled: c.enabled,
+                distributionId: c.distributionId || undefined,
+                domain: c.domain || undefined,
+              }))
+          : undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -336,64 +425,64 @@ export default function ProfileModal() {
     }
   };
 
-  const handleTestCdnConnection = async () => {
+  const handleTestCdnConnectionOf = async (provider: CdnProvider) => {
     if (!editingId) {
       setError("CDN 연결 테스트는 프로파일 저장 후 실행할 수 있습니다.");
       return;
     }
-    if (!form.cdnProvider) {
-      setError("CDN 제공자를 선택하세요.");
+
+    let distributionId = "";
+    if (provider === "cloudfront") {
+      distributionId = getProviderVal("cloudfront", "distributionId", form.cdnDistributionId);
+      if (!distributionId) {
+        setError("CloudFront Distribution ID를 입력하세요.");
+        return;
+      }
+    } else if (provider === "akamai" && !form.akamaiHost) {
+      setError("Akamai EdgeGrid 호스트를 입력하세요.");
       return;
-    }
-    if (form.cdnProvider === "cloudfront" && !form.cdnDistributionId) {
-      setError("CloudFront Distribution ID를 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "akamai" && !form.cdnDomain) {
-      setError("CDN 도메인을 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName)) {
+    } else if (provider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName)) {
       setError("LG U+ CDN Username과 Service Name을 입력하세요.");
       return;
-    }
-    if (form.cdnProvider === "kt" && (!form.ktUsername || !form.ktServiceName)) {
+    } else if (provider === "kt" && (!form.ktUsername || !form.ktServiceName)) {
       setError("KT CDN Username과 Service Name을 입력하세요.");
       return;
     }
 
+    const runCdnTest = async () => {
+      setTestingCdnProviders((prev) => ({ ...prev, [provider]: true }));
+      setCdnTestResults((prev) => ({ ...prev, [provider]: null }));
+      setError(null);
+
+      try {
+        const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
+          profileId: editingId,
+          provider,
+          distributionId,
+        });
+        setCdnTestResults((prev) => ({ ...prev, [provider]: result }));
+      } catch (err) {
+        setCdnTestResults((prev) => ({
+          ...prev,
+          [provider]: {
+            success: false,
+            provider,
+            error: String(err),
+          },
+        }));
+      } finally {
+        setTestingCdnProviders((prev) => ({ ...prev, [provider]: false }));
+      }
+    };
+
     if (shouldConfirmExternalRequests()) {
       setConfirmRequest({
-        message: "실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
+        message: `실제 ${provider.toUpperCase()} CDN Provider API로 연결 테스트를 실행합니다. 요청 비용이 발생할 수 있습니다.`,
         onConfirm: () => void runCdnTest(),
       });
       return;
     }
     void runCdnTest();
-  };
-
-  const runCdnTest = async () => {
-    if (!editingId || !form.cdnProvider) return;
-    setIsTestingCdn(true);
-    setCdnTestResult(null);
-    setError(null);
-
-    try {
-      const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
-        profileId: editingId,
-        provider: form.cdnProvider,
-        distributionId: form.cdnDistributionId,
-      });
-      setCdnTestResult(result);
-    } catch (err) {
-      setCdnTestResult({
-        success: false,
-        provider: form.cdnProvider as CdnProvider,
-        error: String(err),
-      });
-    } finally {
-      setIsTestingCdn(false);
-    }
   };
 
   const handleConnect = async (profile: S3Profile) => {
@@ -405,7 +494,7 @@ export default function ProfileModal() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setTestResult(null);
-    setCdnTestResult(null);
+    setCdnTestResults({});
     setForm((f) => ({ ...f, [field]: e.target.value }));
   };
 
@@ -413,14 +502,14 @@ export default function ProfileModal() {
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     setTestResult(null);
-    setCdnTestResult(null);
+    setCdnTestResults({});
     setForm((f) => ({ ...f, [field]: e.target.checked }));
   };
 
-  const isAkamai = form.cdnProvider === "akamai";
-  const isCloudFront = form.cdnProvider === "cloudfront";
-  const isLguplus = form.cdnProvider === "lguplus";
-  const isKt = form.cdnProvider === "kt";
+  const isCfEnabled = form.cdnProvider === "cloudfront" || (form.cdnProvider === "multiple" && !!form.cdnProviders.find(p => p.provider === "cloudfront")?.enabled);
+  const isAkEnabled = form.cdnProvider === "akamai" || (form.cdnProvider === "multiple" && !!form.cdnProviders.find(p => p.provider === "akamai")?.enabled);
+  const isLgEnabled = form.cdnProvider === "lguplus" || (form.cdnProvider === "multiple" && !!form.cdnProviders.find(p => p.provider === "lguplus")?.enabled);
+  const isKtEnabled = form.cdnProvider === "kt" || (form.cdnProvider === "multiple" && !!form.cdnProviders.find(p => p.provider === "kt")?.enabled);
 
   const filteredProfiles = profiles.filter(
     (p) =>
@@ -758,29 +847,72 @@ export default function ProfileModal() {
                 </select>
               </label>
 
-              {isCloudFront && (
-                <>
+              {form.cdnProvider === "multiple" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", padding: "0.4rem 0" }}>
+                  <span style={{ fontSize: "var(--font-size-xs)", fontWeight: 700, color: "var(--color-text-secondary)" }}>사용할 CDN 선택</span>
+                  <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "var(--font-size-sm)" }}>
+                      <input type="checkbox" checked={form.cdnProviders.find(p => p.provider === "cloudfront")?.enabled || false} onChange={toggleProviderEnabled("cloudfront")} />
+                      AWS CloudFront
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "var(--font-size-sm)" }}>
+                      <input type="checkbox" checked={form.cdnProviders.find(p => p.provider === "akamai")?.enabled || false} onChange={toggleProviderEnabled("akamai")} />
+                      Akamai
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "var(--font-size-sm)" }}>
+                      <input type="checkbox" checked={form.cdnProviders.find(p => p.provider === "lguplus")?.enabled || false} onChange={toggleProviderEnabled("lguplus")} />
+                      LG U+ CDN
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "var(--font-size-sm)" }}>
+                      <input type="checkbox" checked={form.cdnProviders.find(p => p.provider === "kt")?.enabled || false} onChange={toggleProviderEnabled("kt")} />
+                      KT CDN
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {isCfEnabled && (
+                <div style={{ border: "1px solid rgba(255,255,255,0.05)", padding: "0.8rem", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "11px", color: "var(--color-text-secondary)" }}>AWS CloudFront 설정</div>
                   <label className={styles.field}>
                     <span>Distribution ID</span>
                     <input
-                      value={form.cdnDistributionId}
-                      onChange={setField("cdnDistributionId")}
+                      value={getProviderVal("cloudfront", "distributionId", form.cdnDistributionId)}
+                      onChange={handleProviderValChange("cloudfront", "distributionId", "cdnDistributionId")}
                       placeholder="EDFDVBD6EXAMPLE"
                     />
                   </label>
                   <label className={styles.field}>
                     <span>CDN 도메인</span>
                     <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
+                      value={getProviderVal("cloudfront", "domain", form.cdnDomain)}
+                      onChange={handleProviderValChange("cloudfront", "domain", "cdnDomain")}
                       placeholder="d111111abcdef8.cloudfront.net"
                     />
                   </label>
-                </>
+                  <div className={styles.testRow}>
+                    <button
+                      type="button"
+                      className={styles.testBtn}
+                      onClick={() => handleTestCdnConnectionOf("cloudfront")}
+                      disabled={testingCdnProviders["cloudfront"]}
+                    >
+                      {testingCdnProviders["cloudfront"] ? "테스트 중..." : "CloudFront 연결 테스트"}
+                    </button>
+                    {cdnTestResults["cloudfront"] && (
+                      <span className={cdnTestResults["cloudfront"].success ? styles.testOk : styles.testFail}>
+                        {cdnTestResults["cloudfront"].success
+                          ? `✓ CloudFront 연결 성공${cdnTestResults["cloudfront"].domain ? ` · ${cdnTestResults["cloudfront"].domain}` : ""}`
+                          : `✗ ${cdnTestResults["cloudfront"].error}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
 
-              {isAkamai && (
-                <>
+              {isAkEnabled && (
+                <div style={{ border: "1px solid rgba(255,255,255,0.05)", padding: "0.8rem", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "11px", color: "var(--color-text-secondary)" }}>Akamai 설정</div>
                   <label className={styles.field}>
                     <span>EdgeGrid 호스트</span>
                     <input
@@ -815,18 +947,44 @@ export default function ProfileModal() {
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>CDN 도메인 (Purge URL 기준)</span>
+                    <span>CP Code *</span>
                     <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
+                      value={form.akamaiCpCode}
+                      onChange={setField("akamaiCpCode")}
+                      placeholder="12345"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인 (Purge URL 기준) *</span>
+                    <input
+                      value={form.akamaiCdnDomain}
+                      onChange={setField("akamaiCdnDomain")}
                       placeholder="cdn.example.com"
                     />
                   </label>
-                </>
+                  <div className={styles.testRow}>
+                    <button
+                      type="button"
+                      className={styles.testBtn}
+                      onClick={() => handleTestCdnConnectionOf("akamai")}
+                      disabled={testingCdnProviders["akamai"]}
+                    >
+                      {testingCdnProviders["akamai"] ? "테스트 중..." : "Akamai 연결 테스트"}
+                    </button>
+                    {cdnTestResults["akamai"] && (
+                      <span className={cdnTestResults["akamai"].success ? styles.testOk : styles.testFail}>
+                        {cdnTestResults["akamai"].success
+                          ? `✓ Akamai 연결 성공${cdnTestResults["akamai"].domain ? ` · ${cdnTestResults["akamai"].domain}` : ""}`
+                          : `✗ ${cdnTestResults["akamai"].error}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
 
-              {isLguplus && (
-                <>
+              {isLgEnabled && (
+                <div style={{ border: "1px solid rgba(255,255,255,0.05)", padding: "0.8rem", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "11px", color: "var(--color-text-secondary)" }}>LG U+ CDN 설정</div>
                   <label className={styles.field}>
                     <span>Username *</span>
                     <input
@@ -863,8 +1021,8 @@ export default function ProfileModal() {
                   <label className={styles.field}>
                     <span>CDN 도메인 (FQDN) *</span>
                     <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
+                      value={form.lguplusCdnDomain}
+                      onChange={setField("lguplusCdnDomain")}
                       placeholder="cdn.example.com"
                     />
                   </label>
@@ -876,11 +1034,29 @@ export default function ProfileModal() {
                       placeholder="https://api.lgucdn.com (기본값)"
                     />
                   </label>
-                </>
+                  <div className={styles.testRow}>
+                    <button
+                      type="button"
+                      className={styles.testBtn}
+                      onClick={() => handleTestCdnConnectionOf("lguplus")}
+                      disabled={testingCdnProviders["lguplus"]}
+                    >
+                      {testingCdnProviders["lguplus"] ? "테스트 중..." : "LG U+ 연결 테스트"}
+                    </button>
+                    {cdnTestResults["lguplus"] && (
+                      <span className={cdnTestResults["lguplus"].success ? styles.testOk : styles.testFail}>
+                        {cdnTestResults["lguplus"].success
+                          ? `✓ LG U+ 연결 성공${cdnTestResults["lguplus"].domain ? ` · ${cdnTestResults["lguplus"].domain}` : ""}`
+                          : `✗ ${cdnTestResults["lguplus"].error}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
 
-              {isKt && (
-                <>
+              {isKtEnabled && (
+                <div style={{ border: "1px solid rgba(255,255,255,0.05)", padding: "0.8rem", borderRadius: "var(--radius-md)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "11px", color: "var(--color-text-secondary)" }}>KT CDN 설정</div>
                   <label className={styles.field}>
                     <span>Username *</span>
                     <input
@@ -917,8 +1093,8 @@ export default function ProfileModal() {
                   <label className={styles.field}>
                     <span>CDN 도메인 (FQDN) *</span>
                     <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
+                      value={form.ktCdnDomain}
+                      onChange={setField("ktCdnDomain")}
                       placeholder="cdn.example.com"
                     />
                   </label>
@@ -930,26 +1106,23 @@ export default function ProfileModal() {
                       placeholder="https://api.ktcdn.co.kr (기본값)"
                     />
                   </label>
-                </>
-              )}
-
-              {form.cdnProvider && (
-                <div className={styles.testRow}>
-                  <button
-                    type="button"
-                    className={styles.testBtn}
-                    onClick={handleTestCdnConnection}
-                    disabled={isTestingCdn}
-                  >
-                    {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
-                  </button>
-                  {cdnTestResult && (
-                    <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
-                      {cdnTestResult.success
-                        ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
-                        : `✗ ${cdnTestResult.error}`}
-                    </span>
-                  )}
+                  <div className={styles.testRow}>
+                    <button
+                      type="button"
+                      className={styles.testBtn}
+                      onClick={() => handleTestCdnConnectionOf("kt")}
+                      disabled={testingCdnProviders["kt"]}
+                    >
+                      {testingCdnProviders["kt"] ? "테스트 중..." : "KT 연결 테스트"}
+                    </button>
+                    {cdnTestResults["kt"] && (
+                      <span className={cdnTestResults["kt"].success ? styles.testOk : styles.testFail}>
+                        {cdnTestResults["kt"].success
+                          ? `✓ KT 연결 성공${cdnTestResults["kt"].domain ? ` · ${cdnTestResults["kt"].domain}` : ""}`
+                          : `✗ ${cdnTestResults["kt"].error}`}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 

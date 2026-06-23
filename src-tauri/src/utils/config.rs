@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+﻿use anyhow::{Context, Result};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -67,6 +67,10 @@ pub struct ProfileConfig {
     /// Akamai EdgeGrid API ?몄뒪??(e.g. akab-xxxx.luna.akamaiapis.net)
     #[serde(rename = "akamaiHost", skip_serializing_if = "Option::is_none")]
     pub akamai_host: Option<String>,
+    #[serde(rename = "akamaiCpCode", skip_serializing_if = "Option::is_none")]
+    pub akamai_cp_code: Option<String>,
+    #[serde(rename = "akamaiCdnDomain", skip_serializing_if = "Option::is_none")]
+    pub akamai_cdn_domain: Option<String>,
     // LG U+ CDN — username/password 기반 JWT 인증
     #[serde(rename = "lguplusUsername", skip_serializing_if = "Option::is_none")]
     pub lguplus_username: Option<String>,
@@ -79,6 +83,8 @@ pub struct ProfileConfig {
     pub lguplus_volume_name: Option<String>,
     #[serde(rename = "lguplusEndpoint", skip_serializing_if = "Option::is_none")]
     pub lguplus_endpoint: Option<String>,
+    #[serde(rename = "lguplusCdnDomain", skip_serializing_if = "Option::is_none")]
+    pub lguplus_cdn_domain: Option<String>,
     // KT CDN — username/password 기반 JWT 인증
     #[serde(rename = "ktUsername", skip_serializing_if = "Option::is_none")]
     pub kt_username: Option<String>,
@@ -91,6 +97,8 @@ pub struct ProfileConfig {
     pub kt_volume_name: Option<String>,
     #[serde(rename = "ktEndpoint", skip_serializing_if = "Option::is_none")]
     pub kt_endpoint: Option<String>,
+    #[serde(rename = "ktCdnDomain", skip_serializing_if = "Option::is_none")]
+    pub kt_cdn_domain: Option<String>,
     // Hyosung (미지원, 하위 호환)
     #[serde(rename = "hyosungApiKey", skip_serializing_if = "Option::is_none")]
     pub hyosung_api_key: Option<String>,
@@ -275,6 +283,7 @@ pub enum CdnCredentials {
         client_secret: String,
         access_token: String,
         host: String,
+        cp_code: String,
         cdn_domain: String,
     },
     /// LG U+ CDN (Solbox CDN v2) — JWT 인증
@@ -514,7 +523,7 @@ impl ProfileStore {
                 Ok(CdnCredentials::CloudFront(creds))
             }
             "akamai" => {
-                let (client_token, access_token, host, cdn_domain) = {
+                let (client_token, access_token, host, cp_code, cdn_domain) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
@@ -524,7 +533,10 @@ impl ProfileStore {
                         profile.akamai_client_token.clone().unwrap_or_default(),
                         profile.akamai_access_token.clone().unwrap_or_default(),
                         profile.akamai_host.clone().unwrap_or_default(),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        profile.akamai_cp_code.clone().unwrap_or_default(),
+                        profile.akamai_cdn_domain.clone()
+                            .or_else(|| profile.cdn_domain.clone())
+                            .unwrap_or_default(),
                     )
                 }; // RwLockReadGuard ?댁젣 ??keyring ?몄텧
                 let akamai_key = format!("{}_akamai", profile_id);
@@ -537,6 +549,7 @@ impl ProfileStore {
                     client_secret,
                     access_token,
                     host,
+                    cp_code,
                     cdn_domain,
                 })
             }
@@ -553,7 +566,9 @@ impl ProfileStore {
                         profile.lguplus_volume_name.clone().unwrap_or_default(),
                         profile.lguplus_endpoint.clone()
                             .unwrap_or_else(|| "https://api.lgucdn.com".to_owned()),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        profile.lguplus_cdn_domain.clone()
+                            .or_else(|| profile.cdn_domain.clone())
+                            .unwrap_or_default(),
                     )
                 };
                 if username.trim().is_empty()
@@ -620,7 +635,9 @@ impl ProfileStore {
                         profile.kt_volume_name.clone().unwrap_or_default(),
                         profile.kt_endpoint.clone()
                             .unwrap_or_else(|| "https://api.ktcdn.co.kr".to_owned()),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        profile.kt_cdn_domain.clone()
+                            .or_else(|| profile.cdn_domain.clone())
+                            .unwrap_or_default(),
                     )
                 };
                 if username.trim().is_empty()
@@ -731,15 +748,14 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
         Some("akamai") => {
             for (label, value) in [
                 ("Akamai EdgeGrid host", profile.akamai_host.as_deref()),
+                ("Akamai Client Token", profile.akamai_client_token.as_deref()),
+                ("Akamai Access Token", profile.akamai_access_token.as_deref()),
+                ("Akamai CP Code", profile.akamai_cp_code.as_deref()),
                 (
-                    "Akamai Client Token",
-                    profile.akamai_client_token.as_deref(),
+                    "Akamai CDN domain",
+                    profile.akamai_cdn_domain.as_deref()
+                        .or(profile.cdn_domain.as_deref()),
                 ),
-                (
-                    "Akamai Access Token",
-                    profile.akamai_access_token.as_deref(),
-                ),
-                ("Akamai CDN domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));
@@ -751,7 +767,11 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             for (label, value) in [
                 ("LG U+ CDN Username", profile.lguplus_username.as_deref()),
                 ("LG U+ CDN Service Name", profile.lguplus_service_name.as_deref()),
-                ("LG U+ CDN Domain", profile.cdn_domain.as_deref()),
+                (
+                    "LG U+ CDN Domain",
+                    profile.lguplus_cdn_domain.as_deref()
+                        .or(profile.cdn_domain.as_deref()),
+                ),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));
@@ -775,7 +795,11 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             for (label, value) in [
                 ("KT CDN Username", profile.kt_username.as_deref()),
                 ("KT CDN Service Name", profile.kt_service_name.as_deref()),
-                ("KT CDN Domain", profile.cdn_domain.as_deref()),
+                (
+                    "KT CDN Domain",
+                    profile.kt_cdn_domain.as_deref()
+                        .or(profile.cdn_domain.as_deref()),
+                ),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));

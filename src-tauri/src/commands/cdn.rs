@@ -116,6 +116,7 @@ pub async fn test_cdn_connection(
                 client_secret,
                 access_token,
                 host,
+                cp_code,
                 cdn_domain,
             } => {
                 if cdn_domain.trim().is_empty() {
@@ -126,6 +127,7 @@ pub async fn test_cdn_connection(
                     client_secret,
                     access_token,
                     host,
+                    cp_code,
                 )
                 .map_err(|e| e.to_string())?;
                 adapter

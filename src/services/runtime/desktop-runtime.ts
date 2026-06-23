@@ -47,4 +47,39 @@ export const desktopRuntime: RuntimeBridge = {
     await getCurrentWindow().close();
   },
   getVersion: () => tauriGetVersion(),
+  isWindowMaximized: async () => {
+    try {
+      return await getCurrentWindow().isMaximized();
+    } catch {
+      return false;
+    }
+  },
+  onWindowResize: async (handler: () => void) => {
+    try {
+      const appWindow = getCurrentWindow();
+      const unlistenResize = await appWindow.onResized(() => {
+        handler();
+      });
+
+      const unlistens = [unlistenResize];
+      const events = ["tauri://maximize", "tauri://unmaximize", "tauri://resize"];
+      
+      for (const ev of events) {
+        const un = await appWindow.listen(ev, () => {
+          handler();
+        });
+        unlistens.push(un);
+      }
+
+      return () => {
+        unlistens.forEach((un) => {
+          try {
+            un();
+          } catch {}
+        });
+      };
+    } catch {
+      return () => {};
+    }
+  },
 };

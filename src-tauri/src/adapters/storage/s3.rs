@@ -642,8 +642,47 @@ impl S3Adapter {
         if keys.is_empty() {
             return Ok(vec![]);
         }
-        let mut deleted = Vec::with_capacity(keys.len());
+        
+        let mut keys_to_delete = Vec::new();
         for key in keys {
+            if key.ends_with('/') {
+                // 이 키는 디렉터리이므로 모든 하위 객체를 재귀적으로 조회하여 삭제 목록에 추가
+                let mut token: Option<String> = None;
+                loop {
+                    let mut request = self.sdk_client
+                        .list_objects_v2()
+                        .bucket(&self.bucket)
+                        .prefix(key); // delimiter("/")를 지정하지 않아 하위 모든 경로 파일 탐색
+                    if let Some(t) = &token {
+                        request = request.continuation_token(t);
+                    }
+                    let response = request
+                        .send()
+                        .await
+                        .map_err(|err| self.sdk_failure("ListObjectsV2ForDelete", Some(key), &err))?;
+                    
+                    for object in response.contents() {
+                        if let Some(k) = object.key() {
+                            keys_to_delete.push(k.to_owned());
+                        }
+                    }
+                    if !response.is_truncated().unwrap_or(false) || response.next_continuation_token().is_none() {
+                        break;
+                    }
+                    token = response.next_continuation_token().map(|s| s.to_owned());
+                }
+                // 빈 폴더 객체 자체도 삭제하도록 추가
+                keys_to_delete.push(key.clone());
+            } else {
+                keys_to_delete.push(key.clone());
+            }
+        }
+
+        // 중복 제거
+        keys_to_delete.sort();
+        keys_to_delete.dedup();
+
+        for key in &keys_to_delete {
             self.sdk_client
                 .delete_object()
                 .bucket(&self.bucket)
@@ -651,9 +690,9 @@ impl S3Adapter {
                 .send()
                 .await
                 .map_err(|err| self.sdk_failure("DeleteObject", Some(key), &err))?;
-            deleted.push(key.clone());
         }
-        return Ok(deleted);
+        
+        Ok(keys.to_vec())
     }
 
     pub async fn put_object(&self, key: &str, data: Vec<u8>, content_type: &str) -> Result<()> {
@@ -752,7 +791,13 @@ impl S3Adapter {
         let resp = self.signed_get(&url).await?;
 
         if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("GetObject ?�패: HTTP {}", resp.status()));
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            let brief = compact_error_body(&body);
+            return Err(anyhow::anyhow!(
+                "GetObject 실패: HTTP {} | key={} | {}",
+                status, remote_key, brief
+            ));
         }
 
         let total = resp
@@ -765,12 +810,12 @@ impl S3Adapter {
         if let Some(parent) = Path::new(local_path).parent() {
             fs::create_dir_all(parent)
                 .await
-                .context("?�렉?�리 ?�성 ?�패")?;
+                .with_context(|| format!("디렉터리 생성 실패: {}", parent.display()))?;
         }
 
         let mut file = fs::File::create(local_path)
             .await
-            .context("?�일 ?�성 ?�패")?;
+            .with_context(|| format!("파일 생성 실패: {}", local_path))?;
         let mut stream = resp.bytes_stream();
         let mut received: u64 = 0;
 
