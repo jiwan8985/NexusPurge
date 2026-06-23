@@ -223,7 +223,7 @@ ProfileModal → invoke("save_profile", profile)
 | **Akamai** | ✅ 완료 | EdgeGrid (client_token / client_secret / access_token / host) | Fast Purge API |
 | **LG U+ CDN** | ✅ 완료 | Solbox CDN v2 — username / password JWT | purge_paths(), 3회 재시도 |
 | **KT CDN** | ✅ 완료 | Solbox CDN v3 — username / password JWT | purge_paths(), 3회 재시도 |
-| **효성 ITX CDN** | ⏳ Stub | API Key / Secret | API 문서 수령 전까지 NotImplemented 반환 |
+| **효성 ITX CDN** | ✅ 완료 | 헤더 인증 (X-ITX-Security-Principal / X-ITX-Security-Secret) | POST filelist 배치, 응답 meta+data 2차 파싱, 3회 재시도 |
 
 모든 CDN은 `adapters/cdn/purge_with_credentials()` 단일 진입점으로 디스패치되며, 최대 3회 Exponential Backoff 재시도를 적용합니다.
 
@@ -650,7 +650,7 @@ Rust 테스트에는 `build_cdn_url` 정규화 검증, `hyosung` NotImplemented 
 
 | 항목 | 상태 | 비고 |
 |------|------|------|
-| 효성 ITX CDN Purge | ⏳ Stub | API 문서 수령 후 구현 |
+| 효성 ITX CDN Purge 대용량 임계값 | TODO | 고객 확인 필요 |
 | S3 로그 적재 | ⏳ Stub | 고객 버킷 정보 확인 후 구현 |
 | 외부 인증 (AI LB) | ⏳ Stub | 인증 모듈 연동 계약 후 구현 |
 | 대용량 파일 다운로드 | 제한 | ≥10MB 단일 GET (멀티파트 다운로드 미지원) |

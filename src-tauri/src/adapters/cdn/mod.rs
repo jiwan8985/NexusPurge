@@ -91,10 +91,35 @@ pub async fn purge_with_credentials(
             endpoint,
             cdn_domain,
         } => {
-            let adapter = hyosung::HyosungCdnAdapter::new(api_key, api_secret, endpoint);
-            let urls = build_cdn_urls(&cdn_domain, paths);
-            adapter.purge_urls(&urls).await?;
-            Ok(None)
+            if distribution_id.trim().is_empty() {
+                return Err(anyhow::anyhow!(
+                    "효성 ITX CDN Service ID가 필요합니다 (프로필의 Distribution ID 필드에 입력)"
+                ));
+            }
+            if cdn_domain.trim().is_empty() {
+                return Err(anyhow::anyhow!(
+                    "효성 ITX CDN Domain이 필요합니다"
+                ));
+            }
+            let adapter = hyosung::HyosungCdnAdapter::new(
+                api_key,
+                api_secret,
+                endpoint,
+                distribution_id.to_owned(),
+                cdn_domain,
+            )?;
+            let mut last_err = None;
+            for attempt in 0..3 {
+                match adapter.purge_paths(paths).await {
+                    Ok(()) => return Ok(None),
+                    Err(err) if attempt < 2 => {
+                        last_err = Some(err);
+                        tokio::time::sleep(retry_delay(attempt)).await;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Hyosung purge retry failed")))
         }
         CdnCredentials::Kt {
             username,
@@ -176,24 +201,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hyosung_provider_is_explicitly_not_implemented_until_api_spec_is_available() {
+    async fn hyosung_requires_service_id() {
+        // distribution_id(serviceId) 없이 호출하면 명확한 오류 반환
         let result = purge_with_credentials(
             "",
             &["assets/app.js".to_string()],
             CdnCredentials::Hyosung {
-                api_key: "key".to_string(),
+                api_key:    "key".to_string(),
                 api_secret: "secret".to_string(),
-                endpoint: "https://api.example.com".to_string(),
+                endpoint:   "https://api.xtrmcdn.co.kr:28091".to_string(),
                 cdn_domain: "cdn.example.com".to_string(),
             },
         )
         .await;
 
-        let err =
-            result.expect_err("Hyosung provider should fail until the real API is implemented");
+        let err = result.expect_err("serviceId 없이 호출 시 오류여야 함");
         assert!(
-            err.to_string()
-                .contains("Hyosung CDN purge API is not implemented yet")
+            err.to_string().contains("Service ID"),
+            "오류 메시지에 Service ID 언급 필요: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn hyosung_requires_cdn_domain() {
+        let result = purge_with_credentials(
+            "TID_18656",
+            &["assets/app.js".to_string()],
+            CdnCredentials::Hyosung {
+                api_key:    "key".to_string(),
+                api_secret: "secret".to_string(),
+                endpoint:   "https://api.xtrmcdn.co.kr:28091".to_string(),
+                cdn_domain: "".to_string(),
+            },
+        )
+        .await;
+
+        let err = result.expect_err("cdn_domain 없이 호출 시 오류여야 함");
+        assert!(
+            err.to_string().contains("Domain"),
+            "오류 메시지에 Domain 언급 필요: {}",
+            err
         );
     }
 }

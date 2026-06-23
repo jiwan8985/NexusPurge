@@ -277,7 +277,7 @@ pub enum CdnCredentials {
         host: String,
         cdn_domain: String,
     },
-    /// LG U+ CDN (Solbox CDN v2) — JWT 인증
+    /// LG U+ CDN (Solbox CDN v3) — JWT 인증
     Lguplus {
         username:     String,
         password:     String,
@@ -295,7 +295,7 @@ pub enum CdnCredentials {
         endpoint:     String,
         cdn_domain:   String,
     },
-    /// Hyosung CDN — 미지원 (하위 호환)
+    /// 효성 ITX CDN — 헤더 인증 (X-ITX-Security-Principal / Secret)
     Hyosung {
         api_key:    String,
         api_secret: String,
