@@ -9,6 +9,7 @@ interface Props {
   placeholder?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  multiline?: boolean;
   onConfirm: (value: string) => void;
   onCancel: () => void;
 }
@@ -20,18 +21,25 @@ export default function InputDialog({
   placeholder = "",
   confirmLabel = "확인",
   cancelLabel = "취소",
+  multiline = false,
   onConfirm,
   onCancel,
 }: Props) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    inputRef.current?.select();
-  }, []);
+    if (multiline) {
+      textareaRef.current?.select();
+    } else {
+      inputRef.current?.select();
+    }
+  }, [multiline]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (multiline) return; // Prevent enter key form submission for multiline
     const trimmed = value.trim();
     if (!trimmed) return;
     onConfirm(trimmed);
@@ -48,14 +56,26 @@ export default function InputDialog({
         </div>
         <form className={styles.body} onSubmit={handleSubmit}>
           {label && <p className={iStyles.label}>{label}</p>}
-          <input
-            ref={inputRef}
-            className={iStyles.input}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={placeholder}
-            autoFocus
-          />
+          {multiline ? (
+            <textarea
+              ref={textareaRef}
+              className={iStyles.textarea}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={placeholder}
+              rows={5}
+              autoFocus
+            />
+          ) : (
+            <input
+              ref={inputRef}
+              className={iStyles.input}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={placeholder}
+              autoFocus
+            />
+          )}
         </form>
         <div className={styles.actions}>
           <button type="button" className={styles.cancelBtn} onClick={onCancel}>

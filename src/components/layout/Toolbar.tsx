@@ -160,6 +160,7 @@ export default function Toolbar() {
     initialValue?: string;
     placeholder?: string;
     confirmLabel?: string;
+    multiline?: boolean;
     onConfirm: (value: string) => void;
   } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -185,6 +186,24 @@ export default function Toolbar() {
           await createDir(base + sep + name);
           triggerLocalRefresh();
         }
+      },
+    });
+  };
+
+  const handleCustomPurge = () => {
+    setInputDialog({
+      title: "CDN 경로 직접 입력 Purge",
+      label: "무효화할 CDN 파일 경로를 직접 입력하세요 (쉼표 또는 줄바꿈으로 구분)",
+      placeholder: "/index.html\n/assets/css/*",
+      confirmLabel: "Purge 실행",
+      multiline: true,
+      onConfirm: (text) => {
+        const rawPaths = text
+          .split(/[\n,]+/)
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+        if (rawPaths.length === 0) return;
+        setPurgeDialog({ paths: rawPaths, mode: "selected" });
       },
     });
   };
@@ -406,6 +425,15 @@ export default function Toolbar() {
               <span className={styles.icon}><IconFlame /></span>
               전체 Purge
             </button>
+            <button
+              className={styles.toolBtn}
+              disabled={isPurging}
+              onClick={handleCustomPurge}
+              title="무효화할 파일 경로를 직접 쉼표나 엔터로 구분하여 입력해 Purge합니다"
+            >
+              <span className={styles.icon}><IconPen /></span>
+              직접 Purge
+            </button>
           </div>
         </>
       )}
@@ -442,6 +470,7 @@ export default function Toolbar() {
           initialValue={inputDialog.initialValue}
           placeholder={inputDialog.placeholder}
           confirmLabel={inputDialog.confirmLabel}
+          multiline={inputDialog.multiline}
           onConfirm={(value) => {
             const dialog = inputDialog;
             setInputDialog(null);
