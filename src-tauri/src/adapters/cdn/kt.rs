@@ -83,9 +83,9 @@ impl KtCdnAdapter {
     }
 
     /// CDN 경로 목록을 Purge (v3 management API)
-    pub async fn purge_paths(&self, paths: &[String]) -> Result<()> {
+    pub async fn purge_paths(&self, paths: &[String]) -> Result<Option<String>> {
         if paths.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let token = self.acquire_token().await?;
@@ -138,7 +138,7 @@ impl KtCdnAdapter {
                     "KT CDN Purge 요청 수락: transactionId={}, {} 경로 (서비스: {}, 볼륨: {})",
                     tid, paths.len(), self.service_name, self.volume_name,
                 );
-                return Ok(());
+                return Ok(Some(tid.to_owned()));
             }
         }
 
@@ -146,7 +146,45 @@ impl KtCdnAdapter {
             "KT CDN Purge 완료: {} 경로 (서비스: {}, 볼륨: {})",
             paths.len(), self.service_name, self.volume_name,
         );
-        Ok(())
+        Ok(None)
+    }
+
+    /// 트랜잭션 상태 조회 (v3 management/transaction/{transactionId})
+    pub async fn get_transaction_status(&self, transaction_id: &str) -> Result<String> {
+        let token = self.acquire_token().await?;
+        let url = format!(
+            "{}/v3/management/transaction/{}",
+            self.endpoint, transaction_id
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .context("KT CDN 트랜잭션 상태 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "KT CDN 트랜잭션 상태 조회 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        let text = resp.text().await.context("KT CDN 트랜잭션 상태 응답 읽기 실패")?;
+        let json: Value =
+            serde_json::from_str(&text).context("KT CDN 트랜잭션 상태 응답 JSON 파싱 실패")?;
+
+        let status = json["status"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("KT CDN 트랜잭션 상태 응답에 status 필드 없음: {}", text))?
+            .to_owned();
+
+        Ok(status)
     }
 
     /// 연결 테스트 — 토큰 발급만 확인

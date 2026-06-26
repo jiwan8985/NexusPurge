@@ -149,10 +149,23 @@ pub async fn test_cdn_connection(
                 adapter.test_connection().await.map_err(|e| e.to_string())?;
                 Ok(Some(cdn_domain))
             }
-            CdnCredentials::Hyosung { .. } => Err(
-                "Hyosung CDN purge API is not implemented yet. API specification is required."
-                    .to_string(),
-            ),
+            CdnCredentials::Hyosung {
+                api_key,
+                api_secret,
+                endpoint,
+                cdn_domain,
+            } => {
+                let adapter = cdn::hyosung::HyosungCdnAdapter::new(
+                    api_key,
+                    api_secret,
+                    endpoint,
+                    distribution_id.clone(),
+                    cdn_domain.clone(),
+                )
+                .map_err(|e| e.to_string())?;
+                adapter.test_connection().await.map_err(|e| e.to_string())?;
+                Ok(Some(cdn_domain))
+            }
             CdnCredentials::Kt {
                 username,
                 password,
@@ -221,25 +234,56 @@ pub async fn get_purge_status(
             CdnCredentials::Akamai { .. } => Ok((
                 Some("Accepted".to_string()),
                 Some(
-                    "Akamai Fast Purge???붿껌 ?깃났 ??蹂꾨룄 Invalidation ID ?놁씠 泥섎━?⑸땲??"
+                    "Akamai Fast Purge 요청 성공 후 별도 Invalidation ID 없이 처리됩니다."
                         .to_string(),
                 ),
             )),
-            CdnCredentials::Lguplus { .. } => Ok((
-                Some("Accepted".to_string()),
-                Some("LG U+ CDN purge 상태 조회 미지원 — 요청 후 즉시 처리됩니다.".to_string()),
-            )),
+            CdnCredentials::Lguplus {
+                username,
+                password,
+                service_name,
+                volume_name,
+                endpoint,
+                cdn_domain,
+            } => {
+                if invalidation_id.trim().is_empty() {
+                    return Err("LG U+ CDN Invalidation ID(Transaction ID)가 필요합니다".to_string());
+                }
+                let adapter = cdn::lguplus::LguplusCdnAdapter::new(
+                    username, password, service_name, volume_name, endpoint, cdn_domain,
+                )
+                .map_err(|e| e.to_string())?;
+                let status = adapter
+                    .get_transaction_status(&invalidation_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((Some(status), None))
+            }
             CdnCredentials::Hyosung { .. } => Ok((
-                Some("NotImplemented".to_string()),
-                Some(
-                    "Hyosung CDN purge API is not implemented yet. API specification is required."
-                        .to_string(),
-                ),
-            )),
-            CdnCredentials::Kt { .. } => Ok((
                 Some("Accepted".to_string()),
-                Some("KT CDN purge 상태 조회 미지원 — 요청 후 즉시 처리됩니다.".to_string()),
+                Some("효성 ITX CDN purge 상태 조회 미지원 — 요청 후 즉시 처리됩니다.".to_string()),
             )),
+            CdnCredentials::Kt {
+                username,
+                password,
+                service_name,
+                volume_name,
+                endpoint,
+                cdn_domain,
+            } => {
+                if invalidation_id.trim().is_empty() {
+                    return Err("KT CDN Invalidation ID(Transaction ID)가 필요합니다".to_string());
+                }
+                let adapter = cdn::kt::KtCdnAdapter::new(
+                    username, password, service_name, volume_name, endpoint, cdn_domain,
+                )
+                .map_err(|e| e.to_string())?;
+                let status = adapter
+                    .get_transaction_status(&invalidation_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((Some(status), None))
+            }
         }
     }
     .await;
@@ -353,7 +397,7 @@ fn header_to_string(value: Option<&reqwest::header::HeaderValue>) -> Option<Stri
     value.and_then(|v| v.to_str().ok()).map(ToOwned::to_owned)
 }
 
-/// H-6: 怨듦툒?먮퀎 CDN Purge ??CdnCredentials 湲곕컲?쇰줈 Akamai 吏??
+/// H-6: 공급자별 CDN Purge 및 CdnCredentials 기반으로 Akamai 지원
 #[tauri::command]
 pub async fn purge_cdn(
     profile_id: String,
@@ -362,19 +406,43 @@ pub async fn purge_cdn(
     paths: Vec<String>,
     store: State<'_, ProfileStore>,
 ) -> Result<CdnPurgeResult, String> {
+    let profile = store
+        .get_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let cdn_creds = store
         .get_cdn_credentials(&profile_id, &provider)
         .await
         .map_err(|e| e.to_string())?;
 
-    let result = cdn::purge_with_credentials(&distribution_id, &paths, cdn_creds).await;
+    // cdn_base_path 제거하여 실제 CDN 경로 구성 (예: "contents/file.txt" + base "contents/" -> "file.txt")
+    let normalized_paths = if let Some(base) = profile.cdn_base_path.as_deref().filter(|b| !b.trim().is_empty()) {
+        let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
+        let prefix = format!("{}/", base_stripped);
+        paths
+            .iter()
+            .map(|p| {
+                let key_stripped = p.trim_start_matches('/');
+                if key_stripped.starts_with(&prefix) {
+                    key_stripped[prefix.len()..].to_owned()
+                } else {
+                    key_stripped.to_owned()
+                }
+            })
+            .collect()
+    } else {
+        paths.clone()
+    };
+
+    let result = cdn::purge_with_credentials(&distribution_id, &normalized_paths, cdn_creds).await;
 
     match result {
         Ok(id) => Ok(CdnPurgeResult {
             success: true,
             provider,
             invalidation_id: id,
-            paths,
+            paths, // 프론트엔드 매칭을 위해 원본 S3 키 경로 유지
             purged_at: Some(chrono::Utc::now().to_rfc3339()),
             error: None,
         }),

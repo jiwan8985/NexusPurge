@@ -437,6 +437,12 @@ pub async fn start_uploads(
         .await
         .map_err(|e| e.to_string())?;
 
+    let profile = store
+        .get_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let cdn_base_path = profile.cdn_base_path;
+
     let adapter = cache
         .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
@@ -552,9 +558,29 @@ pub async fn start_uploads(
         for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
             let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
             let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
+
+            // cdn_base_path 제거하여 실제 CDN 경로 구성 (예: "contents/file.txt" + base "contents/" -> "file.txt")
+            let normalized_paths = if let Some(base) = cdn_base_path.as_deref().filter(|b| !b.trim().is_empty()) {
+                let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
+                let prefix = format!("{}/", base_stripped);
+                paths
+                    .iter()
+                    .map(|p| {
+                        let key_stripped = p.trim_start_matches('/');
+                        if key_stripped.starts_with(&prefix) {
+                            key_stripped[prefix.len()..].to_owned()
+                        } else {
+                            key_stripped.to_owned()
+                        }
+                    })
+                    .collect()
+            } else {
+                paths
+            };
+
             let purge_result = crate::adapters::cdn::purge_with_credentials(
                 distribution_id,
-                &paths,
+                &normalized_paths,
                 cdn_creds.clone(),
             )
             .await;

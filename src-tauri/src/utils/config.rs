@@ -583,9 +583,14 @@ impl ProfileStore {
                         .iter()
                         .find(|p| p.id == profile_id)
                         .context("Profile not found")?;
+                    let ep = profile.hyosung_endpoint.as_deref()
+                        .map(|e| e.trim())
+                        .filter(|e| !e.is_empty())
+                        .unwrap_or("https://api.xtrmcdn.co.kr:28091")
+                        .to_owned();
                     (
                         profile.hyosung_api_key.clone().unwrap_or_default(),
-                        profile.hyosung_endpoint.clone().unwrap_or_default(),
+                        ep,
                         profile.cdn_domain.clone().unwrap_or_default(),
                     )
                 };
@@ -762,7 +767,6 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
         Some("hyosung") => {
             for (label, value) in [
                 ("Hyosung CDN API Key", profile.hyosung_api_key.as_deref()),
-                ("Hyosung CDN Endpoint", profile.hyosung_endpoint.as_deref()),
                 ("Hyosung CDN Domain", profile.cdn_domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {

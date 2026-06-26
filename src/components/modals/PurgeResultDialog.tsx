@@ -21,19 +21,22 @@ const CDN_INFO: Record<CdnProvider, {
     propagationNote: "Fast Purge 사용 시 수 초 내 반영됩니다.",
   },
   lguplus: {
-    name:            "LG U+ CDN",
-    propagationTime: "제공사 정책에 따라 다름",
-    propagationNote: "LG U+ CDN 관리 콘솔에서 상태를 확인하세요.",
+    name:              "LG U+ CDN",
+    propagationTime:   "제공사 정책에 따라 다름",
+    propagationNote:   "비동기 트랜잭션으로 처리되며, 진행 상황 조회가 가능합니다.",
+    invalidationLabel: "Transaction ID",
   },
   hyosung: {
-    name:            "Hyosung CDN",
-    propagationTime: "제공사 정책에 따라 다름",
-    propagationNote: "Hyosung CDN 관리 콘솔에서 상태를 확인하세요.",
+    name:              "Hyosung ITX CDN",
+    propagationTime:   "제공사 정책에 따라 다름",
+    propagationNote:   "비동기 트랜잭션으로 처리됩니다.",
+    invalidationLabel: "Transaction ID",
   },
   kt: {
-    name:            "KT CDN",
-    propagationTime: "제공사 정책에 따라 다름",
-    propagationNote: "KT CDN 관리 콘솔에서 상태를 확인하세요.",
+    name:              "KT CDN",
+    propagationTime:   "제공사 정책에 따라 다름",
+    propagationNote:   "비동기 트랜잭션으로 처리되며, 진행 상황 조회가 가능합니다.",
+    invalidationLabel: "Transaction ID",
   },
 };
 

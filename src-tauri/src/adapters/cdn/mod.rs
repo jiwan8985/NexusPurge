@@ -75,7 +75,7 @@ pub async fn purge_with_credentials(
             let mut last_err = None;
             for attempt in 0..3 {
                 match adapter.purge_paths(paths).await {
-                    Ok(()) => return Ok(None),
+                    Ok(id) => return Ok(id),
                     Err(err) if attempt < 2 => {
                         last_err = Some(err);
                         tokio::time::sleep(retry_delay(attempt)).await;
@@ -111,7 +111,7 @@ pub async fn purge_with_credentials(
             let mut last_err = None;
             for attempt in 0..3 {
                 match adapter.purge_paths(paths).await {
-                    Ok(()) => return Ok(None),
+                    Ok(id) => return Ok(id),
                     Err(err) if attempt < 2 => {
                         last_err = Some(err);
                         tokio::time::sleep(retry_delay(attempt)).await;
@@ -135,7 +135,7 @@ pub async fn purge_with_credentials(
             let mut last_err = None;
             for attempt in 0..3 {
                 match adapter.purge_paths(paths).await {
-                    Ok(()) => return Ok(None),
+                    Ok(id) => return Ok(id),
                     Err(err) if attempt < 2 => {
                         last_err = Some(err);
                         tokio::time::sleep(retry_delay(attempt)).await;

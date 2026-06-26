@@ -80,3 +80,7 @@ pnpm-debug.log*
 .nyc_output/
 /test-samples/temp/
 /test-samples/scenarios/
+
+# Docs / PDF Guides
+docs/*.pdf
+

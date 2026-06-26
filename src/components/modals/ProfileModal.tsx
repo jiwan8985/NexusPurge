@@ -11,6 +11,7 @@ const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "akamai",     label: "Akamai" },
   { value: "lguplus",    label: "LG U+ CDN" },
   { value: "kt",         label: "KT CDN" },
+  { value: "hyosung",    label: "Hyosung ITX CDN" },
 ];
 
 const REGION_SUGGESTIONS = [
@@ -63,6 +64,10 @@ interface FormState {
   ktServiceName: string;
   ktVolumeName: string;
   ktEndpoint: string;
+  // Hyosung CDN
+  hyosungApiKey: string;
+  hyosungApiSecret: string;
+  hyosungEndpoint: string;
 }
 
 const emptyForm = (): FormState => ({
@@ -95,6 +100,9 @@ const emptyForm = (): FormState => ({
   ktServiceName: "",
   ktVolumeName: "",
   ktEndpoint: "",
+  hyosungApiKey: "",
+  hyosungApiSecret: "",
+  hyosungEndpoint: "",
 });
 
 export default function ProfileModal() {
@@ -166,6 +174,9 @@ export default function ProfileModal() {
       ktServiceName: profile.ktServiceName ?? "",
       ktVolumeName: profile.ktVolumeName ?? "",
       ktEndpoint: profile.ktEndpoint ?? "",
+      hyosungApiKey: profile.hyosungApiKey ?? "",
+      hyosungApiSecret: "",    // 보안상 마스킹
+      hyosungEndpoint: profile.hyosungEndpoint ?? "",
     });
   };
 
@@ -270,6 +281,9 @@ export default function ProfileModal() {
         ktServiceName: form.ktServiceName || undefined,
         ktVolumeName: form.ktVolumeName || undefined,
         ktEndpoint: form.ktEndpoint || undefined,
+        hyosungApiKey: form.hyosungApiKey || undefined,
+        hyosungApiSecret: form.hyosungApiSecret || undefined,
+        hyosungEndpoint: form.hyosungEndpoint || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -361,6 +375,10 @@ export default function ProfileModal() {
       setError("KT CDN Username과 Service Name을 입력하세요.");
       return;
     }
+    if (form.cdnProvider === "hyosung" && (!form.hyosungApiKey || !form.cdnDistributionId)) {
+      setError("효성 ITX CDN API Key와 Service ID(Distribution ID)를 입력하세요.");
+      return;
+    }
 
     if (shouldConfirmExternalRequests()) {
       setConfirmRequest({
@@ -421,6 +439,7 @@ export default function ProfileModal() {
   const isCloudFront = form.cdnProvider === "cloudfront";
   const isLguplus = form.cdnProvider === "lguplus";
   const isKt = form.cdnProvider === "kt";
+  const isHyosung = form.cdnProvider === "hyosung";
 
   const filteredProfiles = profiles.filter(
     (p) =>
@@ -928,6 +947,52 @@ export default function ProfileModal() {
                       value={form.ktEndpoint}
                       onChange={setField("ktEndpoint")}
                       placeholder="https://api.ktcdn.co.kr (기본값)"
+                    />
+                  </label>
+                </>
+              )}
+
+              {isHyosung && (
+                <>
+                  <label className={styles.field}>
+                    <span>API Key (Principal) *</span>
+                    <input
+                      value={form.hyosungApiKey}
+                      onChange={setField("hyosungApiKey")}
+                      placeholder="효성 ITX CDN API Key"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API Secret *</span>
+                    <input
+                      type="password"
+                      value={form.hyosungApiSecret}
+                      onChange={setField("hyosungApiSecret")}
+                      placeholder={editingId ? "변경하려면 입력" : "효성 ITX CDN API Secret"}
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Service ID (Distribution ID) *</span>
+                    <input
+                      value={form.cdnDistributionId}
+                      onChange={setField("cdnDistributionId")}
+                      placeholder="TID_XXXXX"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>CDN 도메인 *</span>
+                    <input
+                      value={form.cdnDomain}
+                      onChange={setField("cdnDomain")}
+                      placeholder="cdn.example.com"
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span>API 엔드포인트</span>
+                    <input
+                      value={form.hyosungEndpoint}
+                      onChange={setField("hyosungEndpoint")}
+                      placeholder="https://api.xtrmcdn.co.kr:28091 (기본값)"
                     />
                   </label>
                 </>

@@ -39,6 +39,7 @@ struct PurgeEnvelope {
 #[derive(Debug, Deserialize)]
 struct PurgeMeta {
     #[serde(rename = "statusCode")]
+    #[allow(dead_code)]
     status_code: u16,
     status:      String,
     message:     Option<String>,
@@ -90,9 +91,9 @@ impl HyosungCdnAdapter {
     }
 
     /// POST /api/v1/purge/{serviceId} — 다건 일괄 Purge
-    pub async fn purge_urls(&self, urls: &[String]) -> Result<()> {
+    pub async fn purge_urls(&self, urls: &[String]) -> Result<Option<String>> {
         if urls.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         // POST 경로는 trailing slash 없음 (GET과 구별)
@@ -151,7 +152,7 @@ impl HyosungCdnAdapter {
                     purge_set.success_count,
                     meta.transaction_id.as_deref().unwrap_or("-"),
                 );
-                return Ok(());
+                return Ok(meta.transaction_id.clone());
             }
         }
 
@@ -160,11 +161,11 @@ impl HyosungCdnAdapter {
             urls.len(),
             meta.transaction_id.as_deref().unwrap_or("-"),
         );
-        Ok(())
+        Ok(meta.transaction_id.clone())
     }
 
     /// paths (S3 키) → CDN URL 변환 후 Purge
-    pub async fn purge_paths(&self, paths: &[String]) -> Result<()> {
+    pub async fn purge_paths(&self, paths: &[String]) -> Result<Option<String>> {
         let urls = self.build_urls(paths);
         self.purge_urls(&urls).await
     }
