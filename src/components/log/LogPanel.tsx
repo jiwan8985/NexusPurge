@@ -95,7 +95,9 @@ export default function LogPanel() {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (tab === "log") bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (tab !== "log") return;
+    const container = bottomRef.current?.parentElement;
+    container?.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
   }, [logs.length, tab]);
 
   const errorTransfers = transfers.filter((t) => t.status === "error");

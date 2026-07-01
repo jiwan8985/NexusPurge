@@ -84,3 +84,6 @@ pnpm-debug.log*
 # Docs / PDF Guides
 docs/*.pdf
 
+# Claude Code local runtime state
+.claude/
+

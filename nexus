@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# NexusPurge 프로젝트 전용 CLI (macOS/Linux).
+# 실행 로직: scripts/nexus-core.sh + scripts/cmds/*.sh
+# Windows 대응 버전: nexus.ps1 / nexus.cmd
+# PATH에 저장소 루트를 추가하면 어디서든 `nexus <command>` 로 사용 가능.
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+case "${1:-}" in
+  -v|--version|version)
+    version="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version": *"([^"]+)".*/\1/')"
+    echo "NexusPurge CLI v$version"
+    exit 0
+    ;;
+esac
+
+exec "$ROOT/scripts/nexus-core.sh" "$@"

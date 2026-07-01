@@ -121,7 +121,7 @@ select option {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  overflow: hidden;
+  overflow: clip;
   background: var(--color-bg-base);
   background-image: 
     radial-gradient(circle at 50% -20%, rgba(99, 102, 241, 0.09) 0%, transparent 55%),
