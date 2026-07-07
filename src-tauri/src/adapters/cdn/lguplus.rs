@@ -1,12 +1,14 @@
-/// LG U+ CDN Purge Adapter (Solbox CDN v3)
+/// LG U+ CDN Purge Adapter (CDN v3 — https://v3-api-docs.lgucdn.com/)
 ///
 /// Auth:  POST {endpoint}/v3/auth/tokens
 ///        Body: {"username":"...", "password":"...", "expiresIn":"1h"}
 ///        Response: {"token": "..."}
 ///
 /// Purge: POST {endpoint}/v3/management/service/{serviceName}/volume/{volumeName}/purge
+///        POST {endpoint}/v3/management/service/{serviceName}/domain/{domain}/purge
 ///        Authorization: Bearer {token}
-///        Body: {"paths": ["/path1", "/path2"]}
+///        Body: {"filelist": ["/path1", "/path2"]}  (응답: {"transid": <number>})
+///        Volume Name이 있으면 volume 기반, 없으면 Edge Domain 기반으로 Purge
 ///
 /// Default endpoint: https://api.lgucdn.com
 use anyhow::{Context, Result};
@@ -20,8 +22,7 @@ pub struct LguplusCdnAdapter {
     service_name: String,
     volume_name:  String,
     endpoint:       String,
-    #[allow(dead_code)]
-    cdn_domain:     String, // 향후 URL 기반 purge 전환 시 사용
+    cdn_domain:     String, // FQDN — volume_name 미지정 시 domain 기반 purge에 사용
 }
 
 impl LguplusCdnAdapter {
@@ -76,6 +77,10 @@ impl LguplusCdnAdapter {
 
         let token = json["token"]
             .as_str()
+            .or_else(|| json["accessToken"].as_str())
+            .or_else(|| json["access_token"].as_str())
+            .or_else(|| json["data"]["token"].as_str())
+            .or_else(|| json["data"]["accessToken"].as_str())
             .ok_or_else(|| anyhow::anyhow!("LG U+ CDN 인증 응답에 token 필드 없음: {}", text))?
             .to_owned();
 
@@ -102,13 +107,37 @@ impl LguplusCdnAdapter {
             })
             .collect();
 
-        // Purge by Volume: /v3/management/service/{serviceName}/volume/{volumeName}/purge
-        let url = format!(
-            "{}/v3/management/service/{}/volume/{}/purge",
-            self.endpoint, self.service_name, self.volume_name,
-        );
+        if self.service_name.trim().is_empty() {
+            return Err(anyhow::anyhow!("LG U+ CDN Purge에는 Service Name이 필요합니다"));
+        }
 
-        let body = serde_json::json!({ "paths": normalized }).to_string();
+        // Volume Name이 있으면 volume 기반, 없으면 CDN 도메인(FQDN) 기반 Purge
+        let url = if !self.volume_name.trim().is_empty() {
+            format!(
+                "{}/v3/management/service/{}/volume/{}/purge",
+                self.endpoint, self.service_name, self.volume_name,
+            )
+        } else {
+            let domain = self
+                .cdn_domain
+                .trim()
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .trim_end_matches('/');
+            if domain.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "LG U+ CDN Purge에는 Volume Name 또는 Edge Domain이 필요합니다"
+                ));
+            }
+            format!(
+                "{}/v3/management/service/{}/domain/{}/purge",
+                self.endpoint, self.service_name, domain,
+            )
+        };
+
+        // 공식 스펙(v3-api-docs Postman 컬렉션): {"filelist": ["/path", ...]}
+        // 기본 invalidate 방식, delete 방식은 "purge_type":"HARD" 추가
+        let body = serde_json::json!({ "filelist": normalized }).to_string();
 
         let resp = self
             .client
@@ -133,7 +162,14 @@ impl LguplusCdnAdapter {
         // 비동기 트랜잭션 응답(202)도 성공으로 처리 — transactionId 로깅
         let text = resp.text().await.unwrap_or_default();
         if let Ok(json) = serde_json::from_str::<Value>(&text) {
-            if let Some(tid) = json["transactionId"].as_str() {
+            let tid = json["transactionId"]
+                .as_str()
+                .or_else(|| json["transaction_id"].as_str())
+                .or_else(|| json["data"]["transactionId"].as_str())
+                .or_else(|| json["transid"].as_str())
+                .map(ToOwned::to_owned)
+                .or_else(|| json["transid"].as_u64().map(|v| v.to_string()));
+            if let Some(tid) = tid.as_deref() {
                 tracing::info!(
                     "LG U+ CDN Purge 요청 수락: transactionId={}, {} 경로 (서비스: {}, 볼륨: {})",
                     tid, paths.len(), self.service_name, self.volume_name,

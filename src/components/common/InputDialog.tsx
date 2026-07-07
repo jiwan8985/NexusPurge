@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import styles from "./ConfirmDialog.module.css";
 import iStyles from "./InputDialog.module.css";
 
@@ -45,7 +46,7 @@ export default function InputDialog({
     onConfirm(trimmed);
   };
 
-  return (
+  return createPortal(
     <div
       className={styles.overlay}
       onClick={(e) => e.target === e.currentTarget && onCancel()}
@@ -94,6 +95,7 @@ export default function InputDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

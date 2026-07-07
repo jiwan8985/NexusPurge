@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
+import { cdnDistributionIdFor } from "../utils/cdn";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type {
@@ -11,9 +12,10 @@ import type {
 } from "../types";
 
 export function useS3() {
-  const { activeProfile, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
+  const { activeProfile, activeCdn, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
     useAppStore((s) => ({
       activeProfile: s.activeProfile,
+      activeCdn: s.activeCdn,
       setRemoteFiles: s.setRemoteFiles,
       setRemoteLoading: s.setRemoteLoading,
       setRemotePath: s.setRemotePath,
@@ -55,18 +57,21 @@ export function useS3() {
         });
         addLog("success", `S3 delete completed: ${deletedKeys.length}`, "transfer");
 
-        if (activeProfile.cdnProvider && deletedKeys.length > 0) {
+        const provider = activeCdn ?? activeProfile.cdnProvider;
+        if (provider && deletedKeys.length > 0) {
+          // 폴더 삭제는 하위 키를 개별 나열하는 대신 "폴더/*" 와일드카드 1건으로 Purge
+          const purgePaths = keys.map((k) => (k.endsWith("/") ? `${k}*` : k));
           try {
             purgeResult = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
               profileId: activeProfile.id,
-              provider: activeProfile.cdnProvider,
-              distributionId: activeProfile.cdnDistributionId ?? "",
-              paths: deletedKeys,
+              provider,
+              distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
+              paths: purgePaths,
             });
 
             if (purgeResult.success) {
               const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
-              addLog("success", `Delete CDN purge completed: ${deletedKeys.length}${id}`, "cdn");
+              addLog("success", `Delete CDN purge completed: ${purgePaths.length}${id}`, "cdn");
             } else {
               addLog("error", `Delete CDN purge failed: ${purgeResult.error}`, "cdn");
             }
@@ -85,7 +90,7 @@ export function useS3() {
           startedAt,
           purgeResult,
           purgeError,
-          purgeProvider: activeProfile.cdnProvider,
+          purgeProvider: provider ?? undefined,
         }));
       } catch (err) {
         addLog("error", `S3 delete failed: ${err}`, "transfer");
@@ -101,7 +106,7 @@ export function useS3() {
         throw err;
       }
     },
-    [activeProfile, addLog]
+    [activeProfile, activeCdn, addLog]
   );
 
   const createDirectory = useCallback(

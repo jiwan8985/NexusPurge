@@ -62,6 +62,7 @@ pub fn run() {
             // 암호화 프로필
             s3::export_encrypted_profile,
             s3::import_encrypted_profile,
+            s3::import_profile_file,
             // Sync & Transfer
             sync::build_sync_plan,
             sync::sync_preview,
@@ -78,6 +79,7 @@ pub fn run() {
             operation_log::list_operation_logs,
             operation_log::get_operation_log,
             operation_log::clear_operation_logs,
+            operation_log::open_operation_log_dir,
             // External Auth Stub
             auth::external_auth_login,
             auth::external_auth_logout,

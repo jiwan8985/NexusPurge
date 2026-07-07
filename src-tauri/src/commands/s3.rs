@@ -613,6 +613,217 @@ pub async fn upload_files(
     Ok(())
 }
 
+// ─── 고객사 프로필 파일(JSON) Import ─────────────────────────────────────────
+
+/// 고객사 전달용 프로필 파일 형식 (profile-sample.json 참고)
+#[derive(Debug, Deserialize)]
+pub struct ProfileFile {
+    pub name: String,
+    pub region: String,
+    pub bucket: String,
+    #[serde(default, rename = "basePrefix")]
+    pub base_prefix: Option<String>,
+    #[serde(rename = "accessKeyId")]
+    pub access_key_id: String,
+    #[serde(rename = "secretAccessKey")]
+    pub secret_access_key: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default, rename = "cdnBasePath")]
+    pub cdn_base_path: Option<String>,
+    /// 연결 직후 기본 선택될 CDN (미지정 시 cdns의 첫 항목)
+    #[serde(default, rename = "defaultCdn")]
+    pub default_cdn: Option<String>,
+    #[serde(default)]
+    pub cdns: ProfileFileCdns,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ProfileFileCdns {
+    #[serde(default)]
+    pub cloudfront: Option<ProfileFileCloudfront>,
+    #[serde(default)]
+    pub akamai: Option<ProfileFileAkamai>,
+    #[serde(default)]
+    pub kt: Option<ProfileFileSolbox>,
+    #[serde(default)]
+    pub lguplus: Option<ProfileFileSolbox>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileCloudfront {
+    #[serde(rename = "distributionId")]
+    pub distribution_id: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileAkamai {
+    pub host: String,
+    #[serde(rename = "clientToken")]
+    pub client_token: String,
+    #[serde(rename = "clientSecret")]
+    pub client_secret: String,
+    #[serde(rename = "accessToken")]
+    pub access_token: String,
+    #[serde(default, rename = "cpCode")]
+    pub cp_code: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileSolbox {
+    pub username: String,
+    pub password: String,
+    #[serde(rename = "serviceName")]
+    pub service_name: String,
+    #[serde(default, rename = "volumeName")]
+    pub volume_name: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+/// 고객사 전달용 JSON 프로필 파일을 가져와 저장한다.
+/// 하나의 파일에 여러 CDN(cloudfront/akamai/kt/lguplus)을 담을 수 있으며,
+/// 시크릿(S3 secret, CDN password 등)은 저장 시 OS keyring으로 이동한다.
+#[tauri::command]
+pub async fn import_profile_file(
+    content: String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<ProfileConfig, String> {
+    let file: ProfileFile = serde_json::from_str(&content)
+        .map_err(|e| format!("프로필 파일 파싱 실패: {}", e))?;
+
+    let mut cdn_providers: Vec<crate::utils::config::CdnProviderConfig> = Vec::new();
+    let mut profile = ProfileConfig {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: file.name,
+        scope: None,
+        permissions: None,
+        region: file.region,
+        bucket: file.bucket,
+        base_prefix: file.base_prefix,
+        access_key_id: file.access_key_id,
+        secret_access_key: Some(file.secret_access_key),
+        endpoint: file.endpoint,
+        cdn_provider: None,
+        cdn_providers: Vec::new(),
+        cdn_distribution_id: None,
+        cdn_domain: None,
+        cdn_base_path: file.cdn_base_path,
+        purge_on_new_upload: false,
+        purge_policy: None,
+        upload_policy: None,
+        metadata_policy: None,
+        log_shipping: None,
+        auth_binding: None,
+        default_cache_control: None,
+        content_type_override: None,
+        multipart_etag_fallback: false,
+        akamai_client_token: None,
+        akamai_client_secret: None,
+        akamai_access_token: None,
+        akamai_host: None,
+        akamai_cp_code: None,
+        lguplus_username: None,
+        lguplus_password: None,
+        lguplus_service_name: None,
+        lguplus_volume_name: None,
+        lguplus_endpoint: None,
+        kt_username: None,
+        kt_password: None,
+        kt_service_name: None,
+        kt_volume_name: None,
+        kt_endpoint: None,
+        hyosung_api_key: None,
+        hyosung_api_secret: None,
+        hyosung_endpoint: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Some(cf) = file.cdns.cloudfront {
+        profile.cdn_distribution_id = Some(cf.distribution_id.clone());
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "cloudfront".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: Some(cf.distribution_id),
+            domain: cf.domain,
+        });
+    }
+    if let Some(ak) = file.cdns.akamai {
+        profile.akamai_host = Some(ak.host);
+        profile.akamai_client_token = Some(ak.client_token);
+        profile.akamai_client_secret = Some(ak.client_secret);
+        profile.akamai_access_token = Some(ak.access_token);
+        profile.akamai_cp_code = ak.cp_code;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "akamai".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: ak.domain,
+        });
+    }
+    if let Some(kt) = file.cdns.kt {
+        profile.kt_username = Some(kt.username);
+        profile.kt_password = Some(kt.password);
+        profile.kt_service_name = Some(kt.service_name);
+        profile.kt_volume_name = kt.volume_name;
+        profile.kt_endpoint = kt.endpoint;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "kt".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: kt.domain,
+        });
+    }
+    if let Some(lgu) = file.cdns.lguplus {
+        profile.lguplus_username = Some(lgu.username);
+        profile.lguplus_password = Some(lgu.password);
+        profile.lguplus_service_name = Some(lgu.service_name);
+        profile.lguplus_volume_name = lgu.volume_name;
+        profile.lguplus_endpoint = lgu.endpoint;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "lguplus".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: lgu.domain,
+        });
+    }
+
+    // 기본 CDN: defaultCdn 지정값이 목록에 있으면 사용, 없으면 첫 항목
+    let default_cdn = file
+        .default_cdn
+        .filter(|d| cdn_providers.iter().any(|c| &c.provider == d))
+        .or_else(|| cdn_providers.first().map(|c| c.provider.clone()));
+    if let Some(default) = &default_cdn {
+        profile.cdn_domain = cdn_providers
+            .iter()
+            .find(|c| &c.provider == default)
+            .and_then(|c| c.domain.clone());
+    }
+    profile.cdn_provider = default_cdn;
+    profile.cdn_providers = cdn_providers;
+
+    cache.invalidate(&profile.id).await;
+    store.save(profile.clone()).await.map_err(|e| e.to_string())?;
+    // 응답에서 시크릿 제거 (keyring 저장 완료)
+    profile.secret_access_key = None;
+    profile.akamai_client_secret = None;
+    profile.kt_password = None;
+    profile.lguplus_password = None;
+    Ok(profile)
+}
+
 // ─── 암호화 프로필 Export / Import ───────────────────────────────────────────
 
 /// 저장된 프로필(Keyring 시크릿 포함)을 AES-256-GCM 암호화 파일로 내보낸다.

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { readBatchSettings } from "../../utils/batch-settings";
 import styles from "./PurgeDialog.module.css";
 
@@ -36,7 +37,7 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
     }
   };
 
-  return (
+  return createPortal(
     <div className={styles.overlay}>
       <div className={styles.dialog}>
         <div className={styles.header}>
@@ -98,6 +99,7 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

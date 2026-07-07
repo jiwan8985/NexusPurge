@@ -223,6 +223,7 @@ export default function LocalPanel() {
     <div
       className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "local" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("local")}
+      onContextMenu={(event) => event.preventDefault()}
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragOver(true);

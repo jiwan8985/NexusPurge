@@ -87,3 +87,4 @@ docs/*.pdf
 # Claude Code local runtime state
 .claude/
 
+profile-sample.json

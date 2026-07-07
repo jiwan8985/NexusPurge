@@ -34,9 +34,12 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
   }, [x, y]);
 
   // 외부 클릭/ESC로 닫기
+  // 주의: capture 단계 리스너는 메뉴 내부의 stopPropagation보다 먼저 실행되므로
+  // 메뉴 내부 클릭 여부를 target으로 직접 판별해야 한다 (아니면 클릭 즉시 닫혀 액션이 실행되지 않음)
   useEffect(() => {
     const close = (e: MouseEvent | KeyboardEvent) => {
       if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e instanceof MouseEvent && ref.current?.contains(e.target as Node)) return;
       onClose();
     };
     window.addEventListener("mousedown", close, true);
@@ -52,7 +55,6 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       ref={ref}
       className={styles.menu}
       style={{ left: pos.x, top: pos.y }}
-      onMouseDown={(e) => e.stopPropagation()}
     >
       {items.map((item, i) =>
         "divider" in item ? (

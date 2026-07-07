@@ -41,25 +41,69 @@ pub async fn purge_with_credentials(
             access_token,
             host,
             cdn_domain,
+            cp_code,
         } => {
             if cdn_domain.trim().is_empty() {
                 return Err(anyhow::anyhow!("Akamai CDN domain is required"));
             }
             let adapter =
                 akamai::AkamaiAdapter::new(client_token, client_secret, access_token, host)?;
-            let urls = build_cdn_urls(&cdn_domain, paths);
-            let mut last_err = None;
-            for attempt in 0..3 {
-                match adapter.purge_urls(&urls).await {
-                    Ok(()) => return Ok(None),
-                    Err(err) if attempt < 2 => {
-                        last_err = Some(err);
-                        tokio::time::sleep(retry_delay(attempt)).await;
+
+            // 와일드카드(폴더/전체) 경로는 Akamai URL Purge가 지원하지 않음 → CP Code 무효화로 처리
+            let (wildcard, exact): (Vec<String>, Vec<String>) =
+                paths.iter().cloned().partition(|p| p.ends_with('*'));
+
+            if !wildcard.is_empty() {
+                let code: u64 = cp_code
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|c| !c.is_empty())
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "Akamai 폴더/전체 Purge에는 CP Code가 필요합니다 (프로필 관리에서 CP Code 입력)"
+                    ))?
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("Akamai CP Code는 숫자여야 합니다"))?;
+
+                let mut last_err = None;
+                let mut ok = false;
+                for attempt in 0..3 {
+                    match adapter.purge_cp_codes(&[code]).await {
+                        Ok(()) => { ok = true; break; }
+                        Err(err) if attempt < 2 => {
+                            last_err = Some(err);
+                            tokio::time::sleep(retry_delay(attempt)).await;
+                        }
+                        Err(err) => return Err(err),
                     }
-                    Err(err) => return Err(err),
+                }
+                if !ok {
+                    return Err(last_err
+                        .unwrap_or_else(|| anyhow::anyhow!("Akamai CP Code purge retry failed")));
                 }
             }
-            Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Akamai purge retry failed")))
+
+            if !exact.is_empty() {
+                let urls = build_cdn_urls(&cdn_domain, &exact);
+                let mut last_err = None;
+                let mut ok = false;
+                for attempt in 0..3 {
+                    match adapter.purge_urls(&urls).await {
+                        Ok(()) => { ok = true; break; }
+                        Err(err) if attempt < 2 => {
+                            last_err = Some(err);
+                            tokio::time::sleep(retry_delay(attempt)).await;
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+                if !ok {
+                    return Err(
+                        last_err.unwrap_or_else(|| anyhow::anyhow!("Akamai purge retry failed"))
+                    );
+                }
+            }
+
+            Ok(None)
         }
         CdnCredentials::Lguplus {
             username,

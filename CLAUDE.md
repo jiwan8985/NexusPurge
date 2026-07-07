@@ -76,7 +76,12 @@ src-tauri/src/
 ### 프로파일 저장
 - 메타데이터: `~/.local/share/cdn-upload-tool/profiles.json`
 - `secretAccessKey`: OS keyring (Windows Credential Manager / macOS Keychain)
-- keyring 키 형식: service=`cdn-upload-tool`, username=`{profile_id}`
+- keyring 키 형식: service=`cdn-upload-tool`, username=`{profile_id}` (CDN별 시크릿은 `{profile_id}_akamai` 등 접미사)
+
+### 멀티 CDN 프로필
+- 한 프로필에 여러 CDN 가능: `cdnProviders[]` (provider/domain/distributionId), CDN별 도메인은 `provider_domain()` (config.rs)로 해석
+- 고객사 전달용 JSON 프로필 파일: `profile-sample.json` 참고 — 프로필 관리 "가져오기"로 임포트 (`import_profile_file` 커맨드)
+- 런타임 Purge 대상 CDN: `appStore.activeCdn` — 툴바 드롭다운에서 전환, 모든 Purge(업로드/삭제/수동)가 이 값을 따름
 
 ## 코딩 컨벤션
 
@@ -126,5 +131,6 @@ npm run tauri build
 
 - `src/types/index.ts` 타입과 `src-tauri/src/commands/` 구조체의 필드명(serde rename) 일치 필수
 - Tauri 이벤트명 (`transfer:progress`, `transfer:complete`) 변경 시 `useTransfer.ts`와 동기화
-- `ProfileStore`는 `lib.rs`에서 `.manage(ProfileStore::new().unwrap())`로 등록 필요 (현재 누락, 추가 예정)
 - S3 ETag와 MD5는 Multipart 업로드(>8MB 기본값) 시 일치하지 않음 → `hash.rs::parse_multipart_etag` 참고
+- 모달/다이얼로그는 반드시 `createPortal(…, document.body)`로 렌더링할 것 — Toolbar/Panel에 `backdrop-filter`(글래스 효과)가 걸려 있어 내부에서 `position: fixed`를 쓰면 해당 요소가 containing block이 되어 레이아웃이 겹침
+- 운영 로그(업로드/다운로드/삭제/Purge)는 JSON(`operation_logs.json`) + 날짜별 텍스트 파일(`logs/nexuspurge-YYYY-MM-DD.log`)로 `%LOCALAPPDATA%/cdn-upload-tool/`에 저장됨 — LogPanel "로그 폴더" 버튼으로 열기

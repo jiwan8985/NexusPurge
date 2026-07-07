@@ -8,8 +8,8 @@ import PurgeDialog from "../modals/PurgeDialog";
 import PurgeResultDialog from "../modals/PurgeResultDialog";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
-import { runtime } from "../../services/runtime";
-import type { PurgeExecutionResult, SyncPreviewResult } from "../../types";
+import { availableCdns, CDN_LABELS } from "../../utils/cdn";
+import type { CdnProvider, PurgeExecutionResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
 /* ── Inline SVG icon primitives ──────────────────────────────────────────── */
@@ -50,15 +50,6 @@ function IconPen() {
   return (
     <svg {...ICON_PROPS}>
       <path d="M11 2.5a1.5 1.5 0 012.1 2.1L5 12.8l-3 .8.8-3L11 2.5z" />
-    </svg>
-  );
-}
-
-function IconEye() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z" />
-      <circle cx="8" cy="8" r="2" />
     </svg>
   );
 }
@@ -120,11 +111,10 @@ export default function Toolbar() {
     remote,
     triggerLocalRefresh,
     triggerRemoteRefresh,
-    setSyncPreview,
-    setShowSyncPreview,
-    addLog,
     autoPurgeEnabled,
     toggleAutoPurge,
+    activeCdn,
+    setActiveCdn,
   } = useAppStore((s) => ({
     activeProfile:        s.activeProfile,
     isConnected:          s.isConnected,
@@ -136,12 +126,14 @@ export default function Toolbar() {
     remote:               s.remote,
     triggerLocalRefresh:  s.triggerLocalRefresh,
     triggerRemoteRefresh: s.triggerRemoteRefresh,
-    setSyncPreview:       s.setSyncPreview,
-    setShowSyncPreview:   s.setShowSyncPreview,
-    addLog:               s.addLog,
     autoPurgeEnabled:     s.autoPurgeEnabled,
     toggleAutoPurge:      s.toggleAutoPurge,
+    activeCdn:            s.activeCdn,
+    setActiveCdn:         s.setActiveCdn,
   }));
+
+  const cdns = availableCdns(activeProfile);
+  const hasCdn = isConnected && (activeCdn !== null || cdns.length > 0);
 
   const perms    = activeProfile?.permissions;
   const canPurge = !perms || perms.canPurge;
@@ -208,27 +200,11 @@ export default function Toolbar() {
     });
   };
 
-  const handleDryRun = async () => {
-    if (!activeProfile || !isConnected) return;
-    try {
-      const preview = await runtime.invoke<SyncPreviewResult>("sync_preview", {
-        profileId: activeProfile.id,
-        localDir: local.path,
-        remotePrefix: remote.path,
-      });
-      setSyncPreview(preview);
-      setShowSyncPreview(true);
-      addLog("info", `Dry-run: 신규 ${preview.new.length}, 수정 ${preview.modified.length}, Purge ${preview.purgeTargets.length}`);
-    } catch (err) {
-      addLog("error", `Dry-run 실패: ${err}`);
-    }
-  };
-
   const handleDelete = () => {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
       if (keys.length === 0) return;
-      const purgeNotice = activeProfile?.cdnProvider ? " 삭제 성공한 항목은 CDN 캐시도 Purge됩니다." : "";
+      const purgeNotice = activeCdn ? ` 삭제 성공한 항목은 CDN(${CDN_LABELS[activeCdn]}) 캐시도 Purge됩니다.` : "";
       setDeleteDialog({
         title: "S3 항목 삭제",
         message: `S3에서 ${keys.length}개 항목을 삭제합니다.${purgeNotice} 삭제된 파일은 복구할 수 없습니다.`,
@@ -307,8 +283,6 @@ export default function Toolbar() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
         e.preventDefault();
         focusedSide === "remote" ? triggerRemoteRefresh() : triggerLocalRefresh();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
-        e.preventDefault(); void handleDryRun();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -342,7 +316,7 @@ export default function Toolbar() {
       <div className={styles.sep} />
 
       {/* ── 자동 Purge 토글 ───────────────────────────────────────────────── */}
-      {isConnected && activeProfile?.cdnProvider && canPurge && (
+      {hasCdn && canPurge && (
         <>
           <button
             className={`${styles.toolBtn} ${autoPurgeEnabled ? styles.purgeOn : styles.purgeOff}`}
@@ -391,22 +365,28 @@ export default function Toolbar() {
           <span className={styles.icon}><IconPen /></span>
           이름 변경
         </button>
-        <button
-          className={styles.toolBtn}
-          disabled={!isConnected || !local.path}
-          onClick={handleDryRun}
-          title="업로드 전 변경 사항과 Purge 대상을 미리 봅니다 (Ctrl/Cmd+D)"
-        >
-          <span className={styles.icon}><IconEye /></span>
-          미리보기
-        </button>
       </div>
 
       {/* ── 수동 Purge ─────────────────────────────────────────────────────── */}
-      {isConnected && activeProfile?.cdnProvider && canPurge && (
+      {hasCdn && canPurge && (
         <>
           <div className={styles.sep} />
           <div className={styles.group}>
+            {cdns.length > 1 && (
+              <select
+                className={styles.cdnSelect}
+                value={activeCdn ?? ""}
+                onChange={(e) => setActiveCdn(e.target.value as CdnProvider)}
+                title="Purge 대상 CDN 선택 — 업로드 자동 Purge / 수동 Purge / 삭제 Purge 모두 이 CDN으로 실행됩니다"
+              >
+                {cdns.map((c) => (
+                  <option key={c} value={c}>{CDN_LABELS[c]}</option>
+                ))}
+              </select>
+            )}
+            {cdns.length === 1 && activeCdn && (
+              <span className={styles.cdnBadge} title="Purge 대상 CDN">{CDN_LABELS[activeCdn]}</span>
+            )}
             <button
               className={styles.toolBtn}
               disabled={remotePurgePaths.length === 0 || isPurging}

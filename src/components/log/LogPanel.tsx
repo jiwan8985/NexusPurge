@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
+import { runtime } from "../../services/runtime";
 import type { LogEntry, TransferItem } from "../../types";
 import styles from "./LogPanel.module.css";
 
@@ -80,10 +81,11 @@ function fmtSize(bytes: number) {
 }
 
 export default function LogPanel() {
-  const { logs, transfers, clearLogs } = useAppStore((s) => ({
+  const { logs, transfers, clearLogs, addLog } = useAppStore((s) => ({
     logs: s.logs,
     transfers: s.transfers,
     clearLogs: s.clearLogs,
+    addLog: s.addLog,
   }));
   const { retryTransfer } = useTransfer();
 
@@ -164,6 +166,15 @@ export default function LogPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const openLogDir = async () => {
+    try {
+      const path = await runtime.invoke<string>("open_operation_log_dir");
+      addLog("info", `로그 폴더 열기: ${path}`, "system");
+    } catch (err) {
+      addLog("error", `로그 폴더 열기 실패: ${err}`, "system");
+    }
+  };
+
   const handleRetry = useCallback(async (item: TransferItem) => {
     setRetryingIds((s) => new Set(s).add(item.id));
     try {
@@ -230,6 +241,9 @@ export default function LogPanel() {
             {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}
           </button>
           <button className={styles.actionBtn} onClick={saveLog}>저장</button>
+          <button className={styles.actionBtn} onClick={openLogDir} title="작업 로그 파일이 저장되는 폴더 열기">
+            로그 폴더
+          </button>
           <button className={styles.actionBtn} onClick={clearLogs}>지우기</button>
         </div>
       </div>

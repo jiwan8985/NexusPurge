@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { cdnDistributionIdFor, cdnDomainFor } from "../utils/cdn";
 import { readBatchSettings } from "../utils/batch-settings";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { useAppStore } from "../store/appStore";
@@ -6,8 +7,9 @@ import { runtime } from "../services/runtime";
 import type { CdnPurgeResult, PurgeExecutionResult } from "../types";
 
 export function usePurge() {
-  const { activeProfile, remote, addLog } = useAppStore((s) => ({
+  const { activeProfile, activeCdn, remote, addLog } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
+    activeCdn:     s.activeCdn,
     remote:        s.remote,
     addLog:        s.addLog,
   }));
@@ -17,7 +19,8 @@ export function usePurge() {
 
   const executePurge = useCallback(
     async (paths: string[]): Promise<PurgeExecutionResult | null> => {
-      if (!activeProfile?.cdnProvider) return null;
+      const provider = activeCdn ?? activeProfile?.cdnProvider;
+      if (!activeProfile || !provider) return null;
       if (isPurgingRef.current) {
         addLog("warn", "CDN Purge가 이미 진행 중입니다. 완료 후 재시도하세요.", "cdn");
         return null;
@@ -53,8 +56,8 @@ export function usePurge() {
         try {
           const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
             profileId: activeProfile.id,
-            provider: activeProfile.cdnProvider,
-            distributionId: activeProfile.cdnDistributionId ?? "",
+            provider,
+            distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
             paths: batch,
           });
 
@@ -111,7 +114,7 @@ export function usePurge() {
         prefix: remote.path,
         files: [],
         purgeResults: batchResults.map((r) => ({
-          provider: activeProfile.cdnProvider!,
+          provider,
           urls: r.paths,
           status: r.success ? "success" as const : "failed" as const,
           requestId: r.invalidationId,
@@ -127,8 +130,8 @@ export function usePurge() {
       setIsPurging(false);
 
       return {
-        provider: activeProfile.cdnProvider,
-        domain: activeProfile.cdnDomain,
+        provider,
+        domain: cdnDomainFor(activeProfile, provider),
         totalPaths: paths.length,
         batches: batchResults,
         successCount,
@@ -137,10 +140,13 @@ export function usePurge() {
         finishedAt,
       };
     },
-    [activeProfile, remote.path, addLog]
+    [activeProfile, activeCdn, remote.path, addLog]
   );
 
-  const selectedPaths = Array.from(remote.selectedPaths);
+  // 폴더 선택("…/") 은 하위 전체를 커버하도록 와일드카드로 변환
+  const selectedPaths = Array.from(remote.selectedPaths).map((p) =>
+    p.endsWith("/") ? `${p}*` : p
+  );
   const allPrefix = remote.path
     ? `${remote.path.replace(/\/$/, "")}/*`
     : "/*";

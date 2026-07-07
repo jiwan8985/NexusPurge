@@ -52,6 +52,7 @@ interface FormState {
   akamaiClientSecret: string;
   akamaiAccessToken: string;
   akamaiHost: string;
+  akamaiCpCode: string;
   // LG U+ CDN
   lguplusUsername: string;
   lguplusPassword: string;
@@ -90,6 +91,7 @@ const emptyForm = (): FormState => ({
   akamaiClientSecret: "",
   akamaiAccessToken: "",
   akamaiHost: "",
+  akamaiCpCode: "",
   lguplusUsername: "",
   lguplusPassword: "",
   lguplusServiceName: "",
@@ -109,7 +111,7 @@ export default function ProfileModal() {
   const { closeProfileModal } = useAppStore((s) => ({
     closeProfileModal: s.closeProfileModal,
   }));
-  const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection, exportProfile, importProfile } = useProfile();
+  const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection, exportProfile, importProfile, loadProfiles } = useProfile();
 
   const [form, setForm] = useState<FormState>(emptyForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -164,6 +166,7 @@ export default function ProfileModal() {
       akamaiClientSecret: "",  // 보안상 마스킹
       akamaiAccessToken: profile.akamaiAccessToken ?? "",
       akamaiHost: profile.akamaiHost ?? "",
+      akamaiCpCode: profile.akamaiCpCode ?? "",
       lguplusUsername: profile.lguplusUsername ?? "",
       lguplusPassword: "",     // 보안상 마스킹
       lguplusServiceName: profile.lguplusServiceName ?? "",
@@ -191,15 +194,24 @@ export default function ProfileModal() {
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    if (!importPassphrase.trim()) {
-      setImportError("패스프레이즈를 입력하세요.");
+    // Windows 편집기가 저장 시 붙이는 UTF-8 BOM 제거 (JSON 인식·파싱 오류 방지)
+    const text = (await file.text()).replace(/^﻿/, "");
+
+    // 일반 JSON 프로필 파일(고객사 전달용, profile-sample.json 참고)은 패스프레이즈 없이 가져오기
+    const isPlainJson = text.trim().startsWith("{");
+    if (!isPlainJson && !importPassphrase.trim()) {
+      setImportError("암호화된 프로필(.nexprofile)은 패스프레이즈를 입력하세요.");
       return;
     }
     setIsImporting(true);
     setImportError(null);
     try {
-      await importProfile(text, importPassphrase.trim());
+      if (isPlainJson) {
+        await runtime.invoke("import_profile_file", { content: text });
+        await loadProfiles();
+      } else {
+        await importProfile(text, importPassphrase.trim());
+      }
       setShowImportModal(false);
       setImportPassphrase("");
     } catch (err) {
@@ -239,10 +251,47 @@ export default function ProfileModal() {
     }
   };
 
+  const buildProfilePayload = (id: string): S3Profile => ({
+    id,
+    name: form.name,
+    region: form.region,
+    bucket: form.bucket,
+    basePrefix: form.basePrefix || undefined,
+    accessKeyId: normalizeAccessKeyId(form.accessKeyId),
+    secretAccessKey: normalizeSecretAccessKey(form.secretAccessKey),
+    endpoint: form.endpoint.trim() || undefined,
+    cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
+    cdnDistributionId: form.cdnDistributionId || undefined,
+    cdnDomain: form.cdnDomain || undefined,
+    cdnBasePath: form.cdnBasePath || undefined,
+    purgeOnNewUpload: form.purgeOnNewUpload,
+    defaultCacheControl: form.defaultCacheControl || undefined,
+    contentTypeOverride: form.contentTypeOverride || undefined,
+    multipartEtagFallback: form.multipartEtagFallback,
+    akamaiClientToken: form.akamaiClientToken || undefined,
+    akamaiClientSecret: form.akamaiClientSecret || undefined,
+    akamaiAccessToken: form.akamaiAccessToken || undefined,
+    akamaiHost: form.akamaiHost || undefined,
+    akamaiCpCode: form.akamaiCpCode || undefined,
+    lguplusUsername: form.lguplusUsername || undefined,
+    lguplusPassword: form.lguplusPassword || undefined,
+    lguplusServiceName: form.lguplusServiceName || undefined,
+    lguplusVolumeName: form.lguplusVolumeName || undefined,
+    lguplusEndpoint: form.lguplusEndpoint || undefined,
+    ktUsername: form.ktUsername || undefined,
+    ktPassword: form.ktPassword || undefined,
+    ktServiceName: form.ktServiceName || undefined,
+    ktVolumeName: form.ktVolumeName || undefined,
+    ktEndpoint: form.ktEndpoint || undefined,
+    hyosungApiKey: form.hyosungApiKey || undefined,
+    hyosungApiSecret: form.hyosungApiSecret || undefined,
+    hyosungEndpoint: form.hyosungEndpoint || undefined,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const accessKeyId = normalizeAccessKeyId(form.accessKeyId);
-    const secretAccessKey = normalizeSecretAccessKey(form.secretAccessKey);
     if (!form.name || !form.bucket || !form.accessKeyId) {
       setError("이름, 버킷, Access Key는 필수입니다.");
       return;
@@ -250,43 +299,7 @@ export default function ProfileModal() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await saveProfile({
-        id: editingId ?? crypto.randomUUID(),
-        name: form.name,
-        region: form.region,
-        bucket: form.bucket,
-        basePrefix: form.basePrefix || undefined,
-        accessKeyId,
-        secretAccessKey,
-        endpoint: form.endpoint.trim() || undefined,
-        cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
-        cdnDistributionId: form.cdnDistributionId || undefined,
-        cdnDomain: form.cdnDomain || undefined,
-        cdnBasePath: form.cdnBasePath || undefined,
-        purgeOnNewUpload: form.purgeOnNewUpload,
-        defaultCacheControl: form.defaultCacheControl || undefined,
-        contentTypeOverride: form.contentTypeOverride || undefined,
-        multipartEtagFallback: form.multipartEtagFallback,
-        akamaiClientToken: form.akamaiClientToken || undefined,
-        akamaiClientSecret: form.akamaiClientSecret || undefined,
-        akamaiAccessToken: form.akamaiAccessToken || undefined,
-        akamaiHost: form.akamaiHost || undefined,
-        lguplusUsername: form.lguplusUsername || undefined,
-        lguplusPassword: form.lguplusPassword || undefined,
-        lguplusServiceName: form.lguplusServiceName || undefined,
-        lguplusVolumeName: form.lguplusVolumeName || undefined,
-        lguplusEndpoint: form.lguplusEndpoint || undefined,
-        ktUsername: form.ktUsername || undefined,
-        ktPassword: form.ktPassword || undefined,
-        ktServiceName: form.ktServiceName || undefined,
-        ktVolumeName: form.ktVolumeName || undefined,
-        ktEndpoint: form.ktEndpoint || undefined,
-        hyosungApiKey: form.hyosungApiKey || undefined,
-        hyosungApiSecret: form.hyosungApiSecret || undefined,
-        hyosungEndpoint: form.hyosungEndpoint || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      await saveProfile(buildProfilePayload(editingId ?? crypto.randomUUID()));
       handleNew();
     } catch (err) {
       setError(String(err));
@@ -367,12 +380,12 @@ export default function ProfileModal() {
       setError("CDN 도메인을 입력하세요.");
       return;
     }
-    if (form.cdnProvider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName)) {
-      setError("LG U+ CDN Username과 Service Name을 입력하세요.");
+    if (form.cdnProvider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName || !form.cdnDomain)) {
+      setError("LG U+ CDN Username, Service Name, Edge Domain을 입력하세요.");
       return;
     }
-    if (form.cdnProvider === "kt" && (!form.ktUsername || !form.ktServiceName)) {
-      setError("KT CDN Username과 Service Name을 입력하세요.");
+    if (form.cdnProvider === "kt" && (!form.ktUsername || !form.ktServiceName || !form.cdnDomain)) {
+      setError("KT CDN Username, Service Name, Edge Domain을 입력하세요.");
       return;
     }
     if (form.cdnProvider === "hyosung" && (!form.hyosungApiKey || !form.cdnDistributionId)) {
@@ -397,6 +410,10 @@ export default function ProfileModal() {
     setError(null);
 
     try {
+      // 테스트는 저장된 프로필 값으로 실행되므로, 현재 폼 내용을 먼저 저장해 반영
+      if (form.name && form.bucket && form.accessKeyId) {
+        await saveProfile(buildProfilePayload(editingId));
+      }
       const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
         profileId: editingId,
         provider: form.cdnProvider,
@@ -489,9 +506,9 @@ export default function ProfileModal() {
       />
     )}
 
-    {/* Import 패스프레이즈 모달 */}
+    {/* Import 패스프레이즈 모달 — 본체 overlay(z-index 1000)보다 위에 표시 */}
     {showImportModal && (
-      <div className={styles.overlay} style={{ zIndex: 200 }}>
+      <div className={styles.overlay} style={{ zIndex: 1100 }}>
         <div className={styles.modal} style={{ maxWidth: 420 }}>
           <div className={styles.header}>
             <span className={styles.title}>프로필 파일 가져오기</span>
@@ -499,17 +516,18 @@ export default function ProfileModal() {
           </div>
           <div className={styles.body} style={{ display: "block", padding: "1.2rem" }}>
             <p style={{ marginBottom: "0.8rem", fontSize: "0.85rem", opacity: 0.8 }}>
-              관리자로부터 받은 <strong>.nexprofile</strong> 파일을 가져옵니다.<br />
-              파일 암호화에 사용된 패스프레이즈를 입력하세요.
+              관리자/고객사로부터 받은 프로필 파일을 가져옵니다.<br />
+              · <strong>.json</strong> — 고객사 전달용 (패스프레이즈 불필요, 여러 CDN 포함 가능)<br />
+              · <strong>.nexprofile</strong> — 암호화 파일 (패스프레이즈 필요)
             </p>
             {importError && <div className={styles.errorMsg}>{importError}</div>}
             <label className={styles.field}>
-              <span>패스프레이즈</span>
+              <span>패스프레이즈 (.nexprofile 파일만)</span>
               <input
                 type="password"
                 value={importPassphrase}
                 onChange={(e) => setImportPassphrase(e.target.value)}
-                placeholder="패스프레이즈 입력"
+                placeholder="JSON 파일은 비워두세요"
                 autoFocus
               />
             </label>
@@ -517,7 +535,7 @@ export default function ProfileModal() {
               <button
                 type="button"
                 className={styles.saveBtn}
-                disabled={isImporting || !importPassphrase.trim()}
+                disabled={isImporting}
                 onClick={() => importFileRef.current?.click()}
               >
                 {isImporting ? "가져오는 중..." : "파일 선택 및 가져오기"}
@@ -525,7 +543,7 @@ export default function ProfileModal() {
               <input
                 ref={importFileRef}
                 type="file"
-                accept=".nexprofile,application/octet-stream"
+                accept=".json,.nexprofile,application/json,application/octet-stream"
                 style={{ display: "none" }}
                 onChange={handleImportFile}
               />
@@ -535,9 +553,9 @@ export default function ProfileModal() {
       </div>
     )}
 
-    {/* Export 패스프레이즈 모달 */}
+    {/* Export 패스프레이즈 모달 — 본체 overlay(z-index 1000)보다 위에 표시 */}
     {exportingId && (
-      <div className={styles.overlay} style={{ zIndex: 200 }}>
+      <div className={styles.overlay} style={{ zIndex: 1100 }}>
         <div className={styles.modal} style={{ maxWidth: 420 }}>
           <div className={styles.header}>
             <span className={styles.title}>프로필 내보내기</span>
@@ -841,6 +859,14 @@ export default function ProfileModal() {
                       placeholder="cdn.example.com"
                     />
                   </label>
+                  <label className={styles.field}>
+                    <span>CP Code (폴더/전체 Purge용, 선택)</span>
+                    <input
+                      value={form.akamaiCpCode}
+                      onChange={setField("akamaiCpCode")}
+                      placeholder="123456"
+                    />
+                  </label>
                 </>
               )}
 
@@ -880,15 +906,15 @@ export default function ProfileModal() {
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>CDN 도메인 (FQDN) *</span>
+                    <span>Edge Domain (서비스 도메인) *</span>
                     <input
                       value={form.cdnDomain}
                       onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
+                      placeholder="sklbtest.lgucdn.co.kr"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API 엔드포인트</span>
+                    <span>API 엔드포인트 (FQDN)</span>
                     <input
                       value={form.lguplusEndpoint}
                       onChange={setField("lguplusEndpoint")}
@@ -934,19 +960,19 @@ export default function ProfileModal() {
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>CDN 도메인 (FQDN) *</span>
+                    <span>Edge Domain (서비스 도메인) *</span>
                     <input
                       value={form.cdnDomain}
                       onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
+                      placeholder="sklbtest.ktcdn.co.kr"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API 엔드포인트</span>
+                    <span>API 엔드포인트 (FQDN)</span>
                     <input
                       value={form.ktEndpoint}
                       onChange={setField("ktEndpoint")}
-                      placeholder="https://api.ktcdn.co.kr (기본값)"
+                      placeholder="https://api.ktcdn.co.kr (기본값, 계약에 따라 https://api.ktcdn.com)"
                     />
                   </label>
                 </>

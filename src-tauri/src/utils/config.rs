@@ -67,6 +67,9 @@ pub struct ProfileConfig {
     /// Akamai EdgeGrid API ?몄뒪??(e.g. akab-xxxx.luna.akamaiapis.net)
     #[serde(rename = "akamaiHost", skip_serializing_if = "Option::is_none")]
     pub akamai_host: Option<String>,
+    /// Akamai Purge 대상 CP Code — 폴더/전체(와일드카드) Purge에 사용
+    #[serde(rename = "akamaiCpCode", skip_serializing_if = "Option::is_none")]
+    pub akamai_cp_code: Option<String>,
     // LG U+ CDN — username/password 기반 JWT 인증
     #[serde(rename = "lguplusUsername", skip_serializing_if = "Option::is_none")]
     pub lguplus_username: Option<String>,
@@ -142,6 +145,17 @@ pub struct CdnProviderConfig {
     pub distribution_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
+}
+
+/// 멀티 CDN 프로필: cdn_providers 항목의 provider별 도메인 우선, 없으면 공용 cdn_domain
+pub fn provider_domain(profile: &ProfileConfig, provider: &str) -> Option<String> {
+    profile
+        .cdn_providers
+        .iter()
+        .find(|c| c.provider == provider)
+        .and_then(|c| c.domain.clone())
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| profile.cdn_domain.clone())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,6 +290,8 @@ pub enum CdnCredentials {
         access_token: String,
         host: String,
         cdn_domain: String,
+        /// 폴더/전체(와일드카드) Purge용 CP Code (선택)
+        cp_code: Option<String>,
     },
     /// LG U+ CDN (Solbox CDN v3) — JWT 인증
     Lguplus {
@@ -514,7 +530,7 @@ impl ProfileStore {
                 Ok(CdnCredentials::CloudFront(creds))
             }
             "akamai" => {
-                let (client_token, access_token, host, cdn_domain) = {
+                let (client_token, access_token, host, cdn_domain, cp_code) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
@@ -524,7 +540,8 @@ impl ProfileStore {
                         profile.akamai_client_token.clone().unwrap_or_default(),
                         profile.akamai_access_token.clone().unwrap_or_default(),
                         profile.akamai_host.clone().unwrap_or_default(),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        provider_domain(profile, "akamai").unwrap_or_default(),
+                        profile.akamai_cp_code.clone(),
                     )
                 }; // RwLockReadGuard ?댁젣 ??keyring ?몄텧
                 let akamai_key = format!("{}_akamai", profile_id);
@@ -538,6 +555,7 @@ impl ProfileStore {
                     access_token,
                     host,
                     cdn_domain,
+                    cp_code,
                 })
             }
             "lguplus" => {
@@ -553,20 +571,24 @@ impl ProfileStore {
                         profile.lguplus_volume_name.clone().unwrap_or_default(),
                         profile.lguplus_endpoint.clone()
                             .unwrap_or_else(|| "https://api.lgucdn.com".to_owned()),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        provider_domain(profile, "lguplus").unwrap_or_default(),
                     )
                 };
-                if username.trim().is_empty()
-                    || service_name.trim().is_empty()
-                    || cdn_domain.trim().is_empty()
-                {
-                    return Err(anyhow::anyhow!("LG U+ CDN credentials are incomplete"));
+                let mut missing = Vec::new();
+                if username.trim().is_empty() { missing.push("Username"); }
+                if service_name.trim().is_empty() { missing.push("Service Name"); }
+                if cdn_domain.trim().is_empty() { missing.push("Edge Domain"); }
+                if !missing.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "LG U+ CDN 설정 누락: {} — 프로필에 입력하고 저장한 뒤 다시 시도하세요",
+                        missing.join(", ")
+                    ));
                 }
                 let lguplus_key = format!("{}_lguplus", profile_id);
                 let password = Entry::new(KEYRING_SERVICE, &lguplus_key)
                     .context("LG U+ Keyring entry creation failed")?
                     .get_password()
-                    .context("LG U+ Keyring load failed")?;
+                    .context("LG U+ Password가 저장되어 있지 않습니다 — 프로필에서 Password를 입력하고 저장하세요")?;
                 Ok(CdnCredentials::Lguplus {
                     username,
                     password,
@@ -591,14 +613,18 @@ impl ProfileStore {
                     (
                         profile.hyosung_api_key.clone().unwrap_or_default(),
                         ep,
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        provider_domain(profile, "hyosung").unwrap_or_default(),
                     )
                 };
-                if api_key.trim().is_empty()
-                    || endpoint.trim().is_empty()
-                    || cdn_domain.trim().is_empty()
-                {
-                    return Err(anyhow::anyhow!("Hyosung CDN credentials are incomplete"));
+                let mut missing = Vec::new();
+                if api_key.trim().is_empty() { missing.push("API Key"); }
+                if endpoint.trim().is_empty() { missing.push("API 엔드포인트"); }
+                if cdn_domain.trim().is_empty() { missing.push("CDN 도메인"); }
+                if !missing.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "효성 ITX CDN 설정 누락: {} — 프로필에 입력하고 저장한 뒤 다시 시도하세요",
+                        missing.join(", ")
+                    ));
                 }
                 let hyosung_key = format!("{}_hyosung", profile_id);
                 let api_secret = Entry::new(KEYRING_SERVICE, &hyosung_key)
@@ -625,20 +651,24 @@ impl ProfileStore {
                         profile.kt_volume_name.clone().unwrap_or_default(),
                         profile.kt_endpoint.clone()
                             .unwrap_or_else(|| "https://api.ktcdn.co.kr".to_owned()),
-                        profile.cdn_domain.clone().unwrap_or_default(),
+                        provider_domain(profile, "kt").unwrap_or_default(),
                     )
                 };
-                if username.trim().is_empty()
-                    || service_name.trim().is_empty()
-                    || cdn_domain.trim().is_empty()
-                {
-                    return Err(anyhow::anyhow!("KT CDN credentials are incomplete"));
+                let mut missing = Vec::new();
+                if username.trim().is_empty() { missing.push("Username"); }
+                if service_name.trim().is_empty() { missing.push("Service Name"); }
+                if cdn_domain.trim().is_empty() { missing.push("Edge Domain"); }
+                if !missing.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "KT CDN 설정 누락: {} — 프로필에 입력하고 저장한 뒤 다시 시도하세요",
+                        missing.join(", ")
+                    ));
                 }
                 let kt_key = format!("{}_kt", profile_id);
                 let password = Entry::new(KEYRING_SERVICE, &kt_key)
                     .context("KT Keyring entry creation failed")?
                     .get_password()
-                    .context("KT Keyring load failed")?;
+                    .context("KT Password가 저장되어 있지 않습니다 — 프로필에서 Password를 입력하고 저장하세요")?;
                 Ok(CdnCredentials::Kt {
                     username,
                     password,
@@ -723,8 +753,7 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             {
                 return Err(anyhow::anyhow!("CloudFront Distribution ID is required"));
             }
-            if profile
-                .cdn_domain
+            if provider_domain(profile, "cloudfront")
                 .as_deref()
                 .map(|value| value.trim().is_empty())
                 .unwrap_or(true)
@@ -734,6 +763,7 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             Ok(())
         }
         Some("akamai") => {
+            let domain = provider_domain(profile, "akamai");
             for (label, value) in [
                 ("Akamai EdgeGrid host", profile.akamai_host.as_deref()),
                 (
@@ -744,7 +774,7 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
                     "Akamai Access Token",
                     profile.akamai_access_token.as_deref(),
                 ),
-                ("Akamai CDN domain", profile.cdn_domain.as_deref()),
+                ("Akamai CDN domain", domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));
@@ -753,10 +783,11 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             Ok(())
         }
         Some("lguplus") => {
+            let domain = provider_domain(profile, "lguplus");
             for (label, value) in [
                 ("LG U+ CDN Username", profile.lguplus_username.as_deref()),
                 ("LG U+ CDN Service Name", profile.lguplus_service_name.as_deref()),
-                ("LG U+ CDN Domain", profile.cdn_domain.as_deref()),
+                ("LG U+ CDN Edge Domain", domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));
@@ -765,9 +796,10 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             Ok(())
         }
         Some("hyosung") => {
+            let domain = provider_domain(profile, "hyosung");
             for (label, value) in [
                 ("Hyosung CDN API Key", profile.hyosung_api_key.as_deref()),
-                ("Hyosung CDN Domain", profile.cdn_domain.as_deref()),
+                ("Hyosung CDN Domain", domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));
@@ -776,10 +808,11 @@ fn validate_profile(profile: &ProfileConfig) -> Result<()> {
             Ok(())
         }
         Some("kt") => {
+            let domain = provider_domain(profile, "kt");
             for (label, value) in [
                 ("KT CDN Username", profile.kt_username.as_deref()),
                 ("KT CDN Service Name", profile.kt_service_name.as_deref()),
-                ("KT CDN Domain", profile.cdn_domain.as_deref()),
+                ("KT CDN Edge Domain", domain.as_deref()),
             ] {
                 if value.map(|v| v.trim().is_empty()).unwrap_or(true) {
                     return Err(anyhow::anyhow!("{} is required", label));

@@ -9,7 +9,7 @@ import type {
   LogCategory,
   PanelState,
   SyncPlan,
-  SyncPreviewResult,
+  CdnProvider,
 } from "../types";
 
 // C-2: 프로필 목록을 전역 상태로 관리 — 훅 인스턴스별 분리 방지
@@ -21,6 +21,9 @@ interface AppState {
   activeProfile: S3Profile | null;
   isConnected: boolean;
   isConnecting: boolean;
+
+  // 멀티 CDN 프로필에서 현재 Purge 대상 CDN (툴바에서 전환)
+  activeCdn: CdnProvider | null;
 
   // Profiles (전역 공유 — C-2 fix)
   profiles: S3Profile[];
@@ -46,8 +49,6 @@ interface AppState {
 
   // Sync plan (업로드 전 ETag 비교 결과 — 상태 배지 표시용)
   syncPlan: SyncPlan | null;
-  syncPreview: SyncPreviewResult | null;
-  showSyncPreview: boolean;
 
   // Log
   logs: LogEntry[];
@@ -78,6 +79,7 @@ interface AppState {
   setActiveProfile: (profile: S3Profile | null) => void;
   setConnected: (connected: boolean) => void;
   setConnecting: (connecting: boolean) => void;
+  setActiveCdn: (provider: CdnProvider | null) => void;
 
   // Actions — Local panel
   setLocalPath: (path: string) => void;
@@ -100,8 +102,6 @@ interface AppState {
   setTransferring: (transferring: boolean) => void;
   setShowProgressDialog: (show: boolean) => void;
   setSyncPlan: (plan: SyncPlan | null) => void;
-  setSyncPreview: (preview: SyncPreviewResult | null) => void;
-  setShowSyncPreview: (show: boolean) => void;
 
   // Actions — Log
   addLog: (level: LogLevel, message: string, category?: LogCategory, metadata?: Record<string, unknown>) => void;
@@ -143,6 +143,7 @@ export const useAppStore = create<AppState>()(
     activeProfile: null,
     isConnected: false,
     isConnecting: false,
+    activeCdn: null,
 
     // ── Profiles ──────────────────────────────────────────────────────────────
     profiles: [],
@@ -164,8 +165,6 @@ export const useAppStore = create<AppState>()(
     isTransferring: false,
     showProgressDialog: false,
     syncPlan: null,
-    syncPreview: null,
-    showSyncPreview: false,
 
     // ── Log ───────────────────────────────────────────────────────────────────
     logs: [],
@@ -196,6 +195,7 @@ export const useAppStore = create<AppState>()(
     setActiveProfile: (profile) => set({ activeProfile: profile }),
     setConnected: (connected) => set({ isConnected: connected }),
     setConnecting: (connecting) => set({ isConnecting: connecting }),
+    setActiveCdn: (activeCdn) => set({ activeCdn }),
 
     // ── Local Panel Actions ───────────────────────────────────────────────────
     setLocalPath: (path) =>
@@ -246,8 +246,6 @@ export const useAppStore = create<AppState>()(
     setTransferring: (isTransferring) => set({ isTransferring }),
     setShowProgressDialog: (showProgressDialog) => set({ showProgressDialog }),
     setSyncPlan: (syncPlan) => set({ syncPlan }),
-    setSyncPreview: (syncPreview) => set({ syncPreview }),
-    setShowSyncPreview: (showSyncPreview) => set({ showSyncPreview }),
 
     // ── Log Actions ───────────────────────────────────────────────────────────
     addLog: (level, message, category, metadata) =>

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
+import { availableCdns } from "../utils/cdn";
 import type { S3Profile } from "../types";
 
 type S3ConnectionTestResult = {
@@ -25,6 +26,7 @@ export function useProfile() {
     setProfiles,
     setLastProfileId,
     setRemotePath,
+    setActiveCdn,
   } = useAppStore((s) => ({
     setActiveProfile: s.setActiveProfile,
     setConnected: s.setConnected,
@@ -34,6 +36,7 @@ export function useProfile() {
     setProfiles: s.setProfiles,
     setLastProfileId: s.setLastProfileId,
     setRemotePath: s.setRemotePath,
+    setActiveCdn: s.setActiveCdn,
   }));
 
   const loadProfiles = useCallback(async () => {
@@ -99,6 +102,13 @@ export function useProfile() {
         const result = await runtime.invoke<S3ConnectionTestResult>("connect_s3", { profileId: profile.id });
         setRemotePath(normalizePrefix(profile.basePrefix));
         setConnected(true);
+        // Purge 대상 CDN 초기화: 프로필 기본 CDN → 없으면 사용 가능한 첫 CDN
+        const cdns = availableCdns(profile);
+        setActiveCdn(
+          profile.cdnProvider && cdns.includes(profile.cdnProvider)
+            ? profile.cdnProvider
+            : cdns[0] ?? null
+        );
         // H-7: 마지막 연결 프로파일 저장
         setLastProfileId(profile.id);
         await runtime.invoke("save_last_profile_id", { id: profile.id });
@@ -113,14 +123,15 @@ export function useProfile() {
         setConnecting(false);
       }
     },
-    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, addLog]
+    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, setActiveCdn, addLog]
   );
 
   const disconnect = useCallback(() => {
     setActiveProfile(null);
     setConnected(false);
+    setActiveCdn(null);
     addLog("info", "연결 해제됨", "system");
-  }, [setActiveProfile, setConnected, addLog]);
+  }, [setActiveProfile, setConnected, setActiveCdn, addLog]);
 
   const exportProfile = useCallback(
     async (profileId: string, passphrase: string): Promise<string> => {

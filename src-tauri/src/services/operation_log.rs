@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 const OPERATION_LOGS_FILENAME: &str = "operation_logs.json";
+const LOG_FILES_DIR: &str = "logs";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationLog {
@@ -64,6 +65,77 @@ impl OperationLogService {
         self.data_dir.join(OPERATION_LOGS_FILENAME)
     }
 
+    /// 날짜별 텍스트 로그 파일이 쌓이는 폴더 (예: .../cdn-upload-tool/logs)
+    pub fn log_files_dir(&self) -> PathBuf {
+        self.data_dir.join(LOG_FILES_DIR)
+    }
+
+    /// 사람이 읽을 수 있는 한 줄 요약을 날짜별 로그 파일에 append
+    async fn append_log_file(&self, log: &OperationLog) -> Result<()> {
+        let dir = self.log_files_dir();
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .context("log files directory creation failed")?;
+
+        let now = chrono::Local::now();
+        let file_path = dir.join(format!("nexuspurge-{}.log", now.format("%Y-%m-%d")));
+
+        let mut lines = Vec::new();
+        let file_count = log.files.len();
+        lines.push(format!(
+            "[{}] {} {} | bucket={} prefix={} files={}",
+            now.format("%Y-%m-%d %H:%M:%S"),
+            log.operation.to_uppercase(),
+            log.status.to_uppercase(),
+            log.bucket.as_deref().unwrap_or("-"),
+            log.prefix.as_deref().unwrap_or("-"),
+            file_count,
+        ));
+        for file in &log.files {
+            let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+            let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+            let error = file.get("error").and_then(|v| v.as_str());
+            match error {
+                Some(err) => lines.push(format!("  - {} [{}] error: {}", path, status, err)),
+                None => lines.push(format!("  - {} [{}]", path, status)),
+            }
+        }
+        for purge in &log.purge_results {
+            let provider = purge.get("provider").and_then(|v| v.as_str()).unwrap_or("-");
+            let status = purge.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+            let request_id = purge.get("requestId").and_then(|v| v.as_str());
+            let error = purge.get("error").and_then(|v| v.as_str());
+            let url_count = purge
+                .get("urls")
+                .and_then(|v| v.as_array())
+                .map(|urls| urls.len())
+                .unwrap_or(0);
+            let mut line = format!("  * PURGE {} [{}] urls={}", provider, status, url_count);
+            if let Some(id) = request_id {
+                line.push_str(&format!(" requestId={}", id));
+            }
+            if let Some(err) = error {
+                line.push_str(&format!(" error: {}", err));
+            }
+            lines.push(line);
+        }
+        lines.push(String::new());
+
+        let mut content = lines.join("\n");
+        content.push('\n');
+
+        use tokio::io::AsyncWriteExt;
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .await
+            .context("log file open failed")?;
+        file.write_all(content.as_bytes())
+            .await
+            .context("log file write failed")
+    }
+
     pub async fn list_recent(&self) -> Result<Vec<OperationLog>> {
         let path = self.path();
         if !path.exists() {
@@ -83,6 +155,12 @@ impl OperationLogService {
         tokio::fs::create_dir_all(&self.data_dir)
             .await
             .context("operation log directory creation failed")?;
+
+        // 날짜별 텍스트 로그 파일에도 기록 (실패해도 JSON 저장은 계속)
+        if let Err(err) = self.append_log_file(&log).await {
+            tracing::warn!("operation log file append failed: {}", err);
+        }
+
         let mut logs = self.list_recent().await?;
         logs.retain(|item| item.id != log.id);
         logs.insert(0, log);

@@ -30,6 +30,7 @@ export interface S3Profile {
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
   akamaiAccessToken?: string;     // Akamai EdgeGrid access token
   akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
+  akamaiCpCode?: string;          // Purge 대상 CP Code — 폴더/전체(와일드카드) Purge에 사용
   // LG U+ CDN (Solbox CDN v2)
   lguplusUsername?: string;
   lguplusPassword?: string;    // keyring에 저장, 로드 시 빈 값

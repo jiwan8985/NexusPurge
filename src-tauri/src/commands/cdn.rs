@@ -117,6 +117,7 @@ pub async fn test_cdn_connection(
                 access_token,
                 host,
                 cdn_domain,
+                cp_code: _,
             } => {
                 if cdn_domain.trim().is_empty() {
                     return Err("Akamai CDN domain is required".to_string());
@@ -310,14 +311,19 @@ pub async fn get_purge_status(
 pub async fn verify_cdn_urls(
     profile_id: String,
     paths: Vec<String>,
+    provider: Option<String>,
     store: State<'_, ProfileStore>,
 ) -> Result<Vec<CdnUrlCheck>, String> {
     let profile = store
         .get_profile(&profile_id)
         .await
         .map_err(|e| e.to_string())?;
-    let cdn_domain = profile
-        .cdn_domain
+    // 멀티 CDN 프로필: 선택된 provider의 도메인 우선, 없으면 공용 cdn_domain
+    let cdn_domain = provider
+        .as_deref()
+        .or(profile.cdn_provider.as_deref())
+        .and_then(|prov| crate::utils::config::provider_domain(&profile, prov))
+        .or_else(|| profile.cdn_domain.clone())
         .filter(|domain| !domain.trim().is_empty())
         .ok_or_else(|| "CDN domain is required".to_string())?;
 

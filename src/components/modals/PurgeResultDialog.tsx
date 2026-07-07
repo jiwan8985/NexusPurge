@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import type { PurgeExecutionResult, CdnProvider } from "../../types";
 import styles from "./PurgeResultDialog.module.css";
 
@@ -71,7 +72,7 @@ export default function PurgeResultDialog({ result, onClose }: Props) {
   const failedBatches = result.batches.filter((b) => !b.success);
   const elapsed = elapsedSec(result.startedAt, result.finishedAt);
 
-  return (
+  return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
 
@@ -282,6 +283,7 @@ export default function PurgeResultDialog({ result, onClose }: Props) {
           <button className={styles.closeFullBtn} onClick={onClose}>닫기</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
