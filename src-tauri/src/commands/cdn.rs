@@ -1,7 +1,6 @@
 use crate::adapters::cdn;
 use crate::utils::config::CdnCredentials;
 use crate::utils::config::ProfileStore;
-use reqwest::header::{CACHE_CONTROL, ETAG, LAST_MODIFIED, RANGE};
 use serde::Serialize;
 use tauri::State;
 
@@ -31,20 +30,6 @@ pub struct CdnPurgeStatusResult {
     pub provider: String,
     pub status: Option<String>,
     pub message: Option<String>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CdnUrlCheck {
-    pub url: String,
-    pub ok: bool,
-    #[serde(rename = "statusCode")]
-    pub status_code: Option<u16>,
-    pub etag: Option<String>,
-    #[serde(rename = "lastModified")]
-    pub last_modified: Option<String>,
-    #[serde(rename = "cacheControl")]
-    pub cache_control: Option<String>,
     pub error: Option<String>,
 }
 
@@ -307,101 +292,6 @@ pub async fn get_purge_status(
     }
 }
 
-#[tauri::command]
-pub async fn verify_cdn_urls(
-    profile_id: String,
-    paths: Vec<String>,
-    provider: Option<String>,
-    store: State<'_, ProfileStore>,
-) -> Result<Vec<CdnUrlCheck>, String> {
-    let profile = store
-        .get_profile(&profile_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    // 멀티 CDN 프로필: 선택된 provider의 도메인 우선, 없으면 공용 cdn_domain
-    let cdn_domain = provider
-        .as_deref()
-        .or(profile.cdn_provider.as_deref())
-        .and_then(|prov| crate::utils::config::provider_domain(&profile, prov))
-        .or_else(|| profile.cdn_domain.clone())
-        .filter(|domain| !domain.trim().is_empty())
-        .ok_or_else(|| "CDN domain is required".to_string())?;
-
-    let cdn_base_path = profile.cdn_base_path.clone();
-
-    let client = reqwest::Client::builder()
-        .use_native_tls()
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let mut checks = Vec::with_capacity(paths.len());
-    for path in paths {
-        let url = build_cdn_url(&cdn_domain, &path, cdn_base_path.as_deref());
-        checks.push(check_cdn_url(&client, url).await);
-    }
-
-    Ok(checks)
-}
-
-fn build_cdn_url(cdn_domain: &str, path: &str, cdn_base_path: Option<&str>) -> String {
-    // S3 키에서 CDN base path를 제거 (예: "contents/file.txt" + base "contents/" → "file.txt")
-    let effective_path = if let Some(base) = cdn_base_path.filter(|b| !b.trim().is_empty()) {
-        let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
-        let prefix = format!("{}/", base_stripped);
-        let key_stripped = path.trim_start_matches('/');
-        if key_stripped.starts_with(&prefix) {
-            &key_stripped[prefix.len()..]
-        } else {
-            key_stripped
-        }
-    } else {
-        path.trim_start_matches('/')
-    };
-    cdn::build_cdn_url(cdn_domain, effective_path)
-}
-
-async fn check_cdn_url(client: &reqwest::Client, url: String) -> CdnUrlCheck {
-    let response = match client.head(&url).send().await {
-        Ok(resp) if resp.status().as_u16() != 405 => Ok(resp),
-        _ => client.get(&url).header(RANGE, "bytes=0-0").send().await,
-    };
-
-    match response {
-        Ok(resp) => {
-            let status = resp.status();
-            let headers = resp.headers();
-            // 403: CDN이 응답했으므로 CDN 자체는 동작 중.
-            // 접근 제한(IP 제한, 서명 URL 필요 등)은 purge 성공 여부와 무관.
-            let is_access_restricted = status.as_u16() == 403;
-            CdnUrlCheck {
-                url,
-                ok: status.is_success() || is_access_restricted,
-                status_code: Some(status.as_u16()),
-                etag: header_to_string(headers.get(ETAG)),
-                last_modified: header_to_string(headers.get(LAST_MODIFIED)),
-                cache_control: header_to_string(headers.get(CACHE_CONTROL)),
-                error: if status.is_success() || is_access_restricted {
-                    None
-                } else {
-                    Some(status.to_string())
-                },
-            }
-        }
-        Err(err) => CdnUrlCheck {
-            url,
-            ok: false,
-            status_code: None,
-            etag: None,
-            last_modified: None,
-            cache_control: None,
-            error: Some(err.to_string()),
-        },
-    }
-}
-
-fn header_to_string(value: Option<&reqwest::header::HeaderValue>) -> Option<String> {
-    value.and_then(|v| v.to_str().ok()).map(ToOwned::to_owned)
-}
 
 /// H-6: 공급자별 CDN Purge 및 CdnCredentials 기반으로 Akamai 지원
 #[tauri::command]

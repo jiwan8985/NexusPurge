@@ -4,11 +4,12 @@ import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
+import { usePurge } from "../../hooks/usePurge";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
-import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
-import { CDN_LABELS, cdnDomainFor } from "../../utils/cdn";
-import type { CdnUrlCheck, FileItem } from "../../types";
+import PurgeDialog from "../modals/PurgeDialog";
+import PurgeResultDialog from "../modals/PurgeResultDialog";
+import type { FileItem, PurgeExecutionResult } from "../../types";
 import styles from "./Panel.module.css";
 
 function fmtSize(bytes: number) {
@@ -38,7 +39,6 @@ export default function RemotePanel() {
     activeCdn,
     toggleRemoteSelection,
     clearRemoteSelection,
-    addLog,
     setFocusedSide,
     remoteRefreshKey,
     focusedSide,
@@ -49,7 +49,6 @@ export default function RemotePanel() {
     activeCdn:            s.activeCdn,
     toggleRemoteSelection: s.toggleRemoteSelection,
     clearRemoteSelection: s.clearRemoteSelection,
-    addLog:               s.addLog,
     setFocusedSide:       s.setFocusedSide,
     remoteRefreshKey:     s.remoteRefreshKey,
     focusedSide:          s.focusedSide,
@@ -57,11 +56,14 @@ export default function RemotePanel() {
 
   const { listObjects, deleteObjects, renameObject } = useS3();
   const { startUpload, startDownload } = useTransfer();
+  const { executePurge, isPurging } = usePurge();
   const [pathInput, setPathInput] = useState(remote.path);
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
+  const [purgeDialog, setPurgeDialog] = useState<{ paths: string[] } | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
@@ -93,29 +95,6 @@ export default function RemotePanel() {
     pathInputRef.current?.blur();
   };
 
-  const verifyCdnUrl = async (file: FileItem) => {
-    if (!activeProfile) return;
-    try {
-      const [check] = await runtime.invoke<CdnUrlCheck[]>("verify_cdn_urls", {
-        profileId: activeProfile.id,
-        paths: [file.path],
-        provider: activeCdn,
-      });
-      const cdnLabel = activeCdn ? `[${CDN_LABELS[activeCdn]}] ` : "";
-      if (check?.ok) {
-        addLog("success", `CDN 확인 성공 ${cdnLabel}${check.url} (${check.statusCode})`, "cdn");
-      } else {
-        addLog(
-          "warn",
-          `CDN 확인 실패 ${cdnLabel}${check?.url ?? file.name} (${check?.error ?? check?.statusCode ?? "응답 없음"})`,
-          "cdn"
-        );
-      }
-    } catch (err) {
-      addLog("error", `CDN 확인 오류: ${err}`, "cdn");
-    }
-  };
-
   const renameRemoteFile = (file: FileItem) => {
     setCtxMenu(null);
     setRenameDialog(file);
@@ -131,16 +110,21 @@ export default function RemotePanel() {
 
   const buildMenuItems = (file: FileItem): MenuEntry[] => {
     return [
+      ...(file.isDirectory
+        ? [{ label: "폴더 열기", action: () => void loadPrefix(file.path), disabled: !isConnected }]
+        : []),
       {
-        label: file.isDirectory ? "폴더 열기" : "다운로드",
-        action: () => (file.isDirectory ? loadPrefix(file.path) : void startDownload([file.path])),
+        label: file.isDirectory ? "폴더 다운로드" : "다운로드",
+        action: () => void startDownload([file.path]),
         disabled: !isConnected,
       },
       { divider: true },
       {
-        label: "CDN 반영 확인",
-        action: () => verifyCdnUrl(file),
-        disabled: !isConnected || file.isDirectory || !cdnDomainFor(activeProfile, activeCdn),
+        // 폴더는 하위 전체를 커버하도록 와일드카드로 Purge
+        label: file.isDirectory ? "Purge (폴더 전체)" : "Purge",
+        action: () =>
+          setPurgeDialog({ paths: [file.isDirectory ? `${file.path}*` : file.path] }),
+        disabled: !isConnected || !activeCdn || isPurging,
       },
       { divider: true },
       {
@@ -361,6 +345,23 @@ export default function RemotePanel() {
           }}
           onCancel={() => setRenameDialog(null)}
         />
+      )}
+
+      {purgeDialog && (
+        <PurgeDialog
+          paths={purgeDialog.paths}
+          mode="selected"
+          onConfirm={async () => {
+            const paths = purgeDialog.paths;
+            setPurgeDialog(null);
+            const result = await executePurge(paths);
+            if (result) setPurgeResult(result);
+          }}
+          onCancel={() => setPurgeDialog(null)}
+        />
+      )}
+      {purgeResult && (
+        <PurgeResultDialog result={purgeResult} onClose={() => setPurgeResult(null)} />
       )}
     </div>
   );

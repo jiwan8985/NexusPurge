@@ -439,8 +439,8 @@ impl S3Adapter {
         }
     }
 
-    /// List every object key under the prefix (no delimiter) — used for folder deletion.
-    async fn list_keys_recursive(&self, prefix: &str) -> Result<Vec<String>> {
+    /// List every object key under the prefix (no delimiter) — used for folder deletion/download.
+    pub async fn list_keys_recursive(&self, prefix: &str) -> Result<Vec<String>> {
         let mut keys = Vec::new();
         let mut token: Option<String> = None;
         loop {

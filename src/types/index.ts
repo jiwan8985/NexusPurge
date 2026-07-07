@@ -349,16 +349,6 @@ export interface LogShippingState {
   error?: string;
 }
 
-export interface CdnUrlCheck {
-  url: string;
-  ok: boolean;
-  statusCode?: number;
-  etag?: string;
-  lastModified?: string;
-  cacheControl?: string;
-  error?: string;
-}
-
 // ─── Log ─────────────────────────────────────────────────────────────────────
 
 export type LogLevel = "info" | "warn" | "error" | "success" | "debug";

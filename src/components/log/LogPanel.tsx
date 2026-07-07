@@ -5,9 +5,8 @@ import { runtime } from "../../services/runtime";
 import type { LogEntry, TransferItem } from "../../types";
 import styles from "./LogPanel.module.css";
 
-type Tab = "log" | "queue" | "errors";
+type Tab = "log" | "errors";
 type LevelFilter = "all" | "error" | "warn";
-type CategoryFilter = "all" | "cdn" | "transfer";
 
 const CATEGORY_LABEL: Record<string, string> = {
   cdn:      "CDN",
@@ -91,7 +90,6 @@ export default function LogPanel() {
 
   const [tab, setTab] = useState<Tab>("log");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -105,10 +103,8 @@ export default function LogPanel() {
   const errorTransfers = transfers.filter((t) => t.status === "error");
 
   const filteredLogs = logs.filter((log) => {
-    if (levelFilter === "error") { if (log.level !== "error") return false; }
-    else if (levelFilter === "warn") { if (log.level !== "error" && log.level !== "warn") return false; }
-    if (categoryFilter === "cdn")      return log.category === "cdn";
-    if (categoryFilter === "transfer") return log.category === "transfer";
+    if (levelFilter === "error") return log.level === "error";
+    if (levelFilter === "warn") return log.level === "error" || log.level === "warn";
     return true;
   });
 
@@ -154,18 +150,6 @@ export default function LogPanel() {
     window.setTimeout(() => setCopyStatus("idle"), 1500);
   };
 
-  const saveLog = () => {
-    const blob = new Blob([formatLogs()], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `nexuspurge-${new Date().toISOString().slice(0, 10)}.log`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   const openLogDir = async () => {
     try {
       const path = await runtime.invoke<string>("open_operation_log_dir");
@@ -186,7 +170,6 @@ export default function LogPanel() {
 
   const tabs: { key: Tab; label: string; badge?: number }[] = [
     { key: "log",    label: "작업 로그",   badge: errorCount > 0 ? errorCount : undefined },
-    { key: "queue",  label: "전송 큐",     badge: undefined },
     { key: "errors", label: "실패 항목",   badge: errorTransfers.length > 0 ? errorTransfers.length : undefined },
   ];
 
@@ -212,35 +195,21 @@ export default function LogPanel() {
 
         <div className={styles.headerActions}>
           {tab === "log" && (
-            <>
-              <div className={styles.levelFilters}>
-                {(["all", "cdn", "transfer"] as CategoryFilter[]).map((f) => (
-                  <button
-                    key={f}
-                    className={`${styles.filterBtn} ${categoryFilter === f ? styles.filterActive : ""}`}
-                    onClick={() => setCategoryFilter(f)}
-                  >
-                    {f === "all" ? "전체" : f === "cdn" ? "CDN/Purge" : "전송"}
-                  </button>
-                ))}
-              </div>
-              <div className={styles.levelFilters}>
-                {(["all", "warn", "error"] as LevelFilter[]).map((f) => (
-                  <button
-                    key={f}
-                    className={`${styles.filterBtn} ${levelFilter === f ? styles.filterActive : ""} ${f !== "all" ? styles[`filter_${f}`] : ""}`}
-                    onClick={() => setLevelFilter(f)}
-                  >
-                    {f === "all" ? "전체" : f === "warn" ? "경고+" : "오류"}
-                  </button>
-                ))}
-              </div>
-            </>
+            <div className={styles.levelFilters}>
+              {(["all", "warn", "error"] as LevelFilter[]).map((f) => (
+                <button
+                  key={f}
+                  className={`${styles.filterBtn} ${levelFilter === f ? styles.filterActive : ""} ${f !== "all" ? styles[`filter_${f}`] : ""}`}
+                  onClick={() => setLevelFilter(f)}
+                >
+                  {f === "all" ? "전체" : f === "warn" ? "경고+" : "오류"}
+                </button>
+              ))}
+            </div>
           )}
           <button className={styles.actionBtn} onClick={copyLog} disabled={logs.length === 0}>
             {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Failed" : "Copy"}
           </button>
-          <button className={styles.actionBtn} onClick={saveLog}>저장</button>
           <button className={styles.actionBtn} onClick={openLogDir} title="작업 로그 파일이 저장되는 폴더 열기">
             로그 폴더
           </button>
@@ -259,19 +228,6 @@ export default function LogPanel() {
               filteredLogs.map((entry) => <LogRow key={entry.id} entry={entry} />)
             )}
             <div ref={bottomRef} />
-          </div>
-        )}
-
-        {tab === "queue" && (
-          <div className={styles.logList}>
-            {transfers.length === 0 ? (
-              <div className={styles.empty}>전송 대기 항목이 없습니다.</div>
-            ) : (
-              [...transfers]
-                .filter((t) => t.status !== "error")
-                .reverse()
-                .map((t) => <TransferRow key={t.id} item={t} />)
-            )}
           </div>
         )}
 

@@ -25,10 +25,11 @@ interface TransferCompleteEvent {
 }
 
 // C-4: Windows 경로 구분자 혼용 방지 — local.path가 '\' 포함 시 '\' 사용
+// fileName에 "/"가 포함된 상대경로(폴더 다운로드)도 OS 구분자로 통일
 function joinPath(dir: string, fileName: string): string {
   const normalized = dir.replace(/[/\\]$/, "");
   const sep = normalized.includes("\\") ? "\\" : "/";
-  return `${normalized}${sep}${fileName}`;
+  return `${normalized}${sep}${fileName.split("/").join(sep)}`;
 }
 
 export function useTransfer() {
@@ -354,20 +355,42 @@ export function useTransfer() {
 
     setTransferring(true);
     setShowProgressDialog(true);
-    addLog("info", `다운로드 시작: ${selectedKeys.length}개 파일`, "transfer");
 
     try {
-      const downloadItems = selectedKeys.map((key) => {
+      // 폴더("…/")는 하위 전체 키로 확장, 로컬에는 폴더 구조 그대로 저장
+      const entries: { key: string; rel: string }[] = [];
+      for (const key of selectedKeys) {
+        if (key.endsWith("/")) {
+          const children = await runtime.invoke<string[]>("list_s3_keys", {
+            profileId: activeProfile.id,
+            prefix: key,
+          });
+          const parent = key.replace(/[^/]+\/$/, ""); // 폴더의 부모 prefix
+          for (const child of children) {
+            if (child.endsWith("/")) continue; // 폴더 placeholder 제외
+            entries.push({ key: child, rel: child.slice(parent.length) });
+          }
+        } else {
+          entries.push({ key, rel: key.split("/").pop() ?? key });
+        }
+      }
+
+      if (entries.length === 0) {
+        addLog("warn", "다운로드할 파일이 없습니다. (빈 폴더)", "transfer");
+        return;
+      }
+      addLog("info", `다운로드 시작: ${entries.length}개 파일`, "transfer");
+
+      const downloadItems = entries.map(({ key, rel }) => {
         const id = crypto.randomUUID();
-        const fileName = key.split("/").pop() ?? key;
-        // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준)
-        const localPath = joinPath(selectedDir, fileName);
+        // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준, 하위 폴더 구조 유지)
+        const localPath = joinPath(selectedDir, rel);
         addTransfer({
           id,
           direction: "download",
           localPath,
           remotePath: key,
-          fileName,
+          fileName: rel,
           size: 0,
           status: "pending",
           progress: 0,

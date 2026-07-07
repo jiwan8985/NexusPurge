@@ -289,7 +289,8 @@
 .formScroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: scroll; /* 항상 스크롤바 표시 — 폼이 길어도 스크롤 가능함을 인지시킴 */
+  scrollbar-gutter: stable;
   padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
@@ -307,6 +308,13 @@
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.01);
   overflow: hidden;
+}
+
+/* 열린 섹션(S3 설정, CDN 설정)은 패널 내부에서 스크롤 */
+.sectionDetails > .fieldset {
+  max-height: min(420px, 48vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .sectionDetails summary {

@@ -135,7 +135,7 @@ export default function LocalPanel() {
     if (!syncPlan) return map;
     for (const file of syncPlan.toSkip) map.set(file.path, "skipped");
     for (const file of syncPlan.toUpload) {
-      map.set(file.path, activeProfile?.purgeOnNewUpload && activeProfile.cdnProvider ? "purge" : "new");
+      map.set(file.path, "new");
     }
     for (const file of syncPlan.toOverwrite) {
       map.set(file.path, activeProfile?.cdnProvider ? "purge" : "modified");

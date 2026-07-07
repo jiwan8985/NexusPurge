@@ -227,6 +227,31 @@ pub async fn list_s3_objects(
     })
 }
 
+/// 폴더 다운로드용: prefix 하위 전체 객체 키 조회 (재귀)
+#[tauri::command]
+pub async fn list_s3_keys(
+    profile_id: String,
+    prefix: String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<Vec<String>, String> {
+    let (creds, region, bucket, endpoint) = store
+        .get_connection_info(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    cache
+        .get_or_create(&profile_id, || async {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .list_keys_recursive(&prefix)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn delete_s3_objects(
     profile_id: String,

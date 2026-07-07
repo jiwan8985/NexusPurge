@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { runtime } from "../../services/runtime";
+import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { readBatchSettings, writeBatchSetting, BATCH_DEFAULTS } from "../../utils/batch-settings";
 import styles from "./SettingsModal.module.css";
@@ -32,11 +31,6 @@ export default function SettingsModal() {
     addLog: s.addLog,
   }));
 
-  const [appVersion, setAppVersion] = useState<string>("0.1.0");
-  useEffect(() => {
-    runtime.getVersion().then(setAppVersion).catch(() => {});
-  }, []);
-
   const [batch, setBatch] = useState(() => readBatchSettings());
 
   const updateBatch = <K extends keyof typeof batch>(key: K, value: number) => {
@@ -58,9 +52,6 @@ export default function SettingsModal() {
   const [showLogOnStartup, setShowLogOnStartup] = useState(() =>
     readPref("nexuspurge.showLogOnStartup", true)
   );
-  const [confirmExternalRequests, setConfirmExternalRequests] = useState(() =>
-    readPref("nexuspurge.confirmExternalRequests", true)
-  );
 
   const updateRestoreLastProfile = (checked: boolean) => {
     setRestoreLastProfile(checked);
@@ -70,11 +61,6 @@ export default function SettingsModal() {
   const updateShowLogOnStartup = (checked: boolean) => {
     setShowLogOnStartup(checked);
     writePref("nexuspurge.showLogOnStartup", checked);
-  };
-
-  const updateConfirmExternalRequests = (checked: boolean) => {
-    setConfirmExternalRequests(checked);
-    writePref("nexuspurge.confirmExternalRequests", checked);
   };
 
   const handleOpenProfiles = () => {
@@ -125,21 +111,6 @@ export default function SettingsModal() {
                 type="checkbox"
                 checked={showLogOnStartup}
                 onChange={(e) => updateShowLogOnStartup(e.target.checked)}
-              />
-            </label>
-          </section>
-
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>안전 확인</div>
-            <label className={styles.toggleRow}>
-              <span>
-                <strong>실제 Provider 테스트 전 확인</strong>
-                <small>AWS, S3-compatible, CDN API 테스트 전에 확인 창을 표시합니다.</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={confirmExternalRequests}
-                onChange={(e) => updateConfirmExternalRequests(e.target.checked)}
               />
             </label>
           </section>
@@ -257,34 +228,6 @@ export default function SettingsModal() {
             </div>
           </section>
 
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>단축키</div>
-            <div className={styles.shortcutGrid}>
-              {[
-                ["Ctrl+P", "프로필 관리"],
-                ["Ctrl+R", "패널 새로고침"],
-                ["Ctrl+D", "Dry-run 미리보기"],
-                ["F2", "이름 변경"],
-                ["Del", "삭제"],
-                ["Space", "파일 선택 토글"],
-                ["Enter", "폴더 열기 / 선택"],
-              ].map(([key, desc]) => (
-                <div key={key} className={styles.shortcutRow}>
-                  <kbd className={styles.kbd}>{key}</kbd>
-                  <span>{desc}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>앱 정보</div>
-            <div className={styles.appInfo}>
-              <span className={styles.appName}>NexusPurge</span>
-              <span className={styles.appVer}>v{appVersion}</span>
-            </div>
-            <p className={styles.appDesc}>S3 듀얼 패널 파일 관리 + CDN 자동 Purge 도구</p>
-          </section>
         </div>
 
         <div className={styles.footer}>

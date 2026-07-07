@@ -54,6 +54,7 @@ pub fn run() {
             s3::rename_local_file,
             // S3 Operations
             s3::list_s3_objects,
+            s3::list_s3_keys,
             s3::delete_s3_objects,
             s3::put_s3_object,
             s3::get_presigned_url,
@@ -73,7 +74,6 @@ pub fn run() {
             cdn::purge_cdn,
             cdn::test_cdn_connection,
             cdn::get_purge_status,
-            cdn::verify_cdn_urls,
             // Operation Logs
             operation_log::save_operation_log,
             operation_log::list_operation_logs,

@@ -25,8 +25,9 @@ const REGION_SUGGESTIONS = [
   "auto",
 ];
 
+// 설정 UI에서 제거됨 — 명시적으로 "true"를 넣은 경우에만 테스트 전 확인 창 표시
 const shouldConfirmExternalRequests = () =>
-  window.localStorage.getItem("nexuspurge.confirmExternalRequests") !== "false";
+  window.localStorage.getItem("nexuspurge.confirmExternalRequests") === "true";
 
 const normalizeAccessKeyId = (value: string) => value.trim();
 const normalizeSecretAccessKey = (value: string) => value.trim();
@@ -43,7 +44,6 @@ interface FormState {
   cdnDistributionId: string;
   cdnDomain: string;
   cdnBasePath: string;
-  purgeOnNewUpload: boolean;
   defaultCacheControl: string;
   contentTypeOverride: string;
   multipartEtagFallback: boolean;
@@ -83,7 +83,6 @@ const emptyForm = (): FormState => ({
   cdnDistributionId: "",
   cdnDomain: "",
   cdnBasePath: "",
-  purgeOnNewUpload: false,
   defaultCacheControl: "",
   contentTypeOverride: "",
   multipartEtagFallback: true,
@@ -158,7 +157,6 @@ export default function ProfileModal() {
       cdnDistributionId: profile.cdnDistributionId ?? "",
       cdnDomain: profile.cdnDomain ?? "",
       cdnBasePath: profile.cdnBasePath ?? "",
-      purgeOnNewUpload: profile.purgeOnNewUpload ?? false,
       defaultCacheControl: profile.defaultCacheControl ?? "",
       contentTypeOverride: profile.contentTypeOverride ?? "",
       multipartEtagFallback: profile.multipartEtagFallback ?? true,
@@ -264,7 +262,6 @@ export default function ProfileModal() {
     cdnDistributionId: form.cdnDistributionId || undefined,
     cdnDomain: form.cdnDomain || undefined,
     cdnBasePath: form.cdnBasePath || undefined,
-    purgeOnNewUpload: form.purgeOnNewUpload,
     defaultCacheControl: form.defaultCacheControl || undefined,
     contentTypeOverride: form.contentTypeOverride || undefined,
     multipartEtagFallback: form.multipartEtagFallback,
@@ -444,7 +441,7 @@ export default function ProfileModal() {
     setForm((f) => ({ ...f, [field]: e.target.value }));
   };
 
-  const setCheckedField = (field: "purgeOnNewUpload" | "multipartEtagFallback") => (
+  const setCheckedField = (field: "multipartEtagFallback") => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     setTestResult(null);
@@ -1057,24 +1054,6 @@ export default function ProfileModal() {
                   </small>
                 </label>
               )}
-              </fieldset>
-            </details>
-
-            <details className={styles.sectionDetails} open>
-              <summary>Purge 정책</summary>
-              <fieldset className={styles.fieldset}>
-                <label className={styles.field}>
-                  <span>신규 업로드도 Purge</span>
-                  <input
-                    type="checkbox"
-                    checked={form.purgeOnNewUpload}
-                    onChange={setCheckedField("purgeOnNewUpload")}
-                    disabled={!form.cdnProvider}
-                  />
-                  <small className={styles.helpText}>
-                    기본값은 덮어쓰기 파일만 Purge합니다. 이 옵션을 켜면 새 파일도 업로드 직후 CDN 캐시 무효화 대상으로 보냅니다.
-                  </small>
-                </label>
               </fieldset>
             </details>
 
