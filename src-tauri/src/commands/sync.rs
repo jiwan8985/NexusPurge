@@ -253,16 +253,22 @@ pub async fn build_sync_plan(
         });
     }
 
-    while let Some(Ok(Some((
-        local_path,
-        rel_path,
-        remote_key,
-        size,
-        last_modified,
-        local_etag,
-        remote_meta,
-    )))) = tasks.join_next().await
-    {
+    // 주의: 개별 태스크 실패(None)가 나와도 나머지 파일은 계속 수집해야 한다.
+    // (while let Some(Ok(Some(..))) 패턴은 첫 실패에서 루프가 끊겨 이후 파일이 전부 유실됨)
+    while let Some(joined) = tasks.join_next().await {
+        let Ok(Some((
+            local_path,
+            rel_path,
+            remote_key,
+            size,
+            last_modified,
+            local_etag,
+            remote_meta,
+        ))) = joined
+        else {
+            tracing::warn!("sync plan: 파일 처리 실패 항목 건너뜀");
+            continue;
+        };
         let item = FileItem {
             name:          rel_path,   // 폴더 포함 상대 경로 ("folder/sub/file.txt")
             path:          local_path,

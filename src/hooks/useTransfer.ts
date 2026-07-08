@@ -238,19 +238,20 @@ export function useTransfer() {
           };
         });
 
-      // CDN이 설정된 경우 신규 파일도 항상 Purge:
-      // 해당 경로에 CDN이 404를 캐싱하고 있을 수 있으므로 업로드 즉시 무효화 필요
+      // CDN이 설정된 경우 신규 파일도 Purge 대상:
+      // 해당 경로에 CDN이 404를 캐싱하고 있을 수 있으므로 업로드 후 무효화 필요
       const hasCdn = !!provider;
       const uploadItems = [
-        ...makeItems(plan.toUpload, hasCdn),       // 신규: CDN 설정 시 항상 Purge
-        ...makeItems(plan.toOverwrite, true),       // 변경: 항상 Purge
+        ...makeItems(plan.toUpload, hasCdn),
+        ...makeItems(plan.toOverwrite, true),
       ];
 
+      // Purge는 업로드 완료 후 일괄 배치로 실행 (cdnProvider 미전달 → Rust 파일별 Purge 비활성)
+      // 파일별 개별 Purge는 CDN API burst 제한에 걸리고(효성 노드 타임아웃 등),
+      // CloudFront는 파일 수만큼 Invalidation 요청이 발생하므로 배치가 올바른 구조.
       await runtime.invoke("upload_files", {
         profileId: activeProfile.id,
         items: uploadItems,
-        cdnDistributionId: cdnDistributionIdFor(activeProfile, provider),
-        cdnProvider: provider,
         maxConcurrentFiles: readBatchSettings().maxConcurrentTransfers,
       });
       const finishedAt = new Date().toISOString();
@@ -259,6 +260,85 @@ export function useTransfer() {
         .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
         .filter((transfer): transfer is TransferItem => Boolean(transfer));
       const uploadStatus = summarizeTransferStatus(uploadTransfers);
+
+      // ── 업로드 완료 후 일괄 Purge ──────────────────────────────────────────
+      // 대상: 업로드 성공 파일 전체 + (자동 Purge ON이면) 스킵된 미변경 파일 경로
+      const batchPurgeResults: {
+        paths: string[];
+        success: boolean;
+        invalidationId?: string;
+        error?: string;
+      }[] = [];
+
+      if (provider) {
+        const uploadedPaths = uploadTransfers
+          .filter((t) => t.status === "complete")
+          .map((t) => t.remotePath);
+        const skipPaths = autoPurgeEnabled
+          ? plan.toSkip.map((f) => remote.path + f.name)
+          : [];
+        const purgePaths = [...uploadedPaths, ...skipPaths];
+
+        if (purgePaths.length > 0) {
+          addLog(
+            "info",
+            `CDN 일괄 Purge 시작: 업로드 ${uploadedPaths.length}개${skipPaths.length > 0 ? ` + 스킵 ${skipPaths.length}개` : ""}`,
+            "cdn"
+          );
+          const skipPathSet = new Set(skipPaths);
+          const purgeStatusTargets = [
+            ...uploadTransfers.filter((t) => t.status === "complete"),
+            ...transferState.transfers.filter(
+              (t) => t.status === "skipped" && skipPathSet.has(t.remotePath)
+            ),
+          ];
+          const { purgeBatchSize } = readBatchSettings();
+          const totalBatches = Math.ceil(purgePaths.length / purgeBatchSize);
+
+          for (let i = 0; i < purgePaths.length; i += purgeBatchSize) {
+            const batch = purgePaths.slice(i, i + purgeBatchSize);
+            const batchLabel = totalBatches > 1 ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${totalBatches})` : "";
+            let success = false;
+            let invalidationId: string | undefined;
+            let error: string | undefined;
+            try {
+              const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+                profileId: activeProfile.id,
+                provider,
+                distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
+                paths: batch,
+              });
+              success = result.success;
+              invalidationId = result.invalidationId ?? undefined;
+              error = result.error ?? undefined;
+            } catch (err) {
+              error = String(err);
+            }
+            batchPurgeResults.push({ paths: batch, success, invalidationId, error });
+
+            if (success) {
+              const inv = invalidationId ? ` (${invalidationId})` : "";
+              addLog("success", `CDN Purge 완료${batchLabel}: ${batch.length}개${inv}`, "cdn");
+            } else {
+              addLog("error", `CDN Purge 실패${batchLabel}: ${error}`, "cdn");
+            }
+
+            // 진행률 팝업의 파일별 Purge 배지 갱신 (업로드 성공 + 스킵 항목)
+            const batchSet = new Set(batch);
+            for (const t of purgeStatusTargets) {
+              if (batchSet.has(t.remotePath)) {
+                updateTransfer(t.id, {
+                  cdnPurged: success,
+                  cdnPurgeStatus: success ? "complete" : "error",
+                  cdnPurgeError: error,
+                  cdnInvalidationId: invalidationId,
+                });
+              }
+            }
+          }
+        }
+      }
+
       const uploadLog = {
         id: crypto.randomUUID(),
         profileId: activeProfile.id,
@@ -274,55 +354,19 @@ export function useTransfer() {
           startedAt: item.startedAt ?? finishedAt,
           finishedAt: item.completedAt ?? finishedAt,
         })),
-        purgeResults: uploadTransfers
-          .filter((item) => item.cdnPurged || item.cdnPurgeError)
-          .map((item) => ({
-            provider: provider!,
-            urls: [item.remotePath],
-            status: item.cdnPurgeError ? "failed" as const : "success" as const,
-            requestId: item.cdnInvalidationId,
-            error: item.cdnPurgeError,
-            startedAt: item.startedAt ?? finishedAt,
-            finishedAt: item.completedAt ?? finishedAt,
-          })),
+        purgeResults: batchPurgeResults.map((r) => ({
+          provider: provider!,
+          urls: r.paths,
+          status: r.success ? "success" as const : "failed" as const,
+          requestId: r.invalidationId,
+          error: r.error,
+          startedAt: finishedAt,
+          finishedAt: new Date().toISOString(),
+        })),
         startedAt: finishedAt,
         finishedAt,
       };
       void saveOperationLog(uploadLog);
-
-      // autoPurgeEnabled ON: 스킵된 파일(변경 없음)도 포함해 선택한 전체 경로 Purge
-      // 이유: CDN 캐시가 S3와 어긋난 경우(이전 Purge 실패, CDN 장애 등)를 커버
-      if (autoPurgeEnabled && provider && plan.toSkip.length > 0) {
-        const skipPaths = plan.toSkip.map((f) => remote.path + f.name);
-        addLog(
-          "info",
-          `자동 Purge (스킵 포함): 미변경 ${skipPaths.length}개 경로 추가 Purge`,
-          "cdn"
-        );
-        const { purgeBatchSize } = readBatchSettings();
-        for (let i = 0; i < skipPaths.length; i += purgeBatchSize) {
-          const batch = skipPaths.slice(i, i + purgeBatchSize);
-          const batchLabel =
-            skipPaths.length > purgeBatchSize
-              ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${Math.ceil(skipPaths.length / purgeBatchSize)})`
-              : "";
-          try {
-            const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-              profileId: activeProfile.id,
-              provider,
-              distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
-              paths: batch,
-            });
-            if (result.success) {
-              addLog("success", `스킵 경로 Purge 완료${batchLabel}: ${batch.length}개`, "cdn");
-            } else {
-              addLog("error", `스킵 경로 Purge 실패${batchLabel}: ${result.error}`, "cdn");
-            }
-          } catch (err) {
-            addLog("error", `스킵 경로 Purge 오류${batchLabel}: ${err}`, "cdn");
-          }
-        }
-      }
 
       clearLocalSelection();
       setSyncPlan(null);
@@ -334,7 +378,7 @@ export function useTransfer() {
       setTransferring(false);
     }
   }, [
-    activeProfile, activeCdn, local, remote, addTransfer, buildSyncPlan,
+    activeProfile, activeCdn, local, remote, addTransfer, updateTransfer, buildSyncPlan,
     setTransferring, setShowProgressDialog, clearLocalSelection, triggerRemoteRefresh,
     addLog, setSyncPlan, autoPurgeEnabled,
   ]);

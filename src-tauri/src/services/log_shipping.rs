@@ -31,7 +31,7 @@ impl LogShippingService {
         Self
     }
 
-    /// 로그를 고객 S3 버킷에 JSON으로 업로드한다.
+    /// 로그를 S3 버킷에 JSON으로 업로드한다.
     /// `target`이 None이면 즉시 반환 (disabled).
     /// 자격증명은 `store`에서 `profile_id`로 조회한다 — 로그 버킷은 동일 계정 가정.
     pub async fn ship(

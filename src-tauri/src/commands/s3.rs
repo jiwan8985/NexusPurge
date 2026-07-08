@@ -638,9 +638,9 @@ pub async fn upload_files(
     Ok(())
 }
 
-// ─── 고객사 프로필 파일(JSON) Import ─────────────────────────────────────────
+// ───  프로필 파일(JSON) Import ─────────────────────────────────────────
 
-/// 고객사 전달용 프로필 파일 형식 (profile-sample.json 참고)
+/// 테스트 프로필 파일 형식 (profile-sample.json 참고)
 #[derive(Debug, Deserialize)]
 pub struct ProfileFile {
     pub name: String,
@@ -673,6 +673,25 @@ pub struct ProfileFileCdns {
     pub kt: Option<ProfileFileSolbox>,
     #[serde(default)]
     pub lguplus: Option<ProfileFileSolbox>,
+    #[serde(default)]
+    pub hyosung: Option<ProfileFileHyosung>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileHyosung {
+    /// X-ITX-Security-Principal
+    #[serde(rename = "apiKey")]
+    pub api_key: String,
+    /// X-ITX-Security-Secret
+    #[serde(rename = "apiSecret")]
+    pub api_secret: String,
+    /// CDN 서비스 ID (예: TID_18656)
+    #[serde(rename = "serviceId")]
+    pub service_id: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -712,7 +731,7 @@ pub struct ProfileFileSolbox {
     pub domain: Option<String>,
 }
 
-/// 고객사 전달용 JSON 프로필 파일을 가져와 저장한다.
+/// JSON 프로필 파일을 가져와 저장한다.
 /// 하나의 파일에 여러 CDN(cloudfront/akamai/kt/lguplus)을 담을 수 있으며,
 /// 시크릿(S3 secret, CDN password 등)은 저장 시 OS keyring으로 이동한다.
 #[tauri::command]
@@ -822,6 +841,22 @@ pub async fn import_profile_file(
             enabled: true,
             distribution_id: None,
             domain: lgu.domain,
+        });
+    }
+    if let Some(hyosung) = file.cdns.hyosung {
+        profile.hyosung_api_key = Some(hyosung.api_key);
+        profile.hyosung_api_secret = Some(hyosung.api_secret);
+        profile.hyosung_endpoint = hyosung.endpoint;
+        // Service ID는 provider별 distribution_id 슬롯에 보관 (CloudFront와 공존 가능)
+        if profile.cdn_distribution_id.is_none() {
+            profile.cdn_distribution_id = Some(hyosung.service_id.clone());
+        }
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "hyosung".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: Some(hyosung.service_id),
+            domain: hyosung.domain,
         });
     }
 

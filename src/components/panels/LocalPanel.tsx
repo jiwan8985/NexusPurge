@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
+import { useTransfer } from "../../hooks/useTransfer";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
@@ -93,6 +94,7 @@ export default function LocalPanel() {
     focusedSide:         s.focusedSide,
   }));
 
+  const { startDownload } = useTransfer();
   const [pathInput, setPathInput] = useState(local.path);
   const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
@@ -146,12 +148,11 @@ export default function LocalPanel() {
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
     useVirtualList(local.files);
 
+  // 클릭 = 선택 (파일/폴더 동일 — 폴더 통째 업로드 가능), 더블클릭 = 폴더 열기
   const handleRowClick = (event: React.MouseEvent, file: FileItem) => {
     if (event.ctrlKey || event.metaKey) {
-      // Ctrl/Cmd+클릭: 파일/폴더 모두 선택 토글 (폴더는 통째 업로드)
+      // Ctrl/Cmd+클릭: 다중 선택 토글
       toggleLocalSelection(file.path);
-    } else if (file.isDirectory) {
-      loadDirectory(file.path);
     } else {
       clearLocalSelection();
       toggleLocalSelection(file.path);
@@ -229,7 +230,13 @@ export default function LocalPanel() {
         setIsDragOver(true);
       }}
       onDragLeave={() => setIsDragOver(false)}
-      onDrop={() => setIsDragOver(false)}
+      onDrop={async (event) => {
+        event.preventDefault();
+        setIsDragOver(false);
+        // S3 패널에서 드래그한 항목을 로컬로 다운로드 (저장 폴더 선택 다이얼로그 표시)
+        if (event.dataTransfer.getData("text/plain") !== "remote-files") return;
+        await startDownload();
+      }}
     >
       <div className={styles.header}>
         <span className={styles.headerTitle}>

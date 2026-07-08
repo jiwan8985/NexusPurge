@@ -1,20 +1,24 @@
 /// 효성 ITX CDN Purge Adapter
+/// (docs/효성 CDN_PURGE_API_GUIDE_ver.2026.pdf 기준)
 ///
 /// Auth:  정적 헤더 방식 (JWT 없음)
 ///        X-ITX-Security-Principal: {api_key}
 ///        X-ITX-Security-Secret:    {api_secret}
 ///
-/// Purge: POST {endpoint}/api/v1/purge/{serviceId}
+/// Purge: POST {endpoint}/api/v1/purge/{serviceId}   (기본 endpoint: https://api.xtrmcdn.co.kr:28091)
 ///        Content-Type: application/json
-///        Body: {"filelist": ["https://cdn.domain.com/path1", ...]}
+///        Body: {"filelist": ["http://cdn.domain.com/path1", ...]}  ← 스킴 포함 전체 URL
+///        서버가 6500 byte 기준으로 내부 분할 처리 (다건은 POST 권장)
 ///
 /// Response (meta + data 구조):
-///   meta.status == "ok"  → 성공
-///   meta.statusCode 200  → 성공
-///   data 필드는 이스케이프된 JSON 문자열 → 2차 파싱 필요
-///   data.failedCount > 0 → 부분 실패로 오류 반환
+///   meta.status == "ok" && HTTP 200 → 성공, meta.transactionId 추적용
+///   data 필드는 이스케이프된 JSON 문자열 → 2차 파싱 필요 ({successCount, failedCount, results})
+///   부분 실패는 HTTP 500 + meta.message "Partial execution failure! failed=N"
 ///
-/// 주의: GET 경로는 trailing slash 필수, POST는 trailing slash 없음.
+/// 주의:
+///   - GET 경로는 trailing slash 필수, POST는 trailing slash 없음 (누락 시 405)
+///   - CDN 도메인에 스킴이 없으면 http/https 양쪽 URL을 모두 Purge (캐시 스킴 불일치 방지)
+///   - API 서버 인증서가 신뢰 체인에 없을 수 있어 TLS 검증을 우회함 (가이드 8장 참고)
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
@@ -64,28 +68,37 @@ impl HyosungCdnAdapter {
         service_id: String,
         cdn_domain: String,
     ) -> Result<Self> {
+        // 가이드 8장: API 서버(포트 28091) 인증서가 신뢰 체인에 없는 환경이 있어
+        // curl -k 에 해당하는 TLS 검증 우회를 적용한다.
         let client = Client::builder()
             .use_native_tls()
+            .danger_accept_invalid_certs(true)
             .build()
             .context("HTTP 클라이언트 생성 실패")?;
         let endpoint = endpoint.trim().trim_end_matches('/').to_owned();
         Ok(Self { client, api_key, api_secret, endpoint, service_id, cdn_domain })
     }
 
-    /// 경로 목록을 완전한 CDN URL로 변환
+    /// 경로 목록을 완전한 CDN URL로 변환.
+    /// CDN 도메인에 스킴(http:// 또는 https://)이 명시되면 그대로 사용하고,
+    /// 없으면 캐시 스킴 불일치를 피하기 위해 http/https 양쪽 URL을 모두 생성한다.
     fn build_urls(&self, paths: &[String]) -> Vec<String> {
-        let domain = self
-            .cdn_domain
-            .trim()
-            .trim_start_matches("https://")
-            .trim_start_matches("http://")
-            .trim_end_matches('/');
+        let raw = self.cdn_domain.trim().trim_end_matches('/');
+        let (schemes, domain): (&[&str], &str) = if let Some(rest) = raw.strip_prefix("https://") {
+            (&["https"], rest)
+        } else if let Some(rest) = raw.strip_prefix("http://") {
+            (&["http"], rest)
+        } else {
+            (&["http", "https"], raw)
+        };
 
         paths
             .iter()
-            .map(|p| {
+            .flat_map(|p| {
                 let path = p.trim_start_matches('/');
-                format!("https://{}/{}", domain, path)
+                schemes
+                    .iter()
+                    .map(move |scheme| format!("{}://{}/{}", scheme, domain, path))
             })
             .collect()
     }
@@ -122,11 +135,29 @@ impl HyosungCdnAdapter {
 
         // HTTP 에러 또는 meta.status != "ok"
         if !http_status.is_success() || meta.status != "ok" {
+            // 원인 판별용: 시도한 URL(최대 3개)과 노드별 상세 결과(data)를 함께 보여준다
+            let sample_urls = urls
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            let detail = envelope
+                .data
+                .as_ref()
+                .map(|d| match d {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default();
             return Err(anyhow::anyhow!(
-                "효성 ITX CDN Purge 실패 (HTTP {}, status={}): {}",
+                "효성 ITX CDN Purge 실패 (HTTP {}, status={}): {} | 대상 URL: {}{} | 상세: {}",
                 http_status,
                 meta.status,
                 meta.message.as_deref().unwrap_or(""),
+                sample_urls,
+                if urls.len() > 3 { format!(" 외 {}개", urls.len() - 3) } else { String::new() },
+                if detail.is_empty() { "-".to_string() } else { detail },
             ));
         }
 
@@ -196,10 +227,25 @@ impl HyosungCdnAdapter {
             .await
             .context("효성 ITX CDN 연결 테스트 실패")?;
 
-        // 401: 인증 실패 / 400: 서비스 찾음 (target 오류) / 200: 성공 — 모두 연결 자체는 성공
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let http_status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+
+        // 오류 코드 표: 401 = 인증 실패, 500 = 서비스 조회 실패(잘못된 serviceId 등),
+        // 400 = target 검증 오류(서비스는 찾음), 200 = 성공 → 400/200은 연결 자체 성공
+        if http_status == reqwest::StatusCode::UNAUTHORIZED {
             return Err(anyhow::anyhow!(
-                "효성 ITX CDN 인증 실패: Principal/Secret을 확인하세요."
+                "효성 ITX CDN 인증 실패 (401): Principal/Secret을 확인하세요."
+            ));
+        }
+        if http_status.is_server_error() {
+            let message = serde_json::from_str::<PurgeEnvelope>(&text)
+                .ok()
+                .and_then(|env| env.meta.message)
+                .unwrap_or_else(|| text.clone());
+            return Err(anyhow::anyhow!(
+                "효성 ITX CDN 연결 테스트 실패 (HTTP {}): {} — Service ID(Distribution ID 필드)를 확인하세요.",
+                http_status,
+                message
             ));
         }
 
@@ -229,5 +275,23 @@ mod tests {
 
         assert_eq!(urls[0], "https://cdn.example.com/assets/app.js");
         assert_eq!(urls[1], "https://cdn.example.com/assets/style.css");
+    }
+
+    #[test]
+    fn build_urls_without_scheme_emits_http_and_https() {
+        let adapter = HyosungCdnAdapter {
+            client:     Client::new(),
+            api_key:    "key".into(),
+            api_secret: "secret".into(),
+            endpoint:   "https://api.xtrmcdn.co.kr:28091".into(),
+            service_id: "TID_18656".into(),
+            cdn_domain: "cdn.example.com".into(),
+        };
+
+        let urls = adapter.build_urls(&["contents/test.png".to_string()]);
+
+        assert_eq!(urls.len(), 2);
+        assert!(urls.contains(&"http://cdn.example.com/contents/test.png".to_string()));
+        assert!(urls.contains(&"https://cdn.example.com/contents/test.png".to_string()));
     }
 }

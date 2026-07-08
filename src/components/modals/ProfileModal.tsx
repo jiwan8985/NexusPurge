@@ -145,6 +145,8 @@ export default function ProfileModal() {
     setTestResult(null);
     setCdnTestResult(null);
     setError(null);
+    // 멀티 CDN 프로필: 기본 provider의 도메인/ID를 폼에 로드 (공용 필드보다 우선)
+    const defaultEntry = profile.cdnProviders?.find((c) => c.provider === profile.cdnProvider);
     setForm({
       name: profile.name,
       region: profile.region,
@@ -154,8 +156,8 @@ export default function ProfileModal() {
       secretAccessKey: "",  // 보안상 마스킹
       endpoint: profile.endpoint ?? "",
       cdnProvider: profile.cdnProvider ?? "",
-      cdnDistributionId: profile.cdnDistributionId ?? "",
-      cdnDomain: profile.cdnDomain ?? "",
+      cdnDistributionId: defaultEntry?.distributionId ?? profile.cdnDistributionId ?? "",
+      cdnDomain: defaultEntry?.domain ?? profile.cdnDomain ?? "",
       cdnBasePath: profile.cdnBasePath ?? "",
       defaultCacheControl: profile.defaultCacheControl ?? "",
       contentTypeOverride: profile.contentTypeOverride ?? "",
@@ -195,7 +197,7 @@ export default function ProfileModal() {
     // Windows 편집기가 저장 시 붙이는 UTF-8 BOM 제거 (JSON 인식·파싱 오류 방지)
     const text = (await file.text()).replace(/^﻿/, "");
 
-    // 일반 JSON 프로필 파일(고객사 전달용, profile-sample.json 참고)은 패스프레이즈 없이 가져오기
+    // 일반 JSON 프로필 파일(테스트용, profile-sample.json 참고)은 패스프레이즈 없이 가져오기
     const isPlainJson = text.trim().startsWith("{");
     if (!isPlainJson && !importPassphrase.trim()) {
       setImportError("암호화된 프로필(.nexprofile)은 패스프레이즈를 입력하세요.");
@@ -249,7 +251,22 @@ export default function ProfileModal() {
     }
   };
 
-  const buildProfilePayload = (id: string): S3Profile => ({
+  const buildProfilePayload = (id: string): S3Profile => {
+    // 멀티 CDN 프로필(파일 가져오기): 폼에 없는 cdnProviders 배열을 보존해야 함.
+    // 저장 시 이 배열이 빠지면 CDN별 도메인/ID가 통째로 유실되어 모든 provider가
+    // 공용 cdnDomain으로 폴백된다. 현재 선택된 provider 항목만 폼 값으로 갱신.
+    const existing = profiles.find((p) => p.id === id);
+    const cdnProviders = existing?.cdnProviders?.map((c) =>
+      c.provider === form.cdnProvider
+        ? {
+            ...c,
+            domain: form.cdnDomain || c.domain,
+            distributionId: form.cdnDistributionId || c.distributionId,
+          }
+        : c
+    );
+
+    return {
     id,
     name: form.name,
     region: form.region,
@@ -259,6 +276,7 @@ export default function ProfileModal() {
     secretAccessKey: normalizeSecretAccessKey(form.secretAccessKey),
     endpoint: form.endpoint.trim() || undefined,
     cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
+    cdnProviders,
     cdnDistributionId: form.cdnDistributionId || undefined,
     cdnDomain: form.cdnDomain || undefined,
     cdnBasePath: form.cdnBasePath || undefined,
@@ -285,7 +303,8 @@ export default function ProfileModal() {
     hyosungEndpoint: form.hyosungEndpoint || undefined,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-  });
+    };
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,7 +405,7 @@ export default function ProfileModal() {
       return;
     }
     if (form.cdnProvider === "hyosung" && (!form.hyosungApiKey || !form.cdnDistributionId)) {
-      setError("효성 ITX CDN API Key와 Service ID(Distribution ID)를 입력하세요.");
+      setError("효성 ITX CDN USER_ID와 TID(Service ID)를 입력하세요.");
       return;
     }
 
@@ -439,6 +458,23 @@ export default function ProfileModal() {
     setTestResult(null);
     setCdnTestResult(null);
     setForm((f) => ({ ...f, [field]: e.target.value }));
+  };
+
+  // 멀티 CDN 프로필: 제공자 변경 시 해당 provider의 도메인/ID를 폼에 로드
+  // (도메인·Distribution ID 폼 필드는 하나뿐이므로 provider 전환에 맞춰 값을 바꿔줘야 함)
+  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const provider = e.target.value as CdnProvider | "";
+    const entry = provider && editingId
+      ? profiles.find((p) => p.id === editingId)?.cdnProviders?.find((c) => c.provider === provider)
+      : undefined;
+    setTestResult(null);
+    setCdnTestResult(null);
+    setForm((f) => ({
+      ...f,
+      cdnProvider: provider,
+      cdnDomain: entry?.domain ?? f.cdnDomain,
+      cdnDistributionId: entry?.distributionId ?? f.cdnDistributionId,
+    }));
   };
 
   const setCheckedField = (field: "multipartEtagFallback") => (
@@ -513,8 +549,8 @@ export default function ProfileModal() {
           </div>
           <div className={styles.body} style={{ display: "block", padding: "1.2rem" }}>
             <p style={{ marginBottom: "0.8rem", fontSize: "0.85rem", opacity: 0.8 }}>
-              관리자/고객사로부터 받은 프로필 파일을 가져옵니다.<br />
-              · <strong>.json</strong> — 고객사 전달용 (패스프레이즈 불필요, 여러 CDN 포함 가능)<br />
+              프로필 파일을 가져옵니다.<br />
+              · <strong>.json</strong> — 테스트용 (패스프레이즈 불필요, 여러 CDN 포함 가능)<br />
               · <strong>.nexprofile</strong> — 암호화 파일 (패스프레이즈 필요)
             </p>
             {importError && <div className={styles.errorMsg}>{importError}</div>}
@@ -784,7 +820,7 @@ export default function ProfileModal() {
 
               <label className={styles.field}>
                 <span>CDN 제공자</span>
-                <select value={form.cdnProvider} onChange={setField("cdnProvider")}>
+                <select value={form.cdnProvider} onChange={handleProviderChange}>
                   <option value="">사용 안 함</option>
                   {CDN_PROVIDERS.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -978,24 +1014,24 @@ export default function ProfileModal() {
               {isHyosung && (
                 <>
                   <label className={styles.field}>
-                    <span>API Key (Principal) *</span>
+                    <span>USER_ID (Principal) *</span>
                     <input
                       value={form.hyosungApiKey}
                       onChange={setField("hyosungApiKey")}
-                      placeholder="효성 ITX CDN API Key"
+                      placeholder="효성 계정 USER_ID"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API Secret *</span>
+                    <span>SHARED_KEY (Secret) *</span>
                     <input
                       type="password"
                       value={form.hyosungApiSecret}
                       onChange={setField("hyosungApiSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : "효성 ITX CDN API Secret"}
+                      placeholder={editingId ? "변경하려면 입력" : "효성 계정 SHARED_KEY"}
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>Service ID (Distribution ID) *</span>
+                    <span>TID (Service ID) *</span>
                     <input
                       value={form.cdnDistributionId}
                       onChange={setField("cdnDistributionId")}
@@ -1003,15 +1039,15 @@ export default function ProfileModal() {
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>CDN 도메인 *</span>
+                    <span>Edge Domain (서비스 도메인) *</span>
                     <input
                       value={form.cdnDomain}
                       onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
+                      placeholder="sklb-test.dn.nexoncdn.co.kr.gtmc.hscdn.net"
                     />
                   </label>
                   <label className={styles.field}>
-                    <span>API 엔드포인트</span>
+                    <span>API_URL (엔드포인트)</span>
                     <input
                       value={form.hyosungEndpoint}
                       onChange={setField("hyosungEndpoint")}

@@ -27,6 +27,7 @@ export function useProfile() {
     setLastProfileId,
     setRemotePath,
     setActiveCdn,
+    triggerRemoteRefresh,
   } = useAppStore((s) => ({
     setActiveProfile: s.setActiveProfile,
     setConnected: s.setConnected,
@@ -37,6 +38,7 @@ export function useProfile() {
     setLastProfileId: s.setLastProfileId,
     setRemotePath: s.setRemotePath,
     setActiveCdn: s.setActiveCdn,
+    triggerRemoteRefresh: s.triggerRemoteRefresh,
   }));
 
   const loadProfiles = useCallback(async () => {
@@ -109,6 +111,8 @@ export function useProfile() {
             ? profile.cdnProvider
             : cdns[0] ?? null
         );
+        // 연결 직후 S3 패널 자동 조회 (리로드 버튼 없이 바로 목록 표시)
+        triggerRemoteRefresh();
         // H-7: 마지막 연결 프로파일 저장
         setLastProfileId(profile.id);
         await runtime.invoke("save_last_profile_id", { id: profile.id });
@@ -123,7 +127,7 @@ export function useProfile() {
         setConnecting(false);
       }
     },
-    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, setActiveCdn, addLog]
+    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, setActiveCdn, triggerRemoteRefresh, addLog]
   );
 
   const disconnect = useCallback(() => {

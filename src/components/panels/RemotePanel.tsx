@@ -242,16 +242,24 @@ export default function RemotePanel() {
                     style={{ height: ITEM_H }}
                     data-index={startIndex + index}
                     onClick={(event) => {
+                      // 클릭 = 선택 (폴더 포함 — 폴더째 다운로드/Purge 가능), 더블클릭 = 폴더 열기
                       if (event.ctrlKey || event.metaKey) {
                         toggleRemoteSelection(file.path);
-                      } else if (file.isDirectory) {
-                        loadPrefix(file.path);
                       } else {
                         clearRemoteSelection();
                         toggleRemoteSelection(file.path);
                       }
                     }}
                     onDoubleClick={() => file.isDirectory && loadPrefix(file.path)}
+                    draggable
+                    onDragStart={(event) => {
+                      if (!remote.selectedPaths.has(file.path)) {
+                        clearRemoteSelection();
+                        toggleRemoteSelection(file.path);
+                      }
+                      event.dataTransfer.setData("text/plain", "remote-files");
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
