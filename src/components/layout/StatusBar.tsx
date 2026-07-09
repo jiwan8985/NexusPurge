@@ -16,11 +16,11 @@ function fmtSize(bytes: number) {
 }
 
 export default function StatusBar() {
-  const { isConnected, activeProfile, activeCdn, transfers, isTransferring, toggleLogPanel, local, remote } =
+  const { isConnected, activeProfile, activeCdns, transfers, isTransferring, toggleLogPanel, local, remote } =
     useAppStore((s) => ({
       isConnected:     s.isConnected,
       activeProfile:   s.activeProfile,
-      activeCdn:       s.activeCdn,
+      activeCdns:      s.activeCdns,
       transfers:       s.transfers,
       isTransferring:  s.isTransferring,
       toggleLogPanel:  s.toggleLogPanel,
@@ -55,11 +55,11 @@ export default function StatusBar() {
             ? `${activeProfile?.bucket} · ${activeProfile?.region}`
             : "S3 연결 대기"}
         </span>
-        {isConnected && activeCdn && (
-          <span className={styles.cdnBadge} title="현재 Purge 대상 CDN">
-            {CDN_LABELS[activeCdn]}
+        {isConnected && activeCdns.map((c) => (
+          <span key={c} className={styles.cdnBadge} title="현재 Purge 대상 CDN">
+            {CDN_LABELS[c]}
           </span>
-        )}
+        ))}
       </div>
 
       <div className={styles.divider} />

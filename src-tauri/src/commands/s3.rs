@@ -13,7 +13,7 @@ use crate::utils::crypto;
 use crate::utils::transfer_control::TransferControl;
 
 // ─── 동시 파일 전송 상한 (H-2) ───────────────────────────────────────────────
-const MAX_CONCURRENT_FILES: usize = 4;
+const MAX_CONCURRENT_FILES: usize = 8;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -323,6 +323,32 @@ pub async fn get_presigned_url(
         .await
         .map_err(|e| e.to_string())?
         .presign_get(&key, expires_in_seconds)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 속성(우클릭) 다이얼로그 — S3 객체의 전체 HeadObject 응답(상세 헤더)을 반환.
+/// 고객사 요청: 크롬 개발자모드 Network 탭에서 보는 수준의 상세 정보 제공.
+#[tauri::command]
+pub async fn get_s3_object_detail(
+    profile_id: String,
+    key:        String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<Option<crate::adapters::storage::base::S3ObjectDetail>, String> {
+    let (creds, region, bucket, endpoint) = store
+        .get_connection_info(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    cache
+        .get_or_create(&profile_id, || async {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .head_object_full(&key)
         .await
         .map_err(|e| e.to_string())
 }

@@ -23,12 +23,20 @@ function elapsedSec(start: string, end: string) {
 }
 
 interface Props {
-  result: PurgeExecutionResult;
+  results: PurgeExecutionResult[];
   onClose: () => void;
 }
 
-export default function PurgeResultDialog({ result, onClose }: Props) {
+export default function PurgeResultDialog({ results, onClose }: Props) {
   const [showPaths, setShowPaths] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const result = results[Math.min(activeIndex, results.length - 1)];
+  if (!result) return null;
+
+  const isMulti = results.length > 1;
+  const overallFailed = results.reduce((sum, r) => sum + r.failedCount, 0);
+  const overallSuccess = results.reduce((sum, r) => sum + r.successCount, 0);
 
   const cdnInfo = CDN_INFO[result.provider];
   const isAllSuccess = result.failedCount === 0;
@@ -48,9 +56,29 @@ export default function PurgeResultDialog({ result, onClose }: Props) {
 
         {/* 헤더 */}
         <div className={styles.header}>
-          <span className={styles.title}>CDN Purge 결과</span>
+          <span className={styles.title}>
+            CDN Purge 결과{isMulti && ` (${results.length}개 CDN)`}
+          </span>
           <button className={styles.closeBtn} onClick={onClose}>✕</button>
         </div>
+
+        {isMulti && (
+          <div className={styles.providerTabs}>
+            {results.map((r, i) => {
+              const dotClass = r.failedCount === 0 ? "ok" : r.successCount === 0 ? "fail" : "partial";
+              return (
+                <button
+                  key={r.provider}
+                  className={`${styles.providerTab} ${i === activeIndex ? styles.providerTabActive : ""}`}
+                  onClick={() => { setActiveIndex(i); setShowPaths(false); }}
+                >
+                  <span className={`${styles.providerTabDot} ${styles[dotClass]}`} />
+                  {CDN_INFO[r.provider].name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* 상태 배너 */}
         <div className={`${styles.statusBanner} ${isAllSuccess ? styles.success : isAllFailed ? styles.failed : styles.partial}`}>
@@ -69,6 +97,7 @@ export default function PurgeResultDialog({ result, onClose }: Props) {
                 : isAllFailed
                   ? `${result.totalPaths}개 경로 모두 실패했습니다.`
                   : `성공 ${result.successCount}개 / 실패 ${result.failedCount}개`}
+              {isMulti && ` · 전체 CDN 합계: 성공 ${overallSuccess}개 / 실패 ${overallFailed}개`}
             </span>
           </div>
         </div>
@@ -85,6 +114,14 @@ export default function PurgeResultDialog({ result, onClose }: Props) {
                 <div className={styles.infoItem}>
                   <span className={styles.infoLabel}>CDN 도메인</span>
                   <span className={styles.infoValue}>{result.domain}</span>
+                </div>
+              )}
+              {result.batches[0]?.requestEndpoint && (
+                <div className={styles.infoItem} style={{ gridColumn: "1 / -1" }}>
+                  <span className={styles.infoLabel}>요청 엔드포인트</span>
+                  <span className={styles.infoValue} style={{ fontFamily: "var(--font-family-mono)", fontSize: 11 }}>
+                    {result.batches[0].requestEndpoint}
+                  </span>
                 </div>
               )}
               <div className={styles.infoItem}>

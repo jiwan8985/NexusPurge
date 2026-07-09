@@ -26,7 +26,7 @@ export function useProfile() {
     setProfiles,
     setLastProfileId,
     setRemotePath,
-    setActiveCdn,
+    setActiveCdns,
     triggerRemoteRefresh,
   } = useAppStore((s) => ({
     setActiveProfile: s.setActiveProfile,
@@ -37,7 +37,7 @@ export function useProfile() {
     setProfiles: s.setProfiles,
     setLastProfileId: s.setLastProfileId,
     setRemotePath: s.setRemotePath,
-    setActiveCdn: s.setActiveCdn,
+    setActiveCdns: s.setActiveCdns,
     triggerRemoteRefresh: s.triggerRemoteRefresh,
   }));
 
@@ -104,13 +104,13 @@ export function useProfile() {
         const result = await runtime.invoke<S3ConnectionTestResult>("connect_s3", { profileId: profile.id });
         setRemotePath(normalizePrefix(profile.basePrefix));
         setConnected(true);
-        // Purge 대상 CDN 초기화: 프로필 기본 CDN → 없으면 사용 가능한 첫 CDN
+        // Purge 대상 CDN 초기화: 프로필 기본 CDN 하나만 우선 선택 (필요 시 툴바에서 추가 선택)
         const cdns = availableCdns(profile);
-        setActiveCdn(
+        const defaultCdn =
           profile.cdnProvider && cdns.includes(profile.cdnProvider)
             ? profile.cdnProvider
-            : cdns[0] ?? null
-        );
+            : cdns[0];
+        setActiveCdns(defaultCdn ? [defaultCdn] : []);
         // 연결 직후 S3 패널 자동 조회 (리로드 버튼 없이 바로 목록 표시)
         triggerRemoteRefresh();
         // H-7: 마지막 연결 프로파일 저장
@@ -127,15 +127,15 @@ export function useProfile() {
         setConnecting(false);
       }
     },
-    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, setActiveCdn, triggerRemoteRefresh, addLog]
+    [setActiveProfile, setConnected, setConnecting, setLastProfileId, setRemotePath, setActiveCdns, triggerRemoteRefresh, addLog]
   );
 
   const disconnect = useCallback(() => {
     setActiveProfile(null);
     setConnected(false);
-    setActiveCdn(null);
+    setActiveCdns([]);
     addLog("info", "연결 해제됨", "system");
-  }, [setActiveProfile, setConnected, setActiveCdn, addLog]);
+  }, [setActiveProfile, setConnected, setActiveCdns, addLog]);
 
   const exportProfile = useCallback(
     async (profileId: string, passphrase: string): Promise<string> => {

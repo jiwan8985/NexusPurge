@@ -9,7 +9,7 @@ import PurgeResultDialog from "../modals/PurgeResultDialog";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
 import { availableCdns, CDN_LABELS } from "../../utils/cdn";
-import type { CdnProvider, PurgeExecutionResult } from "../../types";
+import type { PurgeExecutionResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
 /* ── Inline SVG icon primitives ──────────────────────────────────────────── */
@@ -113,8 +113,8 @@ export default function Toolbar() {
     triggerRemoteRefresh,
     autoPurgeEnabled,
     toggleAutoPurge,
-    activeCdn,
-    setActiveCdn,
+    activeCdns,
+    toggleActiveCdn,
   } = useAppStore((s) => ({
     activeProfile:        s.activeProfile,
     isConnected:          s.isConnected,
@@ -128,12 +128,13 @@ export default function Toolbar() {
     triggerRemoteRefresh: s.triggerRemoteRefresh,
     autoPurgeEnabled:     s.autoPurgeEnabled,
     toggleAutoPurge:      s.toggleAutoPurge,
-    activeCdn:            s.activeCdn,
-    setActiveCdn:         s.setActiveCdn,
+    activeCdns:           s.activeCdns,
+    toggleActiveCdn:      s.toggleActiveCdn,
   }));
 
   const cdns = availableCdns(activeProfile);
-  const hasCdn = isConnected && (activeCdn !== null || cdns.length > 0);
+  const hasCdn = isConnected && (activeCdns.length > 0 || cdns.length > 0);
+  const activeCdnLabels = activeCdns.map((c) => CDN_LABELS[c]);
 
   const perms    = activeProfile?.permissions;
   const canPurge = !perms || perms.canPurge;
@@ -145,7 +146,7 @@ export default function Toolbar() {
   const { executePurge, isPurging, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
 
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
-  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult[] | null>(null);
   const [inputDialog, setInputDialog] = useState<{
     title: string;
     label?: string;
@@ -204,7 +205,9 @@ export default function Toolbar() {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
       if (keys.length === 0) return;
-      const purgeNotice = activeCdn ? ` 삭제 성공한 항목은 CDN(${CDN_LABELS[activeCdn]}) 캐시도 Purge됩니다.` : "";
+      const purgeNotice = activeCdns.length > 0
+        ? ` 삭제 성공한 항목은 CDN(${activeCdnLabels.join(", ")}) 캐시도 Purge됩니다.`
+        : "";
       setDeleteDialog({
         title: "S3 항목 삭제",
         message: `S3에서 ${keys.length}개 항목을 삭제합니다.${purgeNotice} 삭제된 파일은 복구할 수 없습니다.`,
@@ -373,19 +376,21 @@ export default function Toolbar() {
           <div className={styles.sep} />
           <div className={styles.group}>
             {cdns.length > 1 && (
-              <select
-                className={styles.cdnSelect}
-                value={activeCdn ?? ""}
-                onChange={(e) => setActiveCdn(e.target.value as CdnProvider)}
-                title="Purge 대상 CDN 선택 — 업로드 자동 Purge / 수동 Purge / 삭제 Purge 모두 이 CDN으로 실행됩니다"
-              >
+              <div className={styles.cdnChips} title="Purge 대상 CDN 선택 — 여러 CDN을 동시에 선택하면 한 번에 Purge됩니다">
                 {cdns.map((c) => (
-                  <option key={c} value={c}>{CDN_LABELS[c]}</option>
+                  <button
+                    key={c}
+                    type="button"
+                    className={`${styles.cdnChip} ${activeCdns.includes(c) ? styles.cdnChipActive : ""}`}
+                    onClick={() => toggleActiveCdn(c)}
+                  >
+                    {CDN_LABELS[c]}
+                  </button>
                 ))}
-              </select>
+              </div>
             )}
-            {cdns.length === 1 && activeCdn && (
-              <span className={styles.cdnBadge} title="Purge 대상 CDN">{CDN_LABELS[activeCdn]}</span>
+            {cdns.length === 1 && activeCdns[0] && (
+              <span className={styles.cdnBadge} title="Purge 대상 CDN">{CDN_LABELS[activeCdns[0]]}</span>
             )}
             <button
               className={styles.toolBtn}
@@ -430,6 +435,7 @@ export default function Toolbar() {
         <PurgeDialog
           paths={purgeDialog.paths}
           mode={purgeDialog.mode}
+          cdnLabels={activeCdnLabels}
           onConfirm={async () => {
             const paths = purgeDialog.paths;
             setPurgeDialog(null);
@@ -440,7 +446,7 @@ export default function Toolbar() {
         />
       )}
       {purgeResult && (
-        <PurgeResultDialog result={purgeResult} onClose={() => setPurgeResult(null)} />
+        <PurgeResultDialog results={purgeResult} onClose={() => setPurgeResult(null)} />
       )}
 
       {inputDialog && (

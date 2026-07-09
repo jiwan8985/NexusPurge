@@ -1,9 +1,10 @@
 import { useCallback } from "react";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
-import { cdnDistributionIdFor } from "../utils/cdn";
+import { CDN_LABELS, cdnDistributionIdFor } from "../utils/cdn";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type {
+  CdnProvider,
   CdnPurgeResult,
   OperationLog,
   OperationStatus,
@@ -12,10 +13,10 @@ import type {
 } from "../types";
 
 export function useS3() {
-  const { activeProfile, activeCdn, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
+  const { activeProfile, activeCdns, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
     useAppStore((s) => ({
       activeProfile: s.activeProfile,
-      activeCdn: s.activeCdn,
+      activeCdns: s.activeCdns,
       setRemoteFiles: s.setRemoteFiles,
       setRemoteLoading: s.setRemoteLoading,
       setRemotePath: s.setRemotePath,
@@ -47,8 +48,15 @@ export function useS3() {
     async (keys: string[]) => {
       if (!activeProfile) return;
       const startedAt = new Date().toISOString();
-      let purgeResult: CdnPurgeResult | undefined;
-      let purgeError: string | undefined;
+      const purgeEntries: {
+        provider: CdnProvider;
+        paths: string[];
+        success: boolean;
+        invalidationId?: string;
+        error?: string;
+        requestEndpoint?: string;
+        durationMs?: number;
+      }[] = [];
 
       try {
         const deletedKeys = await runtime.invoke<string[]>("delete_s3_objects", {
@@ -57,40 +65,51 @@ export function useS3() {
         });
         addLog("success", `S3 delete completed: ${deletedKeys.length}`, "transfer");
 
-        const provider = activeCdn ?? activeProfile.cdnProvider;
-        if (provider && deletedKeys.length > 0) {
+        const providers = activeCdns.length > 0
+          ? activeCdns
+          : activeProfile.cdnProvider ? [activeProfile.cdnProvider] : [];
+        if (providers.length > 0 && deletedKeys.length > 0) {
           // 폴더 삭제는 하위 키를 개별 나열하는 대신 "폴더/*" 와일드카드 1건으로 Purge
           const purgePaths = keys.map((k) => (k.endsWith("/") ? `${k}*` : k));
-          try {
-            purgeResult = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-              profileId: activeProfile.id,
-              provider,
-              distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
-              paths: purgePaths,
-            });
 
-            if (purgeResult.success) {
-              const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
-              addLog("success", `Delete CDN purge completed: ${purgePaths.length}${id}`, "cdn");
-            } else {
-              addLog("error", `Delete CDN purge failed: ${purgeResult.error}`, "cdn");
+          // 선택된 모든 CDN에 동시(병렬) Purge — 고객사 요청: 여러 CDN 한 번에 Purge
+          await Promise.all(providers.map(async (provider) => {
+            const label = CDN_LABELS[provider];
+            try {
+              const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+                profileId: activeProfile.id,
+                provider,
+                distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
+                paths: purgePaths,
+              });
+              purgeEntries.push({
+                provider, paths: purgePaths,
+                success: result.success, invalidationId: result.invalidationId ?? undefined, error: result.error ?? undefined,
+                requestEndpoint: result.requestEndpoint, durationMs: result.durationMs,
+              });
+              if (result.success) {
+                const id = result.invalidationId ? ` (${result.invalidationId})` : "";
+                const dur = result.durationMs !== undefined ? ` [${result.durationMs}ms]` : "";
+                addLog("success", `[${label}] Delete CDN purge completed: ${purgePaths.length}${id}${dur}`, "cdn");
+              } else {
+                addLog("error", `[${label}] Delete CDN purge failed: ${result.error}`, "cdn");
+              }
+            } catch (err) {
+              purgeEntries.push({ provider, paths: purgePaths, success: false, error: String(err) });
+              addLog("error", `[${label}] Delete CDN purge failed: ${err}`, "cdn");
             }
-          } catch (err) {
-            purgeError = String(err);
-            addLog("error", `Delete CDN purge failed: ${purgeError}`, "cdn");
-          }
+          }));
         }
 
+        const anyPurgeFailed = purgeEntries.some((p) => !p.success);
         void saveOperationLog(buildOperationLog({
           profileId: activeProfile.id,
           operation: "delete",
-          status: purgeResult?.success === false || purgeError ? "partial" : "success",
+          status: anyPurgeFailed ? "partial" : "success",
           bucket: activeProfile.bucket,
           paths: deletedKeys,
           startedAt,
-          purgeResult,
-          purgeError,
-          purgeProvider: provider ?? undefined,
+          purgeEntries,
         }));
       } catch (err) {
         addLog("error", `S3 delete failed: ${err}`, "transfer");
@@ -106,7 +125,7 @@ export function useS3() {
         throw err;
       }
     },
-    [activeProfile, activeCdn, addLog]
+    [activeProfile, activeCdns, addLog]
   );
 
   const createDirectory = useCallback(
@@ -207,9 +226,15 @@ function buildOperationLog(params: {
   paths: string[];
   startedAt: string;
   error?: string;
-  purgeResult?: CdnPurgeResult;
-  purgeError?: string;
-  purgeProvider?: CdnPurgeResult["provider"];
+  purgeEntries?: {
+    provider: CdnProvider;
+    paths: string[];
+    success: boolean;
+    invalidationId?: string;
+    error?: string;
+    requestEndpoint?: string;
+    durationMs?: number;
+  }[];
 }): OperationLog {
   const finishedAt = new Date().toISOString();
   return {
@@ -227,26 +252,17 @@ function buildOperationLog(params: {
       startedAt: params.startedAt,
       finishedAt,
     })),
-    purgeResults: params.purgeResult
-      ? [{
-          provider: params.purgeResult.provider,
-          urls: params.purgeResult.paths,
-          status: params.purgeResult.success ? "success" : "failed",
-          requestId: params.purgeResult.invalidationId,
-          error: params.purgeResult.error,
-          startedAt: params.startedAt,
-          finishedAt,
-        }]
-      : params.purgeError && params.purgeProvider
-        ? [{
-            provider: params.purgeProvider,
-            urls: params.paths,
-            status: "failed",
-            error: params.purgeError,
-            startedAt: params.startedAt,
-            finishedAt,
-          }]
-        : [],
+    purgeResults: (params.purgeEntries ?? []).map((p) => ({
+      provider: p.provider,
+      urls: p.paths,
+      status: p.success ? "success" as const : "failed" as const,
+      requestId: p.invalidationId,
+      error: p.error,
+      requestEndpoint: p.requestEndpoint,
+      durationMs: p.durationMs,
+      startedAt: params.startedAt,
+      finishedAt,
+    })),
     startedAt: params.startedAt,
     finishedAt,
   };

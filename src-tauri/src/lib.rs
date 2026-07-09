@@ -58,6 +58,7 @@ pub fn run() {
             s3::delete_s3_objects,
             s3::put_s3_object,
             s3::get_presigned_url,
+            s3::get_s3_object_detail,
             s3::upload_files,
             s3::rename_s3_object, // H-1
             // 암호화 프로필
@@ -74,6 +75,7 @@ pub fn run() {
             cdn::purge_cdn,
             cdn::test_cdn_connection,
             cdn::get_purge_status,
+            cdn::inspect_url,
             // Operation Logs
             operation_log::save_operation_log,
             operation_log::list_operation_logs,

@@ -22,8 +22,8 @@ interface AppState {
   isConnected: boolean;
   isConnecting: boolean;
 
-  // 멀티 CDN 프로필에서 현재 Purge 대상 CDN (툴바에서 전환)
-  activeCdn: CdnProvider | null;
+  // 멀티 CDN 프로필에서 현재 Purge 대상 CDN 목록 (툴바에서 다중 선택 — 동시에 여러 CDN Purge 가능)
+  activeCdns: CdnProvider[];
 
   // Profiles (전역 공유 — C-2 fix)
   profiles: S3Profile[];
@@ -79,7 +79,8 @@ interface AppState {
   setActiveProfile: (profile: S3Profile | null) => void;
   setConnected: (connected: boolean) => void;
   setConnecting: (connecting: boolean) => void;
-  setActiveCdn: (provider: CdnProvider | null) => void;
+  setActiveCdns: (providers: CdnProvider[]) => void;
+  toggleActiveCdn: (provider: CdnProvider) => void;
 
   // Actions — Local panel
   setLocalPath: (path: string) => void;
@@ -143,7 +144,7 @@ export const useAppStore = create<AppState>()(
     activeProfile: null,
     isConnected: false,
     isConnecting: false,
-    activeCdn: null,
+    activeCdns: [],
 
     // ── Profiles ──────────────────────────────────────────────────────────────
     profiles: [],
@@ -195,7 +196,18 @@ export const useAppStore = create<AppState>()(
     setActiveProfile: (profile) => set({ activeProfile: profile }),
     setConnected: (connected) => set({ isConnected: connected }),
     setConnecting: (connecting) => set({ isConnecting: connecting }),
-    setActiveCdn: (activeCdn) => set({ activeCdn }),
+    setActiveCdns: (activeCdns) => set({ activeCdns }),
+    toggleActiveCdn: (provider) =>
+      set((s) => {
+        const has = s.activeCdns.includes(provider);
+        // 최소 1개는 선택 상태 유지 — 마지막 하나는 해제 불가(Purge 대상이 사라지는 것을 방지)
+        if (has && s.activeCdns.length === 1) return s;
+        return {
+          activeCdns: has
+            ? s.activeCdns.filter((c) => c !== provider)
+            : [...s.activeCdns, provider],
+        };
+      }),
 
     // ── Local Panel Actions ───────────────────────────────────────────────────
     setLocalPath: (path) =>

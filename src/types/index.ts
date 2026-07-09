@@ -232,6 +232,10 @@ export interface CdnPurgeResult {
   paths: string[];
   purgedAt?: string;
   error?: string;
+  /** 실제 호출된 CDN Purge API 엔드포인트 (감사/디버깅용) */
+  requestEndpoint?: string;
+  /** 요청 소요 시간 (ms) */
+  durationMs?: number;
 }
 
 export interface PurgeBatchResult {
@@ -241,6 +245,8 @@ export interface PurgeBatchResult {
   error?: string;
   startedAt: string;
   finishedAt: string;
+  requestEndpoint?: string;
+  durationMs?: number;
 }
 
 export interface PurgeExecutionResult {
@@ -258,6 +264,37 @@ export interface CdnConnectionTestResult {
   success: boolean;
   provider: CdnProvider;
   domain?: string;
+  error?: string;
+}
+
+/** 속성(우클릭) 다이얼로그 — S3 HeadObject 응답 전체 (크롬 개발자모드 수준의 상세 헤더) */
+export interface S3ObjectDetail {
+  key: string;
+  etag?: string;
+  contentLength?: number;
+  contentType?: string;
+  contentEncoding?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
+  cacheControl?: string;
+  lastModified?: string;
+  storageClass?: string;
+  serverSideEncryption?: string;
+  sseKmsKeyId?: string;
+  versionId?: string;
+  replicationStatus?: string;
+  acceptRanges?: string;
+  checksumCrc32?: string;
+  checksumSha256?: string;
+  metadata: Record<string, string>;
+}
+
+/** 속성 다이얼로그의 "실시간 확인" — 임의 URL에 대한 실제 HTTP 응답 상세 */
+export interface UrlInspection {
+  url: string;
+  statusCode?: number;
+  headers: [string, string][];
+  durationMs: number;
   error?: string;
 }
 
@@ -315,6 +352,10 @@ export interface CdnOperationPurgeResult {
   error?: string;
   startedAt: string;
   finishedAt?: string;
+  /** 실제 호출된 CDN Purge API 엔드포인트 — 보안팀 감사 로그 전달 시 참고 */
+  requestEndpoint?: string;
+  /** 요청 소요 시간 (ms) */
+  durationMs?: number;
 }
 
 export interface OperationLog {

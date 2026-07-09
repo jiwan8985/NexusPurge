@@ -174,22 +174,37 @@
   color: var(--color-text-primary);
 }
 
-/* ── Purge 대상 CDN 선택 ────────────────────────────────────────────────── */
-.cdnSelect {
+/* ── Purge 대상 CDN 다중 선택 (칩) ─────────────────────────────────────────
+   고객사 요청: 여러 CDN을 동시에 선택해 한 번에 Purge 가능해야 함 */
+.cdnChips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cdnChip {
   height: 30px;
   padding: 0 var(--spacing-3);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--color-accent);
-  background: var(--color-accent-muted);
-  border: var(--border-width) solid var(--color-accent);
+  color: var(--color-text-tertiary);
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--border-width) solid var(--color-border-strong);
   cursor: pointer;
   outline: none;
+  transition: all var(--transition-fast);
 }
 
-.cdnSelect:hover {
+.cdnChip:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.cdnChipActive {
+  color: var(--color-accent);
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
 }
 
 .cdnBadge {

@@ -80,5 +80,6 @@ incremental = true
 panic         = "abort"
 codegen-units = 1
 lto           = true
-opt-level     = "s"
+# 고객사 요청: 속도 우선 (기존 "s"는 바이너리 크기 최적화 — 해시/전송/Purge 처리량이 우선순위이므로 3으로 전환)
+opt-level     = 3
 strip         = true

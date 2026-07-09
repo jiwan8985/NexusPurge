@@ -9,6 +9,8 @@ import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { useAppStore } from "../../store/appStore";
 import PurgeDialog from "../modals/PurgeDialog";
 import PurgeResultDialog from "../modals/PurgeResultDialog";
+import PropertiesDialog from "../modals/PropertiesDialog";
+import { CDN_LABELS } from "../../utils/cdn";
 import type { FileItem, PurgeExecutionResult } from "../../types";
 import styles from "./Panel.module.css";
 
@@ -36,7 +38,7 @@ export default function RemotePanel() {
     remote,
     isConnected,
     activeProfile,
-    activeCdn,
+    activeCdns,
     toggleRemoteSelection,
     clearRemoteSelection,
     setFocusedSide,
@@ -46,7 +48,7 @@ export default function RemotePanel() {
     remote:               s.remote,
     isConnected:          s.isConnected,
     activeProfile:        s.activeProfile,
-    activeCdn:            s.activeCdn,
+    activeCdns:           s.activeCdns,
     toggleRemoteSelection: s.toggleRemoteSelection,
     clearRemoteSelection: s.clearRemoteSelection,
     setFocusedSide:       s.setFocusedSide,
@@ -63,7 +65,8 @@ export default function RemotePanel() {
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[] } | null>(null);
-  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult[] | null>(null);
+  const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
@@ -121,10 +124,18 @@ export default function RemotePanel() {
       { divider: true },
       {
         // 폴더는 하위 전체를 커버하도록 와일드카드로 Purge
-        label: file.isDirectory ? "Purge (폴더 전체)" : "Purge",
+        label: file.isDirectory
+          ? `Purge (폴더 전체)${activeCdns.length > 1 ? ` — ${activeCdns.length}개 CDN` : ""}`
+          : `Purge${activeCdns.length > 1 ? ` — ${activeCdns.length}개 CDN` : ""}`,
         action: () =>
           setPurgeDialog({ paths: [file.isDirectory ? `${file.path}*` : file.path] }),
-        disabled: !isConnected || !activeCdn || isPurging,
+        disabled: !isConnected || activeCdns.length === 0 || isPurging,
+      },
+      { divider: true },
+      {
+        label: "속성",
+        action: () => setPropertiesFile(file),
+        disabled: !isConnected || !activeProfile,
       },
       { divider: true },
       {
@@ -226,7 +237,7 @@ export default function RemotePanel() {
           <div className={styles.placeholder}>S3 객체를 불러오는 중입니다.</div>
         ) : remote.files.length === 0 ? (
           <div className={styles.placeholder}>
-            {activeCdn
+            {activeCdns.length > 0
               ? "현재 S3 경로가 비어 있습니다. CDN은 업로드 대상이 아니며, 업로드된 S3 객체가 CDN origin으로 제공됩니다."
               : "현재 S3 경로가 비어 있습니다. CDN을 설정하면 업로드/삭제 후 Purge와 CDN URL 확인을 사용할 수 있습니다."}
           </div>
@@ -322,8 +333,11 @@ export default function RemotePanel() {
                 <strong>{deleteConfirm.name}</strong>을(를) 삭제합니다.
               </p>
               <p>S3에서 삭제된 파일은 복구할 수 없습니다.</p>
-              {activeCdn && (
-                <p>삭제에 성공한 S3 객체만 CDN Purge 대상으로 전송됩니다.</p>
+              {activeCdns.length > 0 && (
+                <p>
+                  삭제에 성공한 S3 객체만 CDN Purge 대상으로 전송됩니다.
+                  {activeCdns.length > 1 && ` (대상 CDN: ${activeCdns.map((c) => CDN_LABELS[c]).join(", ")})`}
+                </p>
               )}
             </>
           }
@@ -359,6 +373,7 @@ export default function RemotePanel() {
         <PurgeDialog
           paths={purgeDialog.paths}
           mode="selected"
+          cdnLabels={activeCdns.map((c) => CDN_LABELS[c])}
           onConfirm={async () => {
             const paths = purgeDialog.paths;
             setPurgeDialog(null);
@@ -369,7 +384,15 @@ export default function RemotePanel() {
         />
       )}
       {purgeResult && (
-        <PurgeResultDialog result={purgeResult} onClose={() => setPurgeResult(null)} />
+        <PurgeResultDialog results={purgeResult} onClose={() => setPurgeResult(null)} />
+      )}
+      {propertiesFile && activeProfile && (
+        <PropertiesDialog
+          file={propertiesFile}
+          profile={activeProfile}
+          activeCdns={activeCdns}
+          onClose={() => setPropertiesFile(null)}
+        />
       )}
     </div>
   );

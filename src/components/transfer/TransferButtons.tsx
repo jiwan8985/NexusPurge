@@ -14,12 +14,12 @@ function fmtSize(bytes: number): string {
 }
 
 export default function TransferButtons() {
-  const { isConnected, isTransferring, local, remote, activeCdn, autoPurgeEnabled } = useAppStore((s) => ({
+  const { isConnected, isTransferring, local, remote, activeCdns, autoPurgeEnabled } = useAppStore((s) => ({
     isConnected: s.isConnected,
     isTransferring: s.isTransferring,
     local: s.local,
     remote: s.remote,
-    activeCdn: s.activeCdn,
+    activeCdns: s.activeCdns,
     autoPurgeEnabled: s.autoPurgeEnabled,
   }));
   const { startUpload, startDownload } = useTransfer();
@@ -33,7 +33,7 @@ export default function TransferButtons() {
 
   // 경고 통과 후 실제 업로드 진입 (자동 Purge ON이면 승인 팝업 먼저)
   const proceedUpload = () => {
-    if (autoPurgeEnabled && activeCdn) {
+    if (autoPurgeEnabled && activeCdns.length > 0) {
       setAutoPurgeConfirm(true);
     } else {
       startUpload();
@@ -144,7 +144,7 @@ export default function TransferButtons() {
                 <strong>자동 Purge</strong>가 활성화되어 있습니다.
               </p>
               <p>
-                업로드 완료 후 선택된 파일의 CDN 캐시({activeCdn ? CDN_LABELS[activeCdn] : ""})를
+                업로드 완료 후 선택된 파일의 CDN 캐시({activeCdns.map((c) => CDN_LABELS[c]).join(", ")})를
                 자동으로 Purge합니다.
               </p>
               <p>미변경(스킵) 파일도 포함하여 전체 경로를 Purge합니다.</p>

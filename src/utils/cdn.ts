@@ -79,3 +79,44 @@ export function defaultCacheControlFor(key: string): string {
   if (/\.[a-f0-9]{8,}\./i.test(key)) return "max-age=31536000, immutable";
   return "";
 }
+
+/**
+ * Purge 요청이 실제로 호출하는 CDN API 엔드포인트를 설명 문자열로 반환 (정보 표시용, 실제 호출 아님).
+ * Rust 쪽 commands/cdn.rs::describe_cdn_endpoint와 동일한 로직 — 속성 다이얼로그에서
+ * 실제 IPC 호출 없이 "이 CDN을 Purge하면 어떤 엔드포인트로 요청이 가는지"를 바로 보여주기 위함.
+ */
+export function describeCdnEndpoint(
+  profile: S3Profile | null | undefined,
+  provider: CdnProvider,
+): string | null {
+  if (!profile) return null;
+  const distributionId = cdnDistributionIdFor(profile, provider);
+  switch (provider) {
+    case "cloudfront":
+      return distributionId
+        ? `POST https://cloudfront.amazonaws.com/2020-05-31/distribution/${distributionId}/invalidation`
+        : null;
+    case "akamai":
+      return profile.akamaiHost
+        ? `POST https://${profile.akamaiHost}/ccu/v3/invalidate/url/production (폴더/전체 Purge는 .../invalidate/cpcode/production)`
+        : null;
+    case "lguplus": {
+      const endpoint = profile.lguplusEndpoint || "https://api.lgucdn.com";
+      return profile.lguplusServiceName
+        ? `POST ${endpoint}/v3/management/service/${profile.lguplusServiceName}/volume/{volumeName}/purge (Volume Name 미설정 시 .../domain/{domain}/purge)`
+        : null;
+    }
+    case "kt": {
+      const endpoint = profile.ktEndpoint || "https://api.ktcdn.co.kr";
+      return profile.ktServiceName
+        ? `POST ${endpoint}/v3/management/service/${profile.ktServiceName}/volume/{volumeName}/purge (Volume Name 미설정 시 .../domain/{domain}/purge)`
+        : null;
+    }
+    case "hyosung": {
+      const endpoint = profile.hyosungEndpoint || "https://api.xtrmcdn.co.kr:28091";
+      return distributionId ? `POST ${endpoint}/api/v1/purge/${distributionId}` : null;
+    }
+    default:
+      return null;
+  }
+}

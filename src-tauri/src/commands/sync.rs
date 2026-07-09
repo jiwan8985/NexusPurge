@@ -7,9 +7,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 
-// H-2: 동시 파일 전송 상한
-const MAX_CONCURRENT_FILES: usize = 4;
+// H-2: 동시 파일 전송 상한 (네트워크 대역폭 기준 — 실제 바이트 전송용)
+const MAX_CONCURRENT_FILES: usize = 8;
 const MAX_CDN_PURGE_PATHS_PER_REQUEST: usize = 1000;
+
+/// build_sync_plan의 동시 해시/HEAD 작업 상한.
+/// 세마포어 없이 전체 파일을 한 번에 spawn하면(수천 개 폴더 업로드 시)
+/// 파일당 최대 PART_SIZE(10MB) 버퍼가 동시에 잡혀 메모리·디스크 I/O가 폭주해 오히려 느려진다.
+/// CPU 코어 수 기반으로 상한을 두어 처리량은 유지하면서 자원 폭주를 막는다.
+fn max_concurrent_hash_tasks() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get() * 4)
+        .unwrap_or(8)
+        .clamp(8, 64)
+}
 
 use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
@@ -213,11 +224,16 @@ pub async fn build_sync_plan(
         Option<(String, String, String, u64, String, String, Option<(u64, Option<String>)>)>,
     > = JoinSet::new();
 
+    // 동시 해시/HEAD 작업 상한 — 대량 파일(수백~수천 개)에서 메모리·I/O 폭주 방지
+    let hash_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent_hash_tasks()));
+
     for (local_path, rel_path) in expanded {
         let adapter = adapter.clone();
         let prefix  = remote_prefix.clone();
+        let permit  = hash_semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
+            let _permit = permit;
             let p = Path::new(&local_path);
             let remote_key = format!("{}{}", prefix, rel_path);
 

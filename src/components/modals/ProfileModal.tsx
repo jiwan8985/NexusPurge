@@ -14,6 +14,19 @@ const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "hyosung",    label: "Hyosung ITX CDN" },
 ];
 
+// 기존 프로필 편집 시 CDN 상세정보(Domain/ID/Endpoint 등)를 가리는 자리표시자.
+// "표시" 클릭 전까지 실제 값은 렌더링하지 않는다 (값은 폼 상태에 그대로 유지됨).
+function CdnDetailsMasked({ onReveal }: { onReveal: () => void }) {
+  return (
+    <div className={styles.infoMsg}>
+      CDN 상세정보(도메인, ID, 엔드포인트 등)가 가려져 있습니다.
+      <button type="button" className={styles.testBtn} style={{ marginLeft: "0.6rem" }} onClick={onReveal}>
+        표시
+      </button>
+    </div>
+  );
+}
+
 const REGION_SUGGESTIONS = [
   "ap-northeast-2",
   "ap-northeast-1",
@@ -124,6 +137,11 @@ export default function ProfileModal() {
   const [confirmRequest, setConfirmRequest] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
 
+  // 고객사 요청: 기존 프로필 편집 시 CDN 상세정보(Domain/ID/Endpoint 등)는 기본적으로 가리고,
+  // 명시적으로 "표시" 버튼을 눌러야만 보이도록 함. 값 자체는 폼 상태에 그대로 있어 저장/테스트에 영향 없음.
+  const [cdnDetailsRevealed, setCdnDetailsRevealed] = useState(true);
+  const cdnFieldsMasked = !!editingId && !cdnDetailsRevealed;
+
   // 검색
   const [search, setSearch] = useState("");
 
@@ -145,6 +163,9 @@ export default function ProfileModal() {
     setTestResult(null);
     setCdnTestResult(null);
     setError(null);
+    // 고객사 요청: 기존 프로필 편집 시 CDN 상세정보(도메인/ID/엔드포인트 등)를 기본적으로 가림.
+    // 값은 폼 상태에 그대로 유지되어 저장/테스트는 정상 동작하며, 화면 표시만 마스킹된다.
+    setCdnDetailsRevealed(false);
     // 멀티 CDN 프로필: 기본 provider의 도메인/ID를 폼에 로드 (공용 필드보다 우선)
     const defaultEntry = profile.cdnProviders?.find((c) => c.provider === profile.cdnProvider);
     setForm({
@@ -189,6 +210,7 @@ export default function ProfileModal() {
     setError(null);
     setTestResult(null);
     setCdnTestResult(null);
+    setCdnDetailsRevealed(true); // 새 프로필은 입력 중인 값이므로 가릴 필요 없음
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -662,12 +684,12 @@ export default function ProfileModal() {
                     key={p.id}
                     className={`${styles.profileItem} ${editingId === p.id ? styles.active : ""}`}
                   >
+                    {/* 고객사 요청: 목록에서 버킷/리전 상세정보 비노출 — 프로필 이름만 표시 */}
                     <button type="button" className={styles.profileInfo} onClick={() => handleEdit(p)}>
                       <span className={styles.profileName}>{p.name}</span>
-                      <span className={styles.profileDetail}>
-                        {p.bucket} · {p.region}
-                        {p.permissions?.role && <span style={{ marginLeft: "0.4rem", opacity: 0.6 }}>· {p.permissions.role}</span>}
-                      </span>
+                      {p.permissions?.role && (
+                        <span className={styles.profileDetail} style={{ opacity: 0.6 }}>{p.permissions.role}</span>
+                      )}
                     </button>
                     <div className={styles.profileActions}>
                       <button type="button" className={styles.connectBtn} onClick={() => handleConnect(p)}>
@@ -828,7 +850,9 @@ export default function ProfileModal() {
                 </select>
               </label>
 
-              {isCloudFront && (
+              {isCloudFront && (cdnFieldsMasked ? (
+                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
+              ) : (
                 <>
                   <label className={styles.field}>
                     <span>Distribution ID</span>
@@ -847,9 +871,11 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              )}
+              ))}
 
-              {isAkamai && (
+              {isAkamai && (cdnFieldsMasked ? (
+                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
+              ) : (
                 <>
                   <label className={styles.field}>
                     <span>EdgeGrid 호스트</span>
@@ -901,9 +927,11 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              )}
+              ))}
 
-              {isLguplus && (
+              {isLguplus && (cdnFieldsMasked ? (
+                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
+              ) : (
                 <>
                   <label className={styles.field}>
                     <span>Username *</span>
@@ -955,9 +983,11 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              )}
+              ))}
 
-              {isKt && (
+              {isKt && (cdnFieldsMasked ? (
+                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
+              ) : (
                 <>
                   <label className={styles.field}>
                     <span>Username *</span>
@@ -1009,9 +1039,11 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              )}
+              ))}
 
-              {isHyosung && (
+              {isHyosung && (cdnFieldsMasked ? (
+                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
+              ) : (
                 <>
                   <label className={styles.field}>
                     <span>USER_ID (Principal) *</span>
@@ -1055,7 +1087,7 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              )}
+              ))}
 
               {form.cdnProvider && (
                 <div className={styles.testRow}>
@@ -1070,7 +1102,7 @@ export default function ProfileModal() {
                   {cdnTestResult && (
                     <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
                       {cdnTestResult.success
-                        ? `✓ CDN 연결 성공${cdnTestResult.domain ? ` · ${cdnTestResult.domain}` : ""}`
+                        ? `✓ CDN 연결 성공${cdnTestResult.domain && !cdnFieldsMasked ? ` · ${cdnTestResult.domain}` : ""}`
                         : `✗ ${cdnTestResult.error}`}
                     </span>
                   )}

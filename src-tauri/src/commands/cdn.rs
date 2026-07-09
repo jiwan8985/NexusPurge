@@ -14,6 +14,38 @@ pub struct CdnPurgeResult {
     #[serde(rename = "purgedAt")]
     pub purged_at: Option<String>,
     pub error: Option<String>,
+    /// 실제 호출된 CDN Purge API 엔드포인트 (감사/디버깅용 — 보안팀 로그 전달 시 참고)
+    #[serde(default, rename = "requestEndpoint")]
+    pub request_endpoint: Option<String>,
+    /// 요청 소요 시간 (ms)
+    #[serde(default, rename = "durationMs")]
+    pub duration_ms: Option<u64>,
+}
+
+/// Purge 요청이 실제로 호출하는 API 엔드포인트를 설명 문자열로 반환 (로그·감사용, 실제 호출은 아님)
+fn describe_cdn_endpoint(creds: &CdnCredentials, distribution_id: &str) -> String {
+    match creds {
+        CdnCredentials::CloudFront(_) => format!(
+            "POST https://cloudfront.amazonaws.com/2020-05-31/distribution/{}/invalidation",
+            distribution_id
+        ),
+        CdnCredentials::Akamai { host, .. } => format!(
+            "POST https://{}/ccu/v3/invalidate/url/production (폴더/전체 Purge는 .../invalidate/cpcode/production)",
+            host
+        ),
+        CdnCredentials::Lguplus { endpoint, service_name, .. } => format!(
+            "POST {}/v3/management/service/{}/volume/{{volumeName}}/purge (Volume Name 미설정 시 .../domain/{{domain}}/purge)",
+            endpoint, service_name
+        ),
+        CdnCredentials::Kt { endpoint, service_name, .. } => format!(
+            "POST {}/v3/management/service/{}/volume/{{volumeName}}/purge (Volume Name 미설정 시 .../domain/{{domain}}/purge)",
+            endpoint, service_name
+        ),
+        CdnCredentials::Hyosung { endpoint, .. } => format!(
+            "POST {}/api/v1/purge/{}",
+            endpoint, distribution_id
+        ),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +90,8 @@ pub async fn purge_cloudfront(
             paths,
             purged_at: Some(chrono::Utc::now().to_rfc3339()),
             error: None,
+            request_endpoint: None,
+            duration_ms: None,
         }),
         Err(e) => Ok(CdnPurgeResult {
             success: false,
@@ -66,6 +100,8 @@ pub async fn purge_cloudfront(
             paths,
             purged_at: None,
             error: Some(e.to_string()),
+            request_endpoint: None,
+            duration_ms: None,
         }),
     }
 }
@@ -301,6 +337,7 @@ pub async fn purge_cdn(
     distribution_id: String,
     paths: Vec<String>,
     store: State<'_, ProfileStore>,
+    cache: State<'_, crate::utils::adapter_cache::AdapterCache>,
 ) -> Result<CdnPurgeResult, String> {
     let profile = store
         .get_profile(&profile_id)
@@ -312,11 +349,84 @@ pub async fn purge_cdn(
         .await
         .map_err(|e| e.to_string())?;
 
+    // 효성은 와일드카드 미지원(노드 purge 데몬이 "*" URL에 502 반환)
+    // → 폴더/전체 Purge("prefix/*")를 S3 목록 조회로 개별 파일 경로로 확장
+    let effective_paths: Vec<String> = if provider == "hyosung"
+        && paths.iter().any(|p| p.ends_with('*'))
+    {
+        let (creds, region, bucket, endpoint) = store
+            .get_connection_info(&profile_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let adapter = cache
+            .get_or_create(&profile_id, || async {
+                crate::adapters::storage::s3::S3Adapter::new(
+                    &region, &bucket, &creds, endpoint.as_deref(),
+                )
+                .await
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut expanded = Vec::new();
+        for p in &paths {
+            if let Some(prefix) = p.strip_suffix('*') {
+                let prefix = prefix.trim_start_matches('/');
+                match adapter.list_keys_recursive(prefix).await {
+                    Ok(keys) => {
+                        expanded.extend(keys.into_iter().filter(|k| !k.ends_with('/')));
+                    }
+                    Err(e) => {
+                        return Ok(CdnPurgeResult {
+                            success: false,
+                            provider,
+                            invalidation_id: None,
+                            paths,
+                            purged_at: None,
+                            error: Some(format!(
+                                "효성 폴더 Purge 확장 실패 (S3 목록 조회 오류): {}",
+                                e
+                            )),
+                            request_endpoint: None,
+                            duration_ms: None,
+                        });
+                    }
+                }
+            } else {
+                expanded.push(p.clone());
+            }
+        }
+        expanded.sort();
+        expanded.dedup();
+
+        if expanded.is_empty() {
+            // 빈 폴더 — 무효화할 파일 없음, 성공 처리
+            return Ok(CdnPurgeResult {
+                success: true,
+                provider,
+                invalidation_id: None,
+                paths,
+                purged_at: Some(chrono::Utc::now().to_rfc3339()),
+                error: None,
+                request_endpoint: None,
+                duration_ms: None,
+            });
+        }
+        tracing::info!(
+            "효성 폴더 Purge 확장: {}개 와일드카드 → {}개 파일 경로",
+            paths.len(),
+            expanded.len()
+        );
+        expanded
+    } else {
+        paths.clone()
+    };
+
     // cdn_base_path 제거하여 실제 CDN 경로 구성 (예: "contents/file.txt" + base "contents/" -> "file.txt")
     let normalized_paths = if let Some(base) = profile.cdn_base_path.as_deref().filter(|b| !b.trim().is_empty()) {
         let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
         let prefix = format!("{}/", base_stripped);
-        paths
+        effective_paths
             .iter()
             .map(|p| {
                 let key_stripped = p.trim_start_matches('/');
@@ -328,10 +438,13 @@ pub async fn purge_cdn(
             })
             .collect()
     } else {
-        paths.clone()
+        effective_paths
     };
 
+    let request_endpoint = describe_cdn_endpoint(&cdn_creds, &distribution_id);
+    let started = std::time::Instant::now();
     let result = cdn::purge_with_credentials(&distribution_id, &normalized_paths, cdn_creds).await;
+    let duration_ms = Some(started.elapsed().as_millis() as u64);
 
     match result {
         Ok(id) => Ok(CdnPurgeResult {
@@ -341,6 +454,8 @@ pub async fn purge_cdn(
             paths, // 프론트엔드 매칭을 위해 원본 S3 키 경로 유지
             purged_at: Some(chrono::Utc::now().to_rfc3339()),
             error: None,
+            request_endpoint: Some(request_endpoint),
+            duration_ms,
         }),
         Err(e) => Ok(CdnPurgeResult {
             success: false,
@@ -348,6 +463,71 @@ pub async fn purge_cdn(
             invalidation_id: None,
             paths,
             purged_at: None,
+            error: Some(e.to_string()),
+            request_endpoint: Some(request_endpoint),
+            duration_ms,
+        }),
+    }
+}
+
+// ─── URL 실시간 조회 (속성 다이얼로그 — 크롬 개발자모드 Network 탭과 유사한 상세 정보) ──────
+
+#[derive(Debug, Serialize)]
+pub struct UrlInspection {
+    pub url: String,
+    #[serde(rename = "statusCode")]
+    pub status_code: Option<u16>,
+    /// 응답 헤더 원본 순서 그대로 (key, value) — DevTools Response Headers와 동일한 형태
+    pub headers: Vec<(String, String)>,
+    #[serde(rename = "durationMs")]
+    pub duration_ms: u64,
+    pub error: Option<String>,
+}
+
+/// 주어진 URL에 실제 HTTP 요청(HEAD, 미지원 시 GET Range)을 보내 상태코드·응답 헤더·소요시간을 그대로 반환.
+/// S3 객체 속성 다이얼로그에서 "실시간 확인" 버튼으로 호출 — 자동 실행되지 않음(온디맨드).
+///
+/// 테스트/스테이징 CDN 엣지 도메인은 인증서 체인이 사설 CA이거나 SNI가 맞지 않는 경우가 흔해
+/// (효성 API 서버와 동일한 문제 — hyosung.rs 참고) TLS 검증을 curl -k 와 동일하게 우회한다.
+/// 이 커맨드는 진단/디버깅 전용이며 실제 Purge 요청 경로와는 무관하다.
+#[tauri::command]
+pub async fn inspect_url(url: String) -> Result<UrlInspection, String> {
+    let client = reqwest::Client::builder()
+        .use_native_tls()
+        .danger_accept_invalid_certs(true)
+        // 접근 불가한 사설망 도메인일 경우 무한 대기하지 않고 명확한 오류로 빨리 실패시킴
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let started = std::time::Instant::now();
+    let response = match client.head(&url).send().await {
+        Ok(resp) if resp.status().as_u16() != 405 => Ok(resp),
+        _ => {
+            client
+                .get(&url)
+                .header(reqwest::header::RANGE, "bytes=0-0")
+                .send()
+                .await
+        }
+    };
+    let duration_ms = started.elapsed().as_millis() as u64;
+
+    match response {
+        Ok(resp) => {
+            let status_code = Some(resp.status().as_u16());
+            let headers = resp
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("<binary>").to_string()))
+                .collect();
+            Ok(UrlInspection { url, status_code, headers, duration_ms, error: None })
+        }
+        Err(e) => Ok(UrlInspection {
+            url,
+            status_code: None,
+            headers: vec![],
+            duration_ms,
             error: Some(e.to_string()),
         }),
     }

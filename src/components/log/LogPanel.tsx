@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { useTransfer } from "../../hooks/useTransfer";
 import { runtime } from "../../services/runtime";
@@ -15,7 +15,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   system:   "시스템",
 };
 
-function LogRow({ entry }: { entry: LogEntry }) {
+// React.memo: 로그 항목은 추가되기만 하고 기존 항목은 불변이므로,
+// 메모이제이션하면 새 로그가 쌓여도 이미 렌더된 행은 다시 그리지 않는다 (대량 로그 시 버벅임 방지)
+const LogRow = memo(function LogRow({ entry }: { entry: LogEntry }) {
   const time = new Date(entry.timestamp).toLocaleTimeString("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -41,7 +43,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
       <span className={styles.logMsg}>{entry.message}</span>
     </div>
   );
-}
+});
 
 function TransferRow({ item, onRetry }: { item: TransferItem; onRetry?: (item: TransferItem) => void }) {
   const statusLabel: Record<TransferItem["status"], string> = {

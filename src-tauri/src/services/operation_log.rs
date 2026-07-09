@@ -70,59 +70,14 @@ impl OperationLogService {
         self.data_dir.join(LOG_FILES_DIR)
     }
 
-    /// 사람이 읽을 수 있는 한 줄 요약을 날짜별 로그 파일에 append
-    async fn append_log_file(&self, log: &OperationLog) -> Result<()> {
+    /// 고객사 요청: 로그를 타입별로 분리 저장 — 하나의 작업(예: 업로드+Purge)도
+    /// 파일 전송 결과는 transfer 로그로, CDN Purge 결과는 cdn 로그로 나뉘어 기록된다.
+    async fn append_typed_log(&self, kind: &str, now: chrono::DateTime<chrono::Local>, content: &str) -> Result<()> {
         let dir = self.log_files_dir();
         tokio::fs::create_dir_all(&dir)
             .await
             .context("log files directory creation failed")?;
-
-        let now = chrono::Local::now();
-        let file_path = dir.join(format!("nexuspurge-{}.log", now.format("%Y-%m-%d")));
-
-        let mut lines = Vec::new();
-        let file_count = log.files.len();
-        lines.push(format!(
-            "[{}] {} {} | bucket={} prefix={} files={}",
-            now.format("%Y-%m-%d %H:%M:%S"),
-            log.operation.to_uppercase(),
-            log.status.to_uppercase(),
-            log.bucket.as_deref().unwrap_or("-"),
-            log.prefix.as_deref().unwrap_or("-"),
-            file_count,
-        ));
-        for file in &log.files {
-            let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("-");
-            let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-            let error = file.get("error").and_then(|v| v.as_str());
-            match error {
-                Some(err) => lines.push(format!("  - {} [{}] error: {}", path, status, err)),
-                None => lines.push(format!("  - {} [{}]", path, status)),
-            }
-        }
-        for purge in &log.purge_results {
-            let provider = purge.get("provider").and_then(|v| v.as_str()).unwrap_or("-");
-            let status = purge.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-            let request_id = purge.get("requestId").and_then(|v| v.as_str());
-            let error = purge.get("error").and_then(|v| v.as_str());
-            let url_count = purge
-                .get("urls")
-                .and_then(|v| v.as_array())
-                .map(|urls| urls.len())
-                .unwrap_or(0);
-            let mut line = format!("  * PURGE {} [{}] urls={}", provider, status, url_count);
-            if let Some(id) = request_id {
-                line.push_str(&format!(" requestId={}", id));
-            }
-            if let Some(err) = error {
-                line.push_str(&format!(" error: {}", err));
-            }
-            lines.push(line);
-        }
-        lines.push(String::new());
-
-        let mut content = lines.join("\n");
-        content.push('\n');
+        let file_path = dir.join(format!("{}-{}.log", kind, now.format("%Y-%m-%d")));
 
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::OpenOptions::new()
@@ -134,6 +89,110 @@ impl OperationLogService {
         file.write_all(content.as_bytes())
             .await
             .context("log file write failed")
+    }
+
+    /// 사람이 읽을 수 있는 한 줄 요약 + 상세를 타입별(system/transfer/cdn) 로그 파일에 append
+    async fn append_log_file(&self, log: &OperationLog) -> Result<()> {
+        let now = chrono::Local::now();
+        let ts = now.format("%Y-%m-%d %H:%M:%S");
+
+        // ── 파일 작업 로그 (upload/download → transfer, mkdir/rename/delete → system) ──
+        if !log.files.is_empty() {
+            let kind = if log.operation == "upload" || log.operation == "download" {
+                "transfer"
+            } else {
+                "system"
+            };
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "[{}] {} {} | bucket={} prefix={} files={}",
+                ts,
+                log.operation.to_uppercase(),
+                log.status.to_uppercase(),
+                log.bucket.as_deref().unwrap_or("-"),
+                log.prefix.as_deref().unwrap_or("-"),
+                log.files.len(),
+            ));
+            for file in &log.files {
+                let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+                let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                let started = file.get("startedAt").and_then(|v| v.as_str()).unwrap_or("-");
+                let finished = file.get("finishedAt").and_then(|v| v.as_str()).unwrap_or("-");
+                let error = file.get("error").and_then(|v| v.as_str());
+                // 보안팀 감사/오류 추적용: 파일별 정확한 시작·종료 시각을 함께 기록
+                let mut line = format!("  - {} [{}] started={} finished={}", path, status, started, finished);
+                if let Some(err) = error {
+                    line.push_str(&format!(" error: {}", err));
+                }
+                lines.push(line);
+            }
+            lines.push(String::new());
+            let mut content = lines.join("\n");
+            content.push('\n');
+            self.append_typed_log(kind, now, &content).await?;
+        }
+
+        // ── CDN Purge 상세 로그 (provider·경로수·요청ID·전체 오류 메시지) ──
+        if !log.purge_results.is_empty() {
+            let mut lines = Vec::new();
+            lines.push(format!(
+                "[{}] {} {} | bucket={} prefix={} purge_batches={}",
+                ts,
+                log.operation.to_uppercase(),
+                log.status.to_uppercase(),
+                log.bucket.as_deref().unwrap_or("-"),
+                log.prefix.as_deref().unwrap_or("-"),
+                log.purge_results.len(),
+            ));
+            const URL_PREVIEW_LIMIT: usize = 50;
+            for purge in &log.purge_results {
+                let provider = purge.get("provider").and_then(|v| v.as_str()).unwrap_or("-");
+                let status = purge.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                let request_id = purge.get("requestId").and_then(|v| v.as_str());
+                let request_endpoint = purge.get("requestEndpoint").and_then(|v| v.as_str());
+                let duration_ms = purge.get("durationMs").and_then(|v| v.as_u64());
+                let started = purge.get("startedAt").and_then(|v| v.as_str()).unwrap_or("-");
+                let finished = purge.get("finishedAt").and_then(|v| v.as_str()).unwrap_or("-");
+                let error = purge.get("error").and_then(|v| v.as_str());
+                let urls = purge.get("urls").and_then(|v| v.as_array());
+                let url_count = urls.map(|u| u.len()).unwrap_or(0);
+
+                let mut line = format!(
+                    "  * [{}] {} urls={} started={} finished={}",
+                    provider, status, url_count, started, finished
+                );
+                if let Some(id) = request_id {
+                    line.push_str(&format!(" requestId={}", id));
+                }
+                if let Some(ms) = duration_ms {
+                    line.push_str(&format!(" duration={}ms", ms));
+                }
+                lines.push(line);
+                // 실제 호출된 CDN API 엔드포인트 (감사/디버깅용)
+                if let Some(endpoint) = request_endpoint {
+                    lines.push(format!("      endpoint: {}", endpoint));
+                }
+                // 대상 경로 목록 (최대 URL_PREVIEW_LIMIT개 — 전량은 JSON 로그(operation_logs.json)에서 확인)
+                if let Some(urls) = urls {
+                    for u in urls.iter().take(URL_PREVIEW_LIMIT).filter_map(|v| v.as_str()) {
+                        lines.push(format!("      - {}", u));
+                    }
+                    if url_count > URL_PREVIEW_LIMIT {
+                        lines.push(format!("      ... 외 {}개 (전체 목록은 operation_logs.json 참고)", url_count - URL_PREVIEW_LIMIT));
+                    }
+                }
+                // 오류 메시지는 CDN이 반환한 상세(HTTP 상태·응답 본문 등)를 그대로 전체 기록
+                if let Some(err) = error {
+                    lines.push(format!("      error: {}", err));
+                }
+            }
+            lines.push(String::new());
+            let mut content = lines.join("\n");
+            content.push('\n');
+            self.append_typed_log("cdn", now, &content).await?;
+        }
+
+        Ok(())
     }
 
     pub async fn list_recent(&self) -> Result<Vec<OperationLog>> {

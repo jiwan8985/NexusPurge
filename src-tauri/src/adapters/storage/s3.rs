@@ -14,7 +14,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use crate::adapters::storage::base::{
-    ListResult, ObjectMeta, Progress, RemoteFile, StorageAdapter, UploadResult,
+    ListResult, ObjectMeta, Progress, RemoteFile, S3ObjectDetail, StorageAdapter, UploadResult,
 };
 use crate::commands::s3::FileItem;
 use crate::utils::config::AwsCredentials;
@@ -425,6 +425,50 @@ impl S3Adapter {
                     .map(|value| value.to_string())
                     .unwrap_or_default(),
                 content_type: resp.content_type().map(|value| value.to_owned()),
+            })),
+            Err(err) => {
+                if err
+                    .as_service_error()
+                    .map(|e| e.is_not_found())
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                }
+                Err(self.sdk_failure("HeadObject", Some(key), &err))
+            }
+        }
+    }
+
+    /// 속성(우클릭) 다이얼로그의 "S3 상세 헤더" 표시용 — HeadObject 응답의 전 필드를 그대로 반환.
+    /// 크롬 개발자모드 Network 탭에서 보는 응답 헤더 수준의 상세 정보를 제공한다.
+    pub async fn head_object_full(&self, key: &str) -> Result<Option<S3ObjectDetail>> {
+        match self
+            .sdk_client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(resp) => Ok(Some(S3ObjectDetail {
+                key: key.to_owned(),
+                etag: resp.e_tag().map(|v| v.trim_matches('"').to_owned()),
+                content_length: resp.content_length(),
+                content_type: resp.content_type().map(ToOwned::to_owned),
+                content_encoding: resp.content_encoding().map(ToOwned::to_owned),
+                content_disposition: resp.content_disposition().map(ToOwned::to_owned),
+                content_language: resp.content_language().map(ToOwned::to_owned),
+                cache_control: resp.cache_control().map(ToOwned::to_owned),
+                last_modified: resp.last_modified().map(|v| v.to_string()),
+                storage_class: resp.storage_class().map(|v| v.as_str().to_owned()),
+                server_side_encryption: resp.server_side_encryption().map(|v| v.as_str().to_owned()),
+                sse_kms_key_id: resp.ssekms_key_id().map(ToOwned::to_owned),
+                version_id: resp.version_id().map(ToOwned::to_owned),
+                replication_status: resp.replication_status().map(|v| v.as_str().to_owned()),
+                accept_ranges: resp.accept_ranges().map(ToOwned::to_owned),
+                checksum_crc32: resp.checksum_crc32().map(ToOwned::to_owned),
+                checksum_sha256: resp.checksum_sha256().map(ToOwned::to_owned),
+                metadata: resp.metadata().cloned().unwrap_or_default(),
             })),
             Err(err) => {
                 if err

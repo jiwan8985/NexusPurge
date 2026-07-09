@@ -17,7 +17,8 @@
 ///
 /// 주의:
 ///   - GET 경로는 trailing slash 필수, POST는 trailing slash 없음 (누락 시 405)
-///   - CDN 도메인에 스킴이 없으면 http/https 양쪽 URL을 모두 Purge (캐시 스킴 불일치 방지)
+///   - Purge URL 스킴은 기본 http (가이드 예시 기준), Edge Domain에 https:// 명시 시 https
+///   - 와일드카드("prefix/*") 미지원 — 노드 purge 데몬이 502 반환 (purge_cdn에서 개별 파일로 확장)
 ///   - API 서버 인증서가 신뢰 체인에 없을 수 있어 TLS 검증을 우회함 (가이드 8장 참고)
 use anyhow::{Context, Result};
 use reqwest::Client;
@@ -80,26 +81,21 @@ impl HyosungCdnAdapter {
     }
 
     /// 경로 목록을 완전한 CDN URL로 변환.
-    /// CDN 도메인에 스킴(http:// 또는 https://)이 명시되면 그대로 사용하고,
-    /// 없으면 캐시 스킴 불일치를 피하기 위해 http/https 양쪽 URL을 모두 생성한다.
+    /// 가이드 예시 기준 기본 스킴은 http. Edge Domain에 https://를 명시하면 https로 생성.
+    /// (양쪽 스킴 동시 전송은 노드 명령에서 URL이 파이프 결합·중복되어 502를 유발하므로 단일 스킴만)
     fn build_urls(&self, paths: &[String]) -> Vec<String> {
         let raw = self.cdn_domain.trim().trim_end_matches('/');
-        let (schemes, domain): (&[&str], &str) = if let Some(rest) = raw.strip_prefix("https://") {
-            (&["https"], rest)
+        let (scheme, domain): (&str, &str) = if let Some(rest) = raw.strip_prefix("https://") {
+            ("https", rest)
         } else if let Some(rest) = raw.strip_prefix("http://") {
-            (&["http"], rest)
+            ("http", rest)
         } else {
-            (&["http", "https"], raw)
+            ("http", raw)
         };
 
         paths
             .iter()
-            .flat_map(|p| {
-                let path = p.trim_start_matches('/');
-                schemes
-                    .iter()
-                    .map(move |scheme| format!("{}://{}/{}", scheme, domain, path))
-            })
+            .map(|p| format!("{}://{}/{}", scheme, domain, p.trim_start_matches('/')))
             .collect()
     }
 
@@ -278,7 +274,7 @@ mod tests {
     }
 
     #[test]
-    fn build_urls_without_scheme_emits_http_and_https() {
+    fn build_urls_without_scheme_defaults_to_http() {
         let adapter = HyosungCdnAdapter {
             client:     Client::new(),
             api_key:    "key".into(),
@@ -290,8 +286,6 @@ mod tests {
 
         let urls = adapter.build_urls(&["contents/test.png".to_string()]);
 
-        assert_eq!(urls.len(), 2);
-        assert!(urls.contains(&"http://cdn.example.com/contents/test.png".to_string()));
-        assert!(urls.contains(&"https://cdn.example.com/contents/test.png".to_string()));
+        assert_eq!(urls, vec!["http://cdn.example.com/contents/test.png".to_string()]);
     }
 }

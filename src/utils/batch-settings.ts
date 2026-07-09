@@ -8,7 +8,7 @@ const KEYS = {
 } as const;
 
 export const BATCH_DEFAULTS = {
-  maxConcurrentTransfers: 4,
+  maxConcurrentTransfers: 8,
   fileCountWarn:          5_000,
   fileCountLimit:         10_000,
   purgeBatchSize:         1_000,
