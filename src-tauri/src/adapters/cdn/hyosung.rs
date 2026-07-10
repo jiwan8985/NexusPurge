@@ -17,6 +17,8 @@
 ///
 /// 주의:
 ///   - GET 경로는 trailing slash 필수, POST는 trailing slash 없음 (누락 시 405)
+///   - Purge URL 호스트는 서비스에 등록된 도메인이어야 함 — 엣지 별칭(*.{그룹}.hscdn.net)
+///     사용 시 전 노드 502 → service_domain()에서 접미사를 제거해 서비스 도메인으로 복원
 ///   - Purge URL 스킴은 기본 http (가이드 예시 기준), Edge Domain에 https:// 명시 시 https
 ///   - 와일드카드("prefix/*") 미지원 — 노드 purge 데몬이 502 반환 (purge_cdn에서 개별 파일로 확장)
 ///   - API 서버 인증서가 신뢰 체인에 없을 수 있어 TLS 검증을 우회함 (가이드 8장 참고)
@@ -80,9 +82,25 @@ impl HyosungCdnAdapter {
         Ok(Self { client, api_key, api_secret, endpoint, service_id, cdn_domain })
     }
 
+    /// 효성 엣지 별칭({서비스도메인}.{그룹}.hscdn.net, CNAME 대상)이 설정된 경우
+    /// 등록된 서비스 도메인을 복원한다.
+    /// Purge 대상 URL의 호스트는 서비스에 등록된 도메인이어야 하며(가이드 4장 예시),
+    /// 엣지 별칭을 그대로 보내면 노드 purge 데몬이 호스트를 인식하지 못해 전 노드 502
+    /// ("All execution failure!")가 발생한다.
+    fn service_domain(domain: &str) -> &str {
+        if let Some(prefix) = domain.strip_suffix(".hscdn.net") {
+            if let Some((service, _group)) = prefix.rsplit_once('.') {
+                if service.contains('.') {
+                    return service;
+                }
+            }
+        }
+        domain
+    }
+
     /// 경로 목록을 완전한 CDN URL로 변환.
     /// 가이드 예시 기준 기본 스킴은 http. Edge Domain에 https://를 명시하면 https로 생성.
-    /// (양쪽 스킴 동시 전송은 노드 명령에서 URL이 파이프 결합·중복되어 502를 유발하므로 단일 스킴만)
+    /// (스킴은 단일만 전송 — 서버가 등록 도메인 수만큼 노드 명령에 URL을 파이프 결합해 전달함)
     fn build_urls(&self, paths: &[String]) -> Vec<String> {
         let raw = self.cdn_domain.trim().trim_end_matches('/');
         let (scheme, domain): (&str, &str) = if let Some(rest) = raw.strip_prefix("https://") {
@@ -92,6 +110,7 @@ impl HyosungCdnAdapter {
         } else {
             ("http", raw)
         };
+        let domain = Self::service_domain(domain);
 
         // 가이드 8장: 한글/특수문자 파일명은 URL 인코딩 형태 전달 권장
         // → 미인코딩 전달 시 노드 purge 데몬이 URL을 잘못 파싱해 실패한다
@@ -209,11 +228,13 @@ impl HyosungCdnAdapter {
         // GET /api/v1/purge/{serviceId}/?target={dummy} 로 서비스 존재 확인
         let dummy_url = format!(
             "https://{}/connection-test",
-            self.cdn_domain
-                .trim()
-                .trim_start_matches("https://")
-                .trim_start_matches("http://")
-                .trim_end_matches('/')
+            Self::service_domain(
+                self.cdn_domain
+                    .trim()
+                    .trim_start_matches("https://")
+                    .trim_start_matches("http://")
+                    .trim_end_matches('/')
+            )
         );
         let url = format!(
             "{}/api/v1/purge/{}/",
@@ -297,6 +318,42 @@ mod tests {
             urls[0],
             "https://cdn.example.com/contents/%ED%95%9C%EA%B8%80%20%ED%8C%8C%EC%9D%BC.txt"
         );
+    }
+
+    #[test]
+    fn build_urls_strips_hscdn_edge_alias_to_service_domain() {
+        let adapter = HyosungCdnAdapter {
+            client:     Client::new(),
+            api_key:    "key".into(),
+            api_secret: "secret".into(),
+            endpoint:   "https://api.xtrmcdn.co.kr:28091".into(),
+            service_id: "TID_18656".into(),
+            cdn_domain: "sklb-test.dn.nexoncdn.co.kr.gtmc.hscdn.net".into(),
+        };
+
+        let urls = adapter.build_urls(&["contents/file-b.txt".to_string()]);
+
+        assert_eq!(
+            urls,
+            vec!["http://sklb-test.dn.nexoncdn.co.kr/contents/file-b.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn build_urls_keeps_non_edge_hscdn_domain() {
+        // 서비스 도메인 자체를 복원할 수 없는 짧은 hscdn.net 도메인은 그대로 사용
+        let adapter = HyosungCdnAdapter {
+            client:     Client::new(),
+            api_key:    "key".into(),
+            api_secret: "secret".into(),
+            endpoint:   "https://api.xtrmcdn.co.kr:28091".into(),
+            service_id: "TID_18656".into(),
+            cdn_domain: "gtmc.hscdn.net".into(),
+        };
+
+        let urls = adapter.build_urls(&["contents/test.png".to_string()]);
+
+        assert_eq!(urls, vec!["http://gtmc.hscdn.net/contents/test.png".to_string()]);
     }
 
     #[test]

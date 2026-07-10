@@ -74,6 +74,38 @@ export function buildCdnUrl(
   return `https://${domain}/${normalizedKey}`;
 }
 
+// 효성 엣지 별칭({서비스도메인}.{그룹}.hscdn.net, CNAME 대상)에서 서비스 도메인 복원.
+// Rust adapters/cdn/hyosung.rs::service_domain과 동일 규칙 — 엣지 별칭은 실서비스
+// vhost가 아니라서(엣지 노드 실측 404) 확인/Purge 모두 서비스 도메인을 써야 한다.
+function hyosungServiceDomain(domain: string): string {
+  const m = domain.match(/^(.+\..+)\.[^.]+\.hscdn\.net$/);
+  return m ? m[1] : domain;
+}
+
+// 속성 다이얼로그 "실시간 확인"용 공개 URL.
+// Purge 대상 URL(buildCdnUrl)과 달리, cdnBasePath가 비어 있으면 basePrefix(S3 탐색 루트)를
+// 제거한다 — CDN 원본 경로가 basePrefix를 가리키는 구성(예: contents/)에서 실제 응답을
+// 확인하려면 공개 URL로 요청해야 하기 때문. Purge 경로에는 영향 없음.
+// 효성은 서비스 도메인 + 기본 http 스킴(도메인에 https:// 명시 시 https) 사용.
+export function buildInspectUrl(
+  provider: CdnProvider,
+  cdnDomain: string | undefined,
+  key: string,
+  cdnBasePath?: string,
+  basePrefix?: string,
+): string | null {
+  const stripPrefix = cdnBasePath?.trim() ? cdnBasePath : basePrefix;
+  const url = buildCdnUrl(cdnDomain, key, stripPrefix);
+  if (!url || provider !== "hyosung") return url;
+
+  const scheme = cdnDomain!.trim().startsWith("https://") ? "https" : "http";
+  const rest = url.slice("https://".length); // "{host}/{path}"
+  const slash = rest.indexOf("/");
+  const host = slash === -1 ? rest : rest.slice(0, slash);
+  const path = slash === -1 ? "" : rest.slice(slash);
+  return `${scheme}://${hyosungServiceDomain(host)}${path}`;
+}
+
 export function defaultCacheControlFor(key: string): string {
   if (/\.(html?)$/i.test(key)) return "no-cache";
   if (/\.[a-f0-9]{8,}\./i.test(key)) return "max-age=31536000, immutable";

@@ -78,13 +78,9 @@ pnpm-debug.log*
 # Test files & temporary snapshots
 .vitest/
 .nyc_output/
-/test-samples/temp/
-/test-samples/scenarios/
 
 # Docs / PDF Guides
 docs/*.pdf
 
 # Claude Code local runtime state
 .claude/
-claude-fable-5.md
-profile-sample.json

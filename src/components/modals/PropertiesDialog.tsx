@@ -4,6 +4,7 @@ import { runtime } from "../../services/runtime";
 import {
   availableCdns,
   buildCdnUrl,
+  buildInspectUrl,
   CDN_LABELS,
   cdnDistributionIdFor,
   cdnDomainFor,
@@ -228,6 +229,15 @@ export default function PropertiesDialog({ file, profile, activeCdns, onClose }:
                   const cdnUrl = domain
                     ? buildCdnUrl(domain, file.path, profile.cdnBasePath)
                     : null;
+                  // 실시간 확인은 Purge 대상 경로가 아니라 실제 공개 URL로 요청
+                  // (cdnBasePath 미설정 시 basePrefix 제거 — 예: contents/test/a.txt → /test/a.txt)
+                  const publicUrl = buildInspectUrl(
+                    provider,
+                    domain,
+                    file.path,
+                    profile.cdnBasePath,
+                    profile.basePrefix,
+                  );
                   const isActive = activeCdns.includes(provider);
                   const endpointDesc = describeCdnEndpoint(profile, provider);
                   const inspection = inspections[provider];
@@ -273,15 +283,20 @@ export default function PropertiesDialog({ file, profile, activeCdns, onClose }:
                         )}
                       </div>
 
-                      {!file.isDirectory && cdnUrl && (
+                      {!file.isDirectory && publicUrl && (
                         <div className={styles.inspectBox}>
                           <button
                             className={styles.copyBtn}
-                            onClick={() => inspectUrl(provider, cdnUrl)}
+                            onClick={() => inspectUrl(provider, publicUrl)}
                             disabled={isInspecting}
                           >
                             {isInspecting ? "확인 중..." : "실시간 확인 (CDN 응답 헤더)"}
                           </button>
+                          {publicUrl !== cdnUrl && (
+                            <span className={styles.label} style={{ marginLeft: 8, fontFamily: "var(--font-family-mono)", fontSize: 11 }}>
+                              {publicUrl}
+                            </span>
+                          )}
                           {inspErr && <div className={styles.errorBox}>{inspErr}</div>}
                           {inspection && !inspErr && (
                             <div className={styles.inspectResult}>
