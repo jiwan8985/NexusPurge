@@ -45,6 +45,11 @@ const LogRow = memo(function LogRow({ entry }: { entry: LogEntry }) {
   );
 });
 
+function fmtTime(iso?: string) {
+  if (!iso) return "-";
+  return new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 function TransferRow({ item, onRetry }: { item: TransferItem; onRetry?: (item: TransferItem) => void }) {
   const statusLabel: Record<TransferItem["status"], string> = {
     pending:     "대기",
@@ -64,6 +69,9 @@ function TransferRow({ item, onRetry }: { item: TransferItem; onRetry?: (item: T
       <span className={`${styles.tStatus} ${styles[`ts_${item.status}`]}`}>
         {statusLabel[item.status]}
         {item.cdnPurged && " + CDN"}
+      </span>
+      <span className={styles.tTimeRange} title={`시작: ${fmtTime(item.startedAt)} / 종료: ${fmtTime(item.completedAt)}`}>
+        {fmtTime(item.startedAt)} → {fmtTime(item.completedAt)}
       </span>
       <span className={styles.tSize}>{item.transferredBytes > 0 ? fmtSize(item.transferredBytes) : "-"}</span>
       {item.status === "error" && onRetry && (

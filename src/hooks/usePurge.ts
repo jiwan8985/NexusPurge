@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { CDN_LABELS, cdnDistributionIdFor, cdnDomainFor } from "../utils/cdn";
 import { readBatchSettings } from "../utils/batch-settings";
+import { fmtClockTime } from "../utils/format-time";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { useAppStore } from "../store/appStore";
 import { runtime } from "../services/runtime";
@@ -58,35 +59,38 @@ export function usePurge() {
             paths: batch,
           });
 
+          const finishedAtIso = new Date().toISOString();
           batchResults.push({
             paths: batch,
             success: result.success,
             invalidationId: result.invalidationId ?? undefined,
             error: result.error ?? undefined,
             startedAt: batchStartedAt,
-            finishedAt: new Date().toISOString(),
+            finishedAt: finishedAtIso,
             requestEndpoint: result.requestEndpoint,
             durationMs: result.durationMs,
           });
 
+          const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
           if (result.success) {
             const inv = result.invalidationId ? ` (${result.invalidationId})` : "";
             const dur = result.durationMs !== undefined ? ` [${result.durationMs}ms]` : "";
-            addLog("success", `[${label}] CDN Purge 완료${batchLabel}: ${batch.length}개${inv}${dur}`, "cdn");
+            addLog("success", `[${label}] CDN Purge 완료${batchLabel}: ${batch.length}개${inv}${dur}${timeRange}`, "cdn");
           } else {
             failedCount += batch.length;
-            addLog("error", `[${label}] CDN Purge 실패${batchLabel}: ${result.error}`, "cdn");
+            addLog("error", `[${label}] CDN Purge 실패${batchLabel}: ${result.error}${timeRange}`, "cdn");
           }
         } catch (err) {
           failedCount += batch.length;
+          const finishedAtIso = new Date().toISOString();
           batchResults.push({
             paths: batch,
             success: false,
             error: String(err),
             startedAt: batchStartedAt,
-            finishedAt: new Date().toISOString(),
+            finishedAt: finishedAtIso,
           });
-          addLog("error", `[${label}] CDN Purge 오류${batchLabel}: ${err}`, "cdn");
+          addLog("error", `[${label}] CDN Purge 오류${batchLabel}: ${err} (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`, "cdn");
         }
       }
 

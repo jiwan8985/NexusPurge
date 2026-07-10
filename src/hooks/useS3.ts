@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { CDN_LABELS, cdnDistributionIdFor } from "../utils/cdn";
+import { fmtClockTime } from "../utils/format-time";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type {
@@ -75,6 +76,7 @@ export function useS3() {
           // 선택된 모든 CDN에 동시(병렬) Purge — 고객사 요청: 여러 CDN 한 번에 Purge
           await Promise.all(providers.map(async (provider) => {
             const label = CDN_LABELS[provider];
+            const batchStartedAt = new Date().toISOString();
             try {
               const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
                 profileId: activeProfile.id,
@@ -87,16 +89,18 @@ export function useS3() {
                 success: result.success, invalidationId: result.invalidationId ?? undefined, error: result.error ?? undefined,
                 requestEndpoint: result.requestEndpoint, durationMs: result.durationMs,
               });
+              const finishedAtIso = new Date().toISOString();
+              const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
               if (result.success) {
                 const id = result.invalidationId ? ` (${result.invalidationId})` : "";
                 const dur = result.durationMs !== undefined ? ` [${result.durationMs}ms]` : "";
-                addLog("success", `[${label}] Delete CDN purge completed: ${purgePaths.length}${id}${dur}`, "cdn");
+                addLog("success", `[${label}] Delete CDN purge completed: ${purgePaths.length}${id}${dur}${timeRange}`, "cdn");
               } else {
-                addLog("error", `[${label}] Delete CDN purge failed: ${result.error}`, "cdn");
+                addLog("error", `[${label}] Delete CDN purge failed: ${result.error}${timeRange}`, "cdn");
               }
             } catch (err) {
               purgeEntries.push({ provider, paths: purgePaths, success: false, error: String(err) });
-              addLog("error", `[${label}] Delete CDN purge failed: ${err}`, "cdn");
+              addLog("error", `[${label}] Delete CDN purge failed: ${err} (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(new Date().toISOString())})`, "cdn");
             }
           }));
         }

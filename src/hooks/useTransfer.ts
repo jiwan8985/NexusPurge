@@ -5,6 +5,7 @@ import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, CDN_LABELS, cdnDistributionIdFor, cdnDomainFor, defaultCacheControlFor } from "../utils/cdn";
 import type { CdnProvider, CdnPurgeResult, TransferItem, SyncPlan } from "../types";
 import { readBatchSettings } from "../utils/batch-settings";
+import { fmtClockTime } from "../utils/format-time";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -313,6 +314,7 @@ export function useTransfer() {
             for (let i = 0; i < purgePaths.length; i += purgeBatchSize) {
               const batch = purgePaths.slice(i, i + purgeBatchSize);
               const batchLabel = totalBatches > 1 ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${totalBatches})` : "";
+              const batchStartedAt = new Date().toISOString();
               let success = false;
               let invalidationId: string | undefined;
               let error: string | undefined;
@@ -335,12 +337,14 @@ export function useTransfer() {
               }
               batchPurgeResults.push({ provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs });
 
+              const finishedAtIso = new Date().toISOString();
+              const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
               if (success) {
                 const inv = invalidationId ? ` (${invalidationId})` : "";
                 const dur = durationMs !== undefined ? ` [${durationMs}ms]` : "";
-                addLog("success", `[${label}] CDN Purge 완료${batchLabel}: ${batch.length}개${inv}${dur}`, "cdn");
+                addLog("success", `[${label}] CDN Purge 완료${batchLabel}: ${batch.length}개${inv}${dur}${timeRange}`, "cdn");
               } else {
-                addLog("error", `[${label}] CDN Purge 실패${batchLabel}: ${error}`, "cdn");
+                addLog("error", `[${label}] CDN Purge 실패${batchLabel}: ${error}${timeRange}`, "cdn");
               }
 
               for (const path of batch) {
