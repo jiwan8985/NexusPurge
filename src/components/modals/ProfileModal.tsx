@@ -72,12 +72,14 @@ interface FormState {
   lguplusServiceName: string;
   lguplusVolumeName: string;
   lguplusEndpoint: string;
+  lguplusServiceType: "cloudcdn" | "volume";
   // KT CDN
   ktUsername: string;
   ktPassword: string;
   ktServiceName: string;
   ktVolumeName: string;
   ktEndpoint: string;
+  ktServiceType: "cloudcdn" | "volume";
   // Hyosung CDN
   hyosungApiKey: string;
   hyosungApiSecret: string;
@@ -109,11 +111,13 @@ const emptyForm = (): FormState => ({
   lguplusServiceName: "",
   lguplusVolumeName: "",
   lguplusEndpoint: "",
+  lguplusServiceType: "volume",
   ktUsername: "",
   ktPassword: "",
   ktServiceName: "",
   ktVolumeName: "",
   ktEndpoint: "",
+  ktServiceType: "volume",
   hyosungApiKey: "",
   hyosungApiSecret: "",
   hyosungEndpoint: "",
@@ -193,11 +197,13 @@ export default function ProfileModal() {
       lguplusServiceName: profile.lguplusServiceName ?? "",
       lguplusVolumeName: profile.lguplusVolumeName ?? "",
       lguplusEndpoint: profile.lguplusEndpoint ?? "",
+      lguplusServiceType: profile.lguplusServiceType ?? "volume",
       ktUsername: profile.ktUsername ?? "",
       ktPassword: "",          // 보안상 마스킹
       ktServiceName: profile.ktServiceName ?? "",
       ktVolumeName: profile.ktVolumeName ?? "",
       ktEndpoint: profile.ktEndpoint ?? "",
+      ktServiceType: profile.ktServiceType ?? "volume",
       hyosungApiKey: profile.hyosungApiKey ?? "",
       hyosungApiSecret: "",    // 보안상 마스킹
       hyosungEndpoint: profile.hyosungEndpoint ?? "",
@@ -315,11 +321,13 @@ export default function ProfileModal() {
     lguplusServiceName: form.lguplusServiceName || undefined,
     lguplusVolumeName: form.lguplusVolumeName || undefined,
     lguplusEndpoint: form.lguplusEndpoint || undefined,
+    lguplusServiceType: form.lguplusServiceType,
     ktUsername: form.ktUsername || undefined,
     ktPassword: form.ktPassword || undefined,
     ktServiceName: form.ktServiceName || undefined,
     ktVolumeName: form.ktVolumeName || undefined,
     ktEndpoint: form.ktEndpoint || undefined,
+    ktServiceType: form.ktServiceType,
     hyosungApiKey: form.hyosungApiKey || undefined,
     hyosungApiSecret: form.hyosungApiSecret || undefined,
     hyosungEndpoint: form.hyosungEndpoint || undefined,
@@ -982,6 +990,13 @@ export default function ProfileModal() {
                       placeholder="https://api.lgucdn.com (기본값)"
                     />
                   </label>
+                  <label className={styles.field}>
+                    <span>서비스 타입</span>
+                    <select value={form.lguplusServiceType} onChange={setField("lguplusServiceType")}>
+                      <option value="volume">Volume (일반) — 폴더 Purge는 개별 파일로 처리</option>
+                      <option value="cloudcdn">Delivery-cloudcdn — 전체 Purge 시 서비스 전체 즉시 플러시</option>
+                    </select>
+                  </label>
                 </>
               ))}
 
@@ -1037,6 +1052,13 @@ export default function ProfileModal() {
                       onChange={setField("ktEndpoint")}
                       placeholder="https://api.ktcdn.co.kr (기본값, 계약에 따라 https://api.ktcdn.com)"
                     />
+                  </label>
+                  <label className={styles.field}>
+                    <span>서비스 타입</span>
+                    <select value={form.ktServiceType} onChange={setField("ktServiceType")}>
+                      <option value="volume">Volume (일반) — 폴더 Purge는 개별 파일로 처리</option>
+                      <option value="cloudcdn">Delivery-cloudcdn — 전체 Purge 시 서비스 전체 즉시 플러시</option>
+                    </select>
                   </label>
                 </>
               ))}

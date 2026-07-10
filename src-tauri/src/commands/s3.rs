@@ -760,6 +760,9 @@ pub struct ProfileFileSolbox {
     pub endpoint: Option<String>,
     #[serde(default)]
     pub domain: Option<String>,
+    /// "cloudcdn" | "volume" — cloudcdn이면 전체 Purge 시 Purge by Service 사용
+    #[serde(default, rename = "serviceType")]
+    pub service_type: Option<String>,
 }
 
 /// JSON 프로필 파일을 가져와 저장한다.
@@ -810,11 +813,13 @@ pub async fn import_profile_file(
         lguplus_service_name: None,
         lguplus_volume_name: None,
         lguplus_endpoint: None,
+        lguplus_service_type: None,
         kt_username: None,
         kt_password: None,
         kt_service_name: None,
         kt_volume_name: None,
         kt_endpoint: None,
+        kt_service_type: None,
         hyosung_api_key: None,
         hyosung_api_secret: None,
         hyosung_endpoint: None,
@@ -852,6 +857,7 @@ pub async fn import_profile_file(
         profile.kt_service_name = Some(kt.service_name);
         profile.kt_volume_name = kt.volume_name;
         profile.kt_endpoint = kt.endpoint;
+        profile.kt_service_type = kt.service_type;
         cdn_providers.push(crate::utils::config::CdnProviderConfig {
             provider: "kt".into(),
             display_name: None,
@@ -866,6 +872,7 @@ pub async fn import_profile_file(
         profile.lguplus_service_name = Some(lgu.service_name);
         profile.lguplus_volume_name = lgu.volume_name;
         profile.lguplus_endpoint = lgu.endpoint;
+        profile.lguplus_service_type = lgu.service_type;
         cdn_providers.push(crate::utils::config::CdnProviderConfig {
             provider: "lguplus".into(),
             display_name: None,

@@ -23,6 +23,12 @@ pub struct LguplusCdnAdapter {
     volume_name:  String,
     endpoint:       String,
     cdn_domain:     String, // FQDN — volume_name 미지정 시 domain 기반 purge에 사용
+    service_type:   String, // "cloudcdn" | "volume" — cloudcdn만 Purge by Service 가능
+}
+
+/// `/v3/management/service/{serviceName}/purge` URL 구성 (전체 서비스 즉시 플러시, body 없음)
+pub(crate) fn service_purge_url(endpoint: &str, service_name: &str) -> String {
+    format!("{}/v3/management/service/{}/purge", endpoint.trim_end_matches('/'), service_name)
 }
 
 impl LguplusCdnAdapter {
@@ -33,13 +39,14 @@ impl LguplusCdnAdapter {
         volume_name:  String,
         endpoint:     String,
         cdn_domain:   String,
+        service_type: String,
     ) -> Result<Self> {
         let client = Client::builder()
             .use_native_tls()
             .build()
             .context("HTTP 클라이언트 생성 실패")?;
         let endpoint = endpoint.trim().trim_end_matches('/').to_owned();
-        Ok(Self { client, username, password, service_name, volume_name, endpoint, cdn_domain })
+        Ok(Self { client, username, password, service_name, volume_name, endpoint, cdn_domain, service_type })
     }
 
     /// JWT 토큰 발급 (v3 auth/tokens)
@@ -185,6 +192,59 @@ impl LguplusCdnAdapter {
         Ok(None)
     }
 
+    /// 서비스 전체 즉시 플러시 — Delivery-cloudcdn 타입 서비스에서만 지원
+    /// (LG U+ CDN 3.0 OpenAPI v3 문서 "Purge by Service": 그 외 타입은 Purge by Volume 사용)
+    /// body 없음 — 응답은 filelist 기반 응답과 동일한 형태(transactionId 포함)로 가정한다.
+    pub async fn purge_service(&self) -> Result<Option<String>> {
+        if self.service_type != "cloudcdn" {
+            return Err(anyhow::anyhow!(
+                "LG U+ CDN 서비스 전체 Purge는 서비스 타입이 cloudcdn인 경우에만 지원됩니다 \
+                 (현재: {}). 프로필에서 서비스 타입을 확인하세요.",
+                self.service_type
+            ));
+        }
+        if self.service_name.trim().is_empty() {
+            return Err(anyhow::anyhow!("LG U+ CDN Purge에는 Service Name이 필요합니다"));
+        }
+
+        let token = self.acquire_token().await?;
+        let url = service_purge_url(&self.endpoint, &self.service_name);
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await
+            .context("LG U+ CDN 서비스 전체 Purge 요청 실패")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "LG U+ CDN 서비스 전체 Purge 실패 (HTTP {}): {}",
+                status,
+                text
+            ));
+        }
+
+        let text = resp.text().await.unwrap_or_default();
+        if let Ok(json) = serde_json::from_str::<Value>(&text) {
+            let tid = json["transactionId"]
+                .as_str()
+                .or_else(|| json["transid"].as_str())
+                .map(ToOwned::to_owned)
+                .or_else(|| json["transid"].as_u64().map(|v| v.to_string()));
+            if let Some(tid) = tid {
+                tracing::info!("LG U+ CDN 서비스 전체 Purge 요청 수락: transactionId={}", tid);
+                return Ok(Some(tid));
+            }
+        }
+
+        tracing::info!("LG U+ CDN 서비스 전체 Purge 완료 (서비스: {})", self.service_name);
+        Ok(None)
+    }
+
     /// 트랜잭션 상태 조회 (v3 management/transaction/{transactionId})
     pub async fn get_transaction_status(&self, transaction_id: &str) -> Result<String> {
         let token = self.acquire_token().await?;
@@ -227,5 +287,16 @@ impl LguplusCdnAdapter {
     pub async fn test_connection(&self) -> Result<()> {
         self.acquire_token().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_purge_url_has_no_trailing_slash() {
+        let url = service_purge_url("https://api.lgucdn.com/", "my-service");
+        assert_eq!(url, "https://api.lgucdn.com/v3/management/service/my-service/purge");
     }
 }

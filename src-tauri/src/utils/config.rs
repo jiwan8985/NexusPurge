@@ -82,6 +82,9 @@ pub struct ProfileConfig {
     pub lguplus_volume_name: Option<String>,
     #[serde(rename = "lguplusEndpoint", skip_serializing_if = "Option::is_none")]
     pub lguplus_endpoint: Option<String>,
+    /// "cloudcdn" | "volume" (기본 "volume") — cloudcdn이면 전체 Purge 시 Purge by Service 사용 가능
+    #[serde(rename = "lguplusServiceType", skip_serializing_if = "Option::is_none")]
+    pub lguplus_service_type: Option<String>,
     // KT CDN — username/password 기반 JWT 인증
     #[serde(rename = "ktUsername", skip_serializing_if = "Option::is_none")]
     pub kt_username: Option<String>,
@@ -94,6 +97,9 @@ pub struct ProfileConfig {
     pub kt_volume_name: Option<String>,
     #[serde(rename = "ktEndpoint", skip_serializing_if = "Option::is_none")]
     pub kt_endpoint: Option<String>,
+    /// "cloudcdn" | "volume" (기본 "volume") — cloudcdn이면 전체 Purge 시 Purge by Service 사용 가능
+    #[serde(rename = "ktServiceType", skip_serializing_if = "Option::is_none")]
+    pub kt_service_type: Option<String>,
     // Hyosung (미지원, 하위 호환)
     #[serde(rename = "hyosungApiKey", skip_serializing_if = "Option::is_none")]
     pub hyosung_api_key: Option<String>,
@@ -301,6 +307,8 @@ pub enum CdnCredentials {
         volume_name:  String,
         endpoint:     String,
         cdn_domain:   String,
+        /// "cloudcdn" | "volume" — 전체 Purge 시 Purge by Service 사용 가능 여부
+        service_type: String,
     },
     /// KT CDN (Solbox CDN v3) — JWT 인증
     Kt {
@@ -310,6 +318,8 @@ pub enum CdnCredentials {
         volume_name:  String,
         endpoint:     String,
         cdn_domain:   String,
+        /// "cloudcdn" | "volume" — 전체 Purge 시 Purge by Service 사용 가능 여부
+        service_type: String,
     },
     /// 효성 ITX CDN — 헤더 인증 (X-ITX-Security-Principal / Secret)
     Hyosung {
@@ -559,7 +569,7 @@ impl ProfileStore {
                 })
             }
             "lguplus" => {
-                let (username, service_name, volume_name, endpoint, cdn_domain) = {
+                let (username, service_name, volume_name, endpoint, cdn_domain, service_type) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
@@ -572,6 +582,9 @@ impl ProfileStore {
                         profile.lguplus_endpoint.clone()
                             .unwrap_or_else(|| "https://api.lgucdn.com".to_owned()),
                         provider_domain(profile, "lguplus").unwrap_or_default(),
+                        profile.lguplus_service_type.clone()
+                            .filter(|v| !v.trim().is_empty())
+                            .unwrap_or_else(|| "volume".to_owned()),
                     )
                 };
                 let mut missing = Vec::new();
@@ -596,6 +609,7 @@ impl ProfileStore {
                     volume_name,
                     endpoint,
                     cdn_domain,
+                    service_type,
                 })
             }
             "hyosung" => {
@@ -639,7 +653,7 @@ impl ProfileStore {
                 })
             }
             "kt" => {
-                let (username, service_name, volume_name, endpoint, cdn_domain) = {
+                let (username, service_name, volume_name, endpoint, cdn_domain, service_type) = {
                     let locked = self.profiles.read().await;
                     let profile = locked
                         .iter()
@@ -652,6 +666,9 @@ impl ProfileStore {
                         profile.kt_endpoint.clone()
                             .unwrap_or_else(|| "https://api.ktcdn.co.kr".to_owned()),
                         provider_domain(profile, "kt").unwrap_or_default(),
+                        profile.kt_service_type.clone()
+                            .filter(|v| !v.trim().is_empty())
+                            .unwrap_or_else(|| "volume".to_owned()),
                     )
                 };
                 let mut missing = Vec::new();
@@ -676,6 +693,7 @@ impl ProfileStore {
                     volume_name,
                     endpoint,
                     cdn_domain,
+                    service_type,
                 })
             }
             other => Err(anyhow::anyhow!("?????녿뒗 CDN 怨듦툒?? {}", other)),

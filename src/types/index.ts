@@ -37,12 +37,14 @@ export interface S3Profile {
   lguplusServiceName?: string;
   lguplusVolumeName?: string;
   lguplusEndpoint?: string;
+  lguplusServiceType?: "cloudcdn" | "volume"; // cloudcdn이면 전체 Purge 시 서비스 전체 즉시 플러시 사용
   // KT CDN (Solbox CDN v3)
   ktUsername?: string;
   ktPassword?: string;         // keyring에 저장, 로드 시 빈 값
   ktServiceName?: string;
   ktVolumeName?: string;
   ktEndpoint?: string;
+  ktServiceType?: "cloudcdn" | "volume"; // cloudcdn이면 전체 Purge 시 서비스 전체 즉시 플러시 사용
   // Hyosung CDN (미지원, 하위 호환)
   hyosungApiKey?: string;
   hyosungApiSecret?: string;

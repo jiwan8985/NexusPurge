@@ -112,9 +112,10 @@ pub async fn purge_with_credentials(
             volume_name,
             endpoint,
             cdn_domain,
+            service_type,
         } => {
             let adapter = lguplus::LguplusCdnAdapter::new(
-                username, password, service_name, volume_name, endpoint, cdn_domain,
+                username, password, service_name, volume_name, endpoint, cdn_domain, service_type,
             )?;
             let mut last_err = None;
             for attempt in 0..3 {
@@ -172,9 +173,10 @@ pub async fn purge_with_credentials(
             volume_name,
             endpoint,
             cdn_domain,
+            service_type,
         } => {
             let adapter = kt::KtCdnAdapter::new(
-                username, password, service_name, volume_name, endpoint, cdn_domain,
+                username, password, service_name, volume_name, endpoint, cdn_domain, service_type,
             )?;
             let mut last_err = None;
             for attempt in 0..3 {
