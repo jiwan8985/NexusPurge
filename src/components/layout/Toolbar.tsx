@@ -9,6 +9,7 @@ import PurgeResultDialog from "../modals/PurgeResultDialog";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
 import { availableCdns, CDN_LABELS } from "../../utils/cdn";
+import { validateS3KeySegment } from "../../utils/s3-key";
 import type { PurgeExecutionResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
@@ -154,6 +155,7 @@ export default function Toolbar() {
     placeholder?: string;
     confirmLabel?: string;
     multiline?: boolean;
+    validate?: (value: string) => string | null;
     onConfirm: (value: string) => void;
   } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -168,6 +170,8 @@ export default function Toolbar() {
       label: focusedSide === "remote" ? `S3 경로 "${remote.path}" 아래에 새 폴더를 만듭니다.` : "로컬에 새 폴더를 만듭니다.",
       placeholder: "폴더 이름",
       confirmLabel: "만들기",
+      // S3 측 폴더명만 문자 제한 적용 (로컬은 OS 규칙 유지)
+      validate: focusedSide === "remote" && isConnected ? validateS3KeySegment : undefined,
       onConfirm: async (name) => {
         if (focusedSide === "remote" && isConnected) {
           const prefix = remote.path.endsWith("/") ? remote.path : remote.path + "/";
@@ -242,6 +246,7 @@ export default function Toolbar() {
         initialValue: oldName,
         placeholder: "새 이름",
         confirmLabel: "변경",
+        validate: validateS3KeySegment,
         onConfirm: async (newName) => {
           if (newName === oldName) return;
           const newKey = oldKey.replace(/[^/]*\/?$/, newName + (oldKey.endsWith("/") ? "/" : ""));
@@ -457,6 +462,7 @@ export default function Toolbar() {
           placeholder={inputDialog.placeholder}
           confirmLabel={inputDialog.confirmLabel}
           multiline={inputDialog.multiline}
+          validate={inputDialog.validate}
           onConfirm={(value) => {
             const dialog = inputDialog;
             setInputDialog(null);

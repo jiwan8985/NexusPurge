@@ -11,6 +11,8 @@ interface Props {
   confirmLabel?: string;
   cancelLabel?: string;
   multiline?: boolean;
+  /** 입력값 검증 — 오류 메시지를 반환하면 인라인 표시 후 확인을 차단, null이면 통과 */
+  validate?: (value: string) => string | null;
   onConfirm: (value: string) => void;
   onCancel: () => void;
 }
@@ -23,10 +25,12 @@ export default function InputDialog({
   confirmLabel = "확인",
   cancelLabel = "취소",
   multiline = false,
+  validate,
   onConfirm,
   onCancel,
 }: Props) {
   const [value, setValue] = useState(initialValue);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -38,12 +42,21 @@ export default function InputDialog({
     }
   }, [multiline]);
 
+  const tryConfirm = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const invalid = validate?.(trimmed) ?? null;
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    onConfirm(trimmed);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (multiline) return; // Prevent enter key form submission for multiline
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    onConfirm(trimmed);
+    tryConfirm(value);
   };
 
   return createPortal(
@@ -72,11 +85,15 @@ export default function InputDialog({
               ref={inputRef}
               className={iStyles.input}
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={(e) => {
+                setValue(e.target.value);
+                if (error) setError(null);
+              }}
               placeholder={placeholder}
               autoFocus
             />
           )}
+          {error && <p className={iStyles.error}>{error}</p>}
         </form>
         <div className={styles.actions}>
           <button type="button" className={styles.cancelBtn} onClick={onCancel}>
@@ -86,10 +103,7 @@ export default function InputDialog({
             type="button"
             className={styles.confirmBtn}
             disabled={!value.trim()}
-            onClick={() => {
-              const trimmed = value.trim();
-              if (trimmed) onConfirm(trimmed);
-            }}
+            onClick={() => tryConfirm(value)}
           >
             {confirmLabel}
           </button>

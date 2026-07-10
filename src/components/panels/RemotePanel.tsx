@@ -11,6 +11,7 @@ import PurgeDialog from "../modals/PurgeDialog";
 import PurgeResultDialog from "../modals/PurgeResultDialog";
 import PropertiesDialog from "../modals/PropertiesDialog";
 import { CDN_LABELS } from "../../utils/cdn";
+import { validateS3KeySegment } from "../../utils/s3-key";
 import type { FileItem, PurgeExecutionResult } from "../../types";
 import styles from "./Panel.module.css";
 
@@ -360,6 +361,7 @@ export default function RemotePanel() {
           initialValue={renameDialog.name}
           placeholder="새 이름"
           confirmLabel="변경"
+          validate={validateS3KeySegment}
           onConfirm={(newName) => {
             const file = renameDialog;
             setRenameDialog(null);

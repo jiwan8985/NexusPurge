@@ -285,6 +285,8 @@ pub async fn put_s3_object(
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    crate::utils::validate::validate_s3_key(&key)?;
+
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
@@ -362,6 +364,9 @@ pub async fn rename_s3_object(
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    // 사용자가 새로 정하는 이름만 검증 (old_key는 기존 객체)
+    crate::utils::validate::validate_s3_key(&new_key)?;
+
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await

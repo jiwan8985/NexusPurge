@@ -491,6 +491,22 @@ pub async fn start_uploads(
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {
+        // S3 키 문자 검증 실패 시 해당 파일만 오류 처리 (배치 전체 중단 없음)
+        if let Err(msg) = crate::utils::validate::validate_s3_key(&item.remote_path) {
+            let _ = app.emit(
+                "transfer:complete",
+                TransferCompletePayload {
+                    id: item.id.clone(),
+                    status: "error".to_string(),
+                    cdn_purged: false,
+                    cdn_purge_error: None,
+                    cdn_invalidation_id: None,
+                    error: Some(msg),
+                },
+            );
+            continue;
+        }
+
         let adapter  = adapter.clone();
         let app      = app.clone();
         let successful_purge_targets = successful_purge_targets.clone();

@@ -48,3 +48,11 @@
   background: var(--color-bg-base);
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
 }
+
+.error {
+  margin-top: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-error, #ef4444);
+  font-weight: 600;
+  word-break: break-all;
+}
