@@ -57,6 +57,8 @@ export function useS3() {
         error?: string;
         requestEndpoint?: string;
         durationMs?: number;
+        startedAt?: string;
+        finishedAt?: string;
       }[] = [];
 
       try {
@@ -84,12 +86,13 @@ export function useS3() {
                 distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
                 paths: purgePaths,
               });
+              const finishedAtIso = new Date().toISOString();
               purgeEntries.push({
                 provider, paths: purgePaths,
                 success: result.success, invalidationId: result.invalidationId ?? undefined, error: result.error ?? undefined,
                 requestEndpoint: result.requestEndpoint, durationMs: result.durationMs,
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
               });
-              const finishedAtIso = new Date().toISOString();
               const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
               if (result.success) {
                 const id = result.invalidationId ? ` (${result.invalidationId})` : "";
@@ -99,8 +102,12 @@ export function useS3() {
                 addLog("error", `[${label}] Delete CDN purge failed: ${result.error}${timeRange}`, "cdn");
               }
             } catch (err) {
-              purgeEntries.push({ provider, paths: purgePaths, success: false, error: String(err) });
-              addLog("error", `[${label}] Delete CDN purge failed: ${err} (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(new Date().toISOString())})`, "cdn");
+              const finishedAtIso = new Date().toISOString();
+              purgeEntries.push({
+                provider, paths: purgePaths, success: false, error: String(err),
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
+              });
+              addLog("error", `[${label}] Delete CDN purge failed: ${err} (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`, "cdn");
             }
           }));
         }
@@ -238,6 +245,8 @@ function buildOperationLog(params: {
     error?: string;
     requestEndpoint?: string;
     durationMs?: number;
+    startedAt?: string;
+    finishedAt?: string;
   }[];
 }): OperationLog {
   const finishedAt = new Date().toISOString();
@@ -264,8 +273,9 @@ function buildOperationLog(params: {
       error: p.error,
       requestEndpoint: p.requestEndpoint,
       durationMs: p.durationMs,
-      startedAt: params.startedAt,
-      finishedAt,
+      // 감사 로그에는 실제 Purge 호출 시각 우선 기록 (없으면 작업 시작 시각)
+      startedAt: p.startedAt ?? params.startedAt,
+      finishedAt: p.finishedAt ?? finishedAt,
     })),
     startedAt: params.startedAt,
     finishedAt,

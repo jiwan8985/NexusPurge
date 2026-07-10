@@ -266,6 +266,77 @@ mod tests {
         }
     }
 
+    /// 고객사 요청 검증: 로그 타입별 파일 분리
+    /// upload/download → transfer-*.log, mkdir/rename/delete → system-*.log,
+    /// CDN Purge 결과 → cdn-*.log (한 작업의 전송/퍼지 결과가 각각의 파일로 나뉨)
+    #[tokio::test]
+    async fn append_log_file_splits_by_type() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-typed-log-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        // 1) 업로드 + CDN Purge가 섞인 작업 → transfer + cdn 두 파일에 분리 기록
+        let mut upload = sample_log("upload-1", "2026-07-10T00:00:00Z");
+        upload.files = vec![serde_json::json!({
+            "path": "assets/app.js",
+            "status": "error",
+            "startedAt": "2026-07-10T00:00:00Z",
+            "finishedAt": "2026-07-10T00:00:03Z",
+            "error": "커넥션 끊김",
+        })];
+        upload.purge_results = vec![serde_json::json!({
+            "provider": "cloudfront",
+            "status": "failed",
+            "startedAt": "2026-07-10T00:00:03Z",
+            "finishedAt": "2026-07-10T00:00:08Z",
+            "durationMs": 5000,
+            "urls": ["assets/app.js"],
+            "error": "HTTP 503 from CDN",
+        })];
+        service.save(upload).await.unwrap();
+
+        // 2) 폴더 생성(mkdir) → system 파일에 기록
+        let mut mkdir = sample_log("mkdir-1", "2026-07-10T00:01:00Z");
+        mkdir.operation = "mkdir".to_string();
+        mkdir.files = vec![serde_json::json!({
+            "path": "new-folder/",
+            "status": "success",
+            "startedAt": "2026-07-10T00:01:00Z",
+            "finishedAt": "2026-07-10T00:01:01Z",
+        })];
+        service.save(mkdir).await.unwrap();
+
+        let logs_dir = service.log_files_dir();
+        let transfer = std::fs::read_to_string(logs_dir.join(format!("transfer-{}.log", today))).unwrap();
+        let cdn      = std::fs::read_to_string(logs_dir.join(format!("cdn-{}.log", today))).unwrap();
+        let system   = std::fs::read_to_string(logs_dir.join(format!("system-{}.log", today))).unwrap();
+
+        // transfer: 파일 전송 결과 + 시작/종료 시각 + 오류 메시지 (감사 추적용)
+        assert!(transfer.contains("UPLOAD"));
+        assert!(transfer.contains("assets/app.js"));
+        assert!(transfer.contains("started=2026-07-10T00:00:00Z"));
+        assert!(transfer.contains("finished=2026-07-10T00:00:03Z"));
+        assert!(transfer.contains("error: 커넥션 끊김"));
+        // transfer 파일에는 CDN Purge 상세가 섞이지 않음
+        assert!(!transfer.contains("cloudfront"));
+
+        // cdn: provider·소요시간·대상 경로·전체 오류 (Purge 지연/실패 추적용)
+        assert!(cdn.contains("cloudfront"));
+        assert!(cdn.contains("duration=5000ms"));
+        assert!(cdn.contains("error: HTTP 503 from CDN"));
+        assert!(cdn.contains("started=2026-07-10T00:00:03Z"));
+
+        // system: mkdir 등 파일 관리 작업만
+        assert!(system.contains("MKDIR"));
+        assert!(system.contains("new-folder/"));
+        assert!(!system.contains("UPLOAD"));
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
     #[tokio::test]
     async fn save_get_list_and_clear_operation_logs() {
         let data_dir = std::env::temp_dir().join(format!(

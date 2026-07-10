@@ -275,6 +275,8 @@ export function useTransfer() {
         error?: string;
         requestEndpoint?: string;
         durationMs?: number;
+        startedAt: string;
+        finishedAt: string;
       }[] = [];
 
       if (providers.length > 0) {
@@ -335,9 +337,11 @@ export function useTransfer() {
               } catch (err) {
                 error = String(err);
               }
-              batchPurgeResults.push({ provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs });
-
               const finishedAtIso = new Date().toISOString();
+              batchPurgeResults.push({
+                provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs,
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
+              });
               const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
               if (success) {
                 const inv = invalidationId ? ` (${invalidationId})` : "";
@@ -403,8 +407,9 @@ export function useTransfer() {
           status: r.success ? "success" as const : "failed" as const,
           requestId: r.invalidationId,
           error: r.error,
-          startedAt: finishedAt,
-          finishedAt: new Date().toISOString(),
+          // 감사 로그에는 실제 배치 시작/종료 시각 기록 (Purge 지연 추적용)
+          startedAt: r.startedAt,
+          finishedAt: r.finishedAt,
           requestEndpoint: r.requestEndpoint,
           durationMs: r.durationMs,
         })),
