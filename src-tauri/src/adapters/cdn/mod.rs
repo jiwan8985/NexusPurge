@@ -192,6 +192,30 @@ pub async fn purge_with_credentials(
     }
 }
 
+/// 경로를 슬래시 단위로 분리하여 각 세그먼트만 percent-encode
+/// (슬래시 자체는 그대로 유지, 한글/공백/특수문자만 인코딩)
+pub fn percent_encode_path_segments(raw: &str) -> String {
+    const PATH_SAFE: &percent_encoding::AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'~');
+
+    let had_leading_slash = raw.starts_with('/');
+    let trimmed = raw.trim_start_matches('/');
+    let encoded = trimmed
+        .split('/')
+        .map(|seg| utf8_percent_encode(seg, PATH_SAFE).to_string())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    if had_leading_slash {
+        format!("/{}", encoded)
+    } else {
+        encoded
+    }
+}
+
 pub fn build_cdn_url(cdn_domain: &str, object_path: &str) -> String {
     let domain = cdn_domain
         .trim()
@@ -199,20 +223,7 @@ pub fn build_cdn_url(cdn_domain: &str, object_path: &str) -> String {
         .trim_start_matches("http://")
         .trim_end_matches('/');
 
-    // 경로를 슬래시 단위로 분리하여 각 세그먼트만 percent-encode
-    // (슬래시 자체는 그대로 유지, 한글/공백/특수문자만 인코딩)
-    const PATH_SAFE: &percent_encoding::AsciiSet = &NON_ALPHANUMERIC
-        .remove(b'-')
-        .remove(b'_')
-        .remove(b'.')
-        .remove(b'~');
-
-    let raw = object_path.trim_start_matches('/');
-    let encoded = raw
-        .split('/')
-        .map(|seg| utf8_percent_encode(seg, PATH_SAFE).to_string())
-        .collect::<Vec<_>>()
-        .join("/");
+    let encoded = percent_encode_path_segments(object_path.trim_start_matches('/'));
 
     format!("https://{}/{}", domain, encoded)
 }
@@ -231,6 +242,17 @@ fn retry_delay(attempt: usize) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_encode_path_segments_encodes_korean_and_space_but_keeps_slashes() {
+        let encoded = percent_encode_path_segments("/contents/한글 파일.txt");
+        assert_eq!(encoded, "/contents/%ED%95%9C%EA%B8%80%20%ED%8C%8C%EC%9D%BC.txt");
+        // ASCII 안전 문자는 그대로 유지 (이중 인코딩 없음)
+        assert_eq!(
+            percent_encode_path_segments("assets/app-v1.2_final.js"),
+            "assets/app-v1.2_final.js"
+        );
+    }
 
     #[test]
     fn build_cdn_url_normalizes_scheme_domain_and_path() {

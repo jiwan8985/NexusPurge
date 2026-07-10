@@ -93,9 +93,16 @@ impl HyosungCdnAdapter {
             ("http", raw)
         };
 
+        // 가이드 8장: 한글/특수문자 파일명은 URL 인코딩 형태 전달 권장
+        // → 미인코딩 전달 시 노드 purge 데몬이 URL을 잘못 파싱해 실패한다
         paths
             .iter()
-            .map(|p| format!("{}://{}/{}", scheme, domain, p.trim_start_matches('/')))
+            .map(|p| {
+                let encoded = crate::adapters::cdn::percent_encode_path_segments(
+                    p.trim_start_matches('/'),
+                );
+                format!("{}://{}/{}", scheme, domain, encoded)
+            })
             .collect()
     }
 
@@ -271,6 +278,25 @@ mod tests {
 
         assert_eq!(urls[0], "https://cdn.example.com/assets/app.js");
         assert_eq!(urls[1], "https://cdn.example.com/assets/style.css");
+    }
+
+    #[test]
+    fn build_urls_percent_encodes_korean_and_space() {
+        let adapter = HyosungCdnAdapter {
+            client:     Client::new(),
+            api_key:    "key".into(),
+            api_secret: "secret".into(),
+            endpoint:   "https://api.xtrmcdn.co.kr:28091".into(),
+            service_id: "TID_18656".into(),
+            cdn_domain: "https://cdn.example.com".into(),
+        };
+
+        let urls = adapter.build_urls(&["contents/한글 파일.txt".to_string()]);
+
+        assert_eq!(
+            urls[0],
+            "https://cdn.example.com/contents/%ED%95%9C%EA%B8%80%20%ED%8C%8C%EC%9D%BC.txt"
+        );
     }
 
     #[test]
