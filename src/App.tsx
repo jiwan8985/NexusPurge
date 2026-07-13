@@ -12,9 +12,11 @@ import ProfileModal from "./components/modals/ProfileModal";
 import SettingsModal from "./components/modals/SettingsModal";
 import { useAppStore } from "./store/appStore";
 import { useProfile } from "./hooks/useProfile";
+import { useOsFileDrop } from "./hooks/useOsFileDrop";
 import { runtime } from "./services/runtime";
 
 export default function App() {
+  useOsFileDrop();
   const isLogPanelVisible  = useAppStore((s) => s.isLogPanelVisible);
   const showProgressDialog = useAppStore((s) => s.showProgressDialog);
   const isProfileModalOpen = useAppStore((s) => s.isProfileModalOpen);
