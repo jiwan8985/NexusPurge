@@ -4,130 +4,28 @@ import { useProfile } from "../../hooks/useProfile";
 import { runtime } from "../../services/runtime";
 import ConfirmDialog from "../common/ConfirmDialog";
 import { availableCdns, cdnDistributionIdFor, CDN_LABELS } from "../../utils/cdn";
-import type { S3Profile, CdnProvider, CdnConnectionTestResult } from "../../types";
+import type { S3Profile, CdnConnectionTestResult } from "../../types";
 import styles from "./ProfileModal.module.css";
-
-const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
-  { value: "cloudfront", label: "AWS CloudFront" },
-  { value: "akamai",     label: "Akamai" },
-  { value: "lguplus",    label: "LG U+ CDN" },
-  { value: "kt",         label: "KT CDN" },
-  { value: "hyosung",    label: "Hyosung ITX CDN" },
-];
-
-const REGION_SUGGESTIONS = [
-  "ap-northeast-2",
-  "ap-northeast-1",
-  "ap-southeast-1",
-  "us-east-1",
-  "us-west-2",
-  "eu-west-1",
-  "ap-singapore",
-  "auto",
-];
 
 // 설정 UI에서 제거됨 — 명시적으로 "true"를 넣은 경우에만 테스트 전 확인 창 표시
 const shouldConfirmExternalRequests = () =>
   window.localStorage.getItem("nexuspurge.confirmExternalRequests") === "true";
 
-const normalizeAccessKeyId = (value: string) => value.trim();
-const normalizeSecretAccessKey = (value: string) => value.trim();
-
-interface FormState {
-  name: string;
-  region: string;
-  bucket: string;
-  basePrefix: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  endpoint: string;
-  cdnProvider: CdnProvider | "";
-  cdnDistributionId: string;
-  cdnDomain: string;
-  cdnBasePath: string;
-  defaultCacheControl: string;
-  contentTypeOverride: string;
-  multipartEtagFallback: boolean;
-  // Akamai EdgeGrid
-  akamaiClientToken: string;
-  akamaiClientSecret: string;
-  akamaiAccessToken: string;
-  akamaiHost: string;
-  akamaiCpCode: string;
-  // LG U+ CDN
-  lguplusUsername: string;
-  lguplusPassword: string;
-  lguplusServiceName: string;
-  lguplusVolumeName: string;
-  lguplusEndpoint: string;
-  lguplusServiceType: "cloudcdn" | "volume";
-  // KT CDN
-  ktUsername: string;
-  ktPassword: string;
-  ktServiceName: string;
-  ktVolumeName: string;
-  ktEndpoint: string;
-  ktServiceType: "cloudcdn" | "volume";
-  // Hyosung CDN
-  hyosungApiKey: string;
-  hyosungApiSecret: string;
-  hyosungEndpoint: string;
-}
-
-const emptyForm = (): FormState => ({
-  name: "",
-  region: "ap-northeast-2",
-  bucket: "",
-  basePrefix: "",
-  accessKeyId: "",
-  secretAccessKey: "",
-  endpoint: "",
-  cdnProvider: "",
-  cdnDistributionId: "",
-  cdnDomain: "",
-  cdnBasePath: "",
-  defaultCacheControl: "",
-  contentTypeOverride: "",
-  multipartEtagFallback: true,
-  akamaiClientToken: "",
-  akamaiClientSecret: "",
-  akamaiAccessToken: "",
-  akamaiHost: "",
-  akamaiCpCode: "",
-  lguplusUsername: "",
-  lguplusPassword: "",
-  lguplusServiceName: "",
-  lguplusVolumeName: "",
-  lguplusEndpoint: "",
-  lguplusServiceType: "volume",
-  ktUsername: "",
-  ktPassword: "",
-  ktServiceName: "",
-  ktVolumeName: "",
-  ktEndpoint: "",
-  ktServiceType: "volume",
-  hyosungApiKey: "",
-  hyosungApiSecret: "",
-  hyosungEndpoint: "",
-});
-
+/**
+ * 접속 프로필 관리 — 프로필은 파일 가져오기(.json / .nexprofile)로만 등록한다.
+ * 저장된 프로필은 write-only: 이름만 표시되며 [연결]/[테스트]/[내보내기]/[삭제]만 가능,
+ * 어떤 설정값도 다시 열람할 수 없다 (고객사 전달용 정책).
+ */
 export default function ProfileModal() {
   const { closeProfileModal } = useAppStore((s) => ({
     closeProfileModal: s.closeProfileModal,
   }));
-  const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection, exportProfile, importProfile, loadProfiles } = useProfile();
+  const { profiles, deleteProfile, connectWithProfile, exportProfile, importProfile, loadProfiles } = useProfile();
 
-  const [form, setForm] = useState<FormState>(emptyForm());
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string; warnings?: string[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
 
-  // 고객사 요청: 저장된 프로필은 write-only — 목록에서 어떤 설정값도 다시 열람할 수 없다.
-  // 검증은 목록 행의 [테스트]로 수행하며, 결과(✓/✗)만 표시하고 설정값은 노출하지 않는다.
+  // 목록 행 [테스트] 결과 (✓/✗만 표시, 설정값 비노출)
   const [rowTests, setRowTests] = useState<
     Record<string, { testing: boolean; lines: { label: string; success: boolean; error?: string }[] }>
   >({});
@@ -147,12 +45,6 @@ export default function ProfileModal() {
   const [exportPassphrase, setExportPassphrase] = useState("");
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-
-  const resetForm = () => {
-    setForm(emptyForm());
-    setError(null);
-    setTestResult(null);
-  };
 
   /** 목록 행 [테스트]: 저장된 자격증명으로 S3 + 구성된 CDN 연결을 검사 (설정값 비노출) */
   const handleRowTest = async (p: S3Profile) => {
@@ -177,6 +69,17 @@ export default function ProfileModal() {
       }
     }
     setRowTests((s) => ({ ...s, [p.id]: { testing: false, lines } }));
+  };
+
+  const requestRowTest = (p: S3Profile) => {
+    if (shouldConfirmExternalRequests()) {
+      setConfirmRequest({
+        message: "실제 S3/CDN Provider API로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
+        onConfirm: () => void handleRowTest(p),
+      });
+      return;
+    }
+    void handleRowTest(p);
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,134 +142,10 @@ export default function ProfileModal() {
     }
   };
 
-  const buildProfilePayload = (): S3Profile => {
-    return {
-    id: crypto.randomUUID(),
-    name: form.name,
-    region: form.region,
-    bucket: form.bucket,
-    basePrefix: form.basePrefix || undefined,
-    accessKeyId: normalizeAccessKeyId(form.accessKeyId),
-    secretAccessKey: normalizeSecretAccessKey(form.secretAccessKey),
-    endpoint: form.endpoint.trim() || undefined,
-    cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
-    cdnDistributionId: form.cdnDistributionId || undefined,
-    cdnDomain: form.cdnDomain || undefined,
-    cdnBasePath: form.cdnBasePath || undefined,
-    defaultCacheControl: form.defaultCacheControl || undefined,
-    contentTypeOverride: form.contentTypeOverride || undefined,
-    multipartEtagFallback: form.multipartEtagFallback,
-    akamaiClientToken: form.akamaiClientToken || undefined,
-    akamaiClientSecret: form.akamaiClientSecret || undefined,
-    akamaiAccessToken: form.akamaiAccessToken || undefined,
-    akamaiHost: form.akamaiHost || undefined,
-    akamaiCpCode: form.akamaiCpCode || undefined,
-    lguplusUsername: form.lguplusUsername || undefined,
-    lguplusPassword: form.lguplusPassword || undefined,
-    lguplusServiceName: form.lguplusServiceName || undefined,
-    lguplusVolumeName: form.lguplusVolumeName || undefined,
-    lguplusEndpoint: form.lguplusEndpoint || undefined,
-    lguplusServiceType: form.lguplusServiceType,
-    ktUsername: form.ktUsername || undefined,
-    ktPassword: form.ktPassword || undefined,
-    ktServiceName: form.ktServiceName || undefined,
-    ktVolumeName: form.ktVolumeName || undefined,
-    ktEndpoint: form.ktEndpoint || undefined,
-    ktServiceType: form.ktServiceType,
-    hyosungApiKey: form.hyosungApiKey || undefined,
-    hyosungApiSecret: form.hyosungApiSecret || undefined,
-    hyosungEndpoint: form.hyosungEndpoint || undefined,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    };
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.bucket || !form.accessKeyId) {
-      setError("이름, 버킷, Access Key는 필수입니다.");
-      return;
-    }
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await saveProfile(buildProfilePayload());
-      resetForm();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  /** H-3: 저장 없이 입력값으로 연결 테스트 */
-  const handleTestConnection = async () => {
-    const accessKeyId = normalizeAccessKeyId(form.accessKeyId);
-    const secretAccessKey = normalizeSecretAccessKey(form.secretAccessKey);
-    if (!form.bucket || !form.accessKeyId) {
-      setError("버킷과 Access Key는 필수입니다.");
-      return;
-    }
-    if (!form.secretAccessKey) {
-      setError("연결 테스트를 위해 Secret Access Key를 입력하세요.");
-      return;
-    }
-
-    if (!isLocalStack && shouldConfirmExternalRequests()) {
-      setConfirmRequest({
-        message: "실제 AWS/S3-compatible 계정으로 연결 테스트를 실행합니다. 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
-        onConfirm: () => void runS3Test(accessKeyId, secretAccessKey),
-      });
-      return;
-    }
-    void runS3Test(accessKeyId, secretAccessKey);
-  };
-
-  const runS3Test = async (accessKeyId: string, secretAccessKey: string) => {
-    setIsTesting(true);
-    setTestResult(null);
-    setError(null);
-
-    try {
-      // 직접 입력값으로 테스트 (저장된 프로필 검증은 목록 행 [테스트] 사용)
-      const result = await testConnection({
-        region:    form.region,
-        bucket:    form.bucket,
-        basePrefix: form.basePrefix,
-        accessKey: accessKeyId,
-        secretKey: secretAccessKey,
-        endpoint:  form.endpoint.trim() || undefined,
-      });
-      setTestResult(result);
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
   const handleConnect = async (profile: S3Profile) => {
     await connectWithProfile(profile);
     closeProfileModal();
   };
-
-  const setField = (field: keyof FormState) => (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
-    setTestResult(null);
-    setForm((f) => ({ ...f, [field]: e.target.value }));
-  };
-
-  const setCheckedField = (field: "multipartEtagFallback") => (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    setTestResult(null);
-    setForm((f) => ({ ...f, [field]: e.target.checked }));
-  };
-
-  const isAkamai = form.cdnProvider === "akamai";
-  const isCloudFront = form.cdnProvider === "cloudfront";
-  const isLguplus = form.cdnProvider === "lguplus";
-  const isKt = form.cdnProvider === "kt";
-  const isHyosung = form.cdnProvider === "hyosung";
 
   const filteredProfiles = profiles.filter(
     (p) =>
@@ -502,21 +281,18 @@ export default function ProfileModal() {
     )}
 
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && closeProfileModal()}>
-      <div className={styles.modal}>
+      <div className={`${styles.modal} ${styles.modalCompact}`}>
         <div className={styles.header}>
           <span className={styles.title}>접속 프로필 관리</span>
           <button type="button" className={styles.closeBtn} onClick={closeProfileModal}>✕</button>
         </div>
 
         <div className={styles.body}>
-          {/* 프로필 목록 */}
-          <div className={styles.profileList}>
+          {/* 프로필 목록 — 프로필 등록은 파일 가져오기로만 가능 */}
+          <div className={`${styles.profileList} ${styles.profileListFull}`}>
             <div className={styles.sectionHeader}>
               저장된 프로필
-              <div style={{ display: "flex", gap: "0.4rem" }}>
-                <button type="button" className={styles.newBtn} onClick={() => setShowImportModal(true)}>↓ 가져오기</button>
-                <button type="button" className={styles.newBtn} onClick={resetForm}>+ 새 프로필</button>
-              </div>
+              <button type="button" className={styles.newBtn} onClick={() => setShowImportModal(true)}>↓ 가져오기</button>
             </div>
 
             {/* 프로필 검색 */}
@@ -531,7 +307,9 @@ export default function ProfileModal() {
 
             <div className={styles.profileItems}>
               {filteredProfiles.length === 0 ? (
-                <div className={styles.empty}>{search ? "검색 결과가 없습니다" : "저장된 프로필이 없습니다"}</div>
+                <div className={styles.empty}>
+                  {search ? "검색 결과가 없습니다" : "저장된 프로필이 없습니다. [가져오기]로 전달받은 프로필 파일을 등록하세요."}
+                </div>
               ) : (
                 filteredProfiles.map((p) => (
                   <div key={p.id} className={styles.profileItem}>
@@ -551,7 +329,7 @@ export default function ProfileModal() {
                         className={styles.testBtn}
                         title="저장된 자격증명으로 S3/CDN 연결 검사"
                         disabled={rowTests[p.id]?.testing}
-                        onClick={() => void handleRowTest(p)}
+                        onClick={() => requestRowTest(p)}
                       >
                         {rowTests[p.id]?.testing ? "테스트 중" : "테스트"}
                       </button>
@@ -586,412 +364,6 @@ export default function ProfileModal() {
               )}
             </div>
           </div>
-
-          {/* 프로필 편집 폼 */}
-          <form className={styles.form} onSubmit={handleSubmit}>
-            <div className={styles.formHeader}>
-              <span>새 프로필</span>
-            </div>
-
-            <div className={styles.formScroll}>
-              {error && <div className={styles.errorMsg}>{error}</div>}
-              <div className={isLocalStack ? styles.infoMsg : styles.warnMsg}>
-                {isLocalStack
-                  ? "LocalStack 프로파일은 로컬 테스트로 비용이 발생하지 않습니다."
-                  : "실제 AWS/Akamai 프로파일의 연결 테스트와 CDN 테스트는 계정 사용량에 기록될 수 있습니다."}
-              </div>
-
-            {/* S3 설정 */}
-            <details className={styles.sectionDetails} open>
-              <summary>S3 설정</summary>
-              <fieldset className={styles.fieldset}>
-
-              <label className={styles.field}>
-                <span>프로파일 이름 *</span>
-                <input value={form.name} onChange={setField("name")} placeholder="My S3 Profile" />
-              </label>
-              <label className={styles.field}>
-                <span>버킷 이름 *</span>
-                <input value={form.bucket} onChange={setField("bucket")} placeholder="my-bucket" />
-              </label>
-              <label className={styles.field}>
-                <span>리전</span>
-                <input
-                  value={form.region}
-                  onChange={setField("region")}
-                  list="region-suggestions"
-                  placeholder="us-east-1 / ap-northeast-2 / auto"
-                />
-                <datalist id="region-suggestions">
-                  {REGION_SUGGESTIONS.map((r) => (
-                    <option key={r} value={r} />
-                  ))}
-                </datalist>
-              </label>
-              <label className={styles.field}>
-                <span>Base Prefix</span>
-                <input
-                  value={form.basePrefix}
-                  onChange={setField("basePrefix")}
-                  placeholder="prod/ / assets/ / optional"
-                />
-              </label>
-              <label className={styles.field}>
-                <span>Access Key ID *</span>
-                <input value={form.accessKeyId} onChange={setField("accessKeyId")} placeholder="AKIA..." />
-              </label>
-              <label className={styles.field}>
-                <span>Secret Access Key</span>
-                <input
-                  type="password"
-                  value={form.secretAccessKey}
-                  onChange={setField("secretAccessKey")}
-                />
-              </label>
-              <label className={styles.field}>
-                <span>커스텀 엔드포인트</span>
-                <input value={form.endpoint} onChange={setField("endpoint")} placeholder="https://s3.example.com" />
-              </label>
-              <label className={styles.field}>
-                <span>Cache-Control</span>
-                <input
-                  value={form.defaultCacheControl}
-                  onChange={setField("defaultCacheControl")}
-                  list="cache-control-suggestions"
-                  placeholder="자동 / no-cache / max-age=31536000, immutable"
-                />
-                <datalist id="cache-control-suggestions">
-                  <option value="no-cache" />
-                  <option value="max-age=3600" />
-                  <option value="max-age=86400" />
-                  <option value="max-age=31536000, immutable" />
-                </datalist>
-              </label>
-              <label className={styles.field}>
-                <span>Content-Type override</span>
-                <input
-                  value={form.contentTypeOverride}
-                  onChange={setField("contentTypeOverride")}
-                  placeholder="자동 감지 / text/html / application/json"
-                />
-              </label>
-              <label className={styles.field}>
-                <span>Multipart ETag fallback</span>
-                <input
-                  type="checkbox"
-                  checked={form.multipartEtagFallback}
-                  onChange={setCheckedField("multipartEtagFallback")}
-                />
-              </label>
-
-              {/* H-3: 연결 테스트 */}
-              <div className={styles.testRow}>
-                <button
-                  type="button"
-                  className={styles.testBtn}
-                  onClick={handleTestConnection}
-                  disabled={isTesting}
-                >
-                  {isTesting ? "테스트 중..." : "연결 테스트"}
-                </button>
-                {testResult && (
-                  <>
-                  <span className={testResult.success ? styles.testOk : styles.testFail}>
-                    {testResult.success ? "✓ 연결 성공" : `✗ ${testResult.error}`}
-                  </span>
-                  {testResult.success && testResult.warnings?.length ? (
-                    <span className={styles.warnMsg}>{testResult.warnings.join(" / ")}</span>
-                  ) : null}
-                  </>
-                )}
-              </div>
-              </fieldset>
-            </details>
-
-            {/* CDN 설정 */}
-            <details className={styles.sectionDetails} open>
-              <summary>CDN 설정</summary>
-              <fieldset className={styles.fieldset}>
-
-              <label className={styles.field}>
-                <span>CDN 제공자</span>
-                <select value={form.cdnProvider} onChange={setField("cdnProvider")}>
-                  <option value="">사용 안 함</option>
-                  {CDN_PROVIDERS.map((c) => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-              </label>
-
-              {isCloudFront && (
-                <>
-                  <label className={styles.field}>
-                    <span>Distribution ID</span>
-                    <input
-                      value={form.cdnDistributionId}
-                      onChange={setField("cdnDistributionId")}
-                      placeholder="EDFDVBD6EXAMPLE"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>CDN 도메인</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="d111111abcdef8.cloudfront.net"
-                    />
-                  </label>
-                </>
-              )}
-
-              {isAkamai && (
-                <>
-                  <label className={styles.field}>
-                    <span>EdgeGrid 호스트</span>
-                    <input
-                      value={form.akamaiHost}
-                      onChange={setField("akamaiHost")}
-                      placeholder="akab-xxxx.luna.akamaiapis.net"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Client Token</span>
-                    <input
-                      value={form.akamaiClientToken}
-                      onChange={setField("akamaiClientToken")}
-                      placeholder="akab-xxxx..."
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Access Token</span>
-                    <input
-                      value={form.akamaiAccessToken}
-                      onChange={setField("akamaiAccessToken")}
-                      placeholder="akab-yyyy..."
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Client Secret</span>
-                    <input
-                      type="password"
-                      value={form.akamaiClientSecret}
-                      onChange={setField("akamaiClientSecret")}
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>CDN 도메인 (Purge URL 기준)</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="cdn.example.com"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>CP Code (폴더/전체 Purge용, 선택)</span>
-                    <input
-                      value={form.akamaiCpCode}
-                      onChange={setField("akamaiCpCode")}
-                      placeholder="123456"
-                    />
-                  </label>
-                </>
-              )}
-
-              {isLguplus && (
-                <>
-                  <label className={styles.field}>
-                    <span>Username *</span>
-                    <input
-                      value={form.lguplusUsername}
-                      onChange={setField("lguplusUsername")}
-                      placeholder="LG U+ CDN 계정 아이디"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Password *</span>
-                    <input
-                      type="password"
-                      value={form.lguplusPassword}
-                      onChange={setField("lguplusPassword")}
-                      placeholder="LG U+ CDN 계정 비밀번호"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Service Name *</span>
-                    <input
-                      value={form.lguplusServiceName}
-                      onChange={setField("lguplusServiceName")}
-                      placeholder="서비스 이름 (SERVICE_NAME)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Volume Name</span>
-                    <input
-                      value={form.lguplusVolumeName}
-                      onChange={setField("lguplusVolumeName")}
-                      placeholder="볼륨 이름 (VOLUME_NAME)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Edge Domain (서비스 도메인) *</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="sklbtest.lgucdn.co.kr"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>API 엔드포인트 (FQDN)</span>
-                    <input
-                      value={form.lguplusEndpoint}
-                      onChange={setField("lguplusEndpoint")}
-                      placeholder="https://api.lgucdn.com (기본값)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>서비스 타입</span>
-                    <select value={form.lguplusServiceType} onChange={setField("lguplusServiceType")}>
-                      <option value="volume">Volume (일반) — 폴더 Purge는 개별 파일로 처리</option>
-                      <option value="cloudcdn">Delivery-cloudcdn — 전체 Purge 시 서비스 전체 즉시 플러시</option>
-                    </select>
-                  </label>
-                </>
-              )}
-
-              {isKt && (
-                <>
-                  <label className={styles.field}>
-                    <span>Username *</span>
-                    <input
-                      value={form.ktUsername}
-                      onChange={setField("ktUsername")}
-                      placeholder="KT CDN 계정 아이디"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Password *</span>
-                    <input
-                      type="password"
-                      value={form.ktPassword}
-                      onChange={setField("ktPassword")}
-                      placeholder="KT CDN 계정 비밀번호"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Service Name *</span>
-                    <input
-                      value={form.ktServiceName}
-                      onChange={setField("ktServiceName")}
-                      placeholder="서비스 이름 (SERVICE_NAME)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Volume Name</span>
-                    <input
-                      value={form.ktVolumeName}
-                      onChange={setField("ktVolumeName")}
-                      placeholder="볼륨 이름 (VOLUME_NAME)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Edge Domain (서비스 도메인) *</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="sklbtest.ktcdn.co.kr"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>API 엔드포인트 (FQDN)</span>
-                    <input
-                      value={form.ktEndpoint}
-                      onChange={setField("ktEndpoint")}
-                      placeholder="https://api.ktcdn.co.kr (기본값, 계약에 따라 https://api.ktcdn.com)"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>서비스 타입</span>
-                    <select value={form.ktServiceType} onChange={setField("ktServiceType")}>
-                      <option value="volume">Volume (일반) — 폴더 Purge는 개별 파일로 처리</option>
-                      <option value="cloudcdn">Delivery-cloudcdn — 전체 Purge 시 서비스 전체 즉시 플러시</option>
-                    </select>
-                  </label>
-                </>
-              )}
-
-              {isHyosung && (
-                <>
-                  <label className={styles.field}>
-                    <span>USER_ID (Principal) *</span>
-                    <input
-                      value={form.hyosungApiKey}
-                      onChange={setField("hyosungApiKey")}
-                      placeholder="효성 계정 USER_ID"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>SHARED_KEY (Secret) *</span>
-                    <input
-                      type="password"
-                      value={form.hyosungApiSecret}
-                      onChange={setField("hyosungApiSecret")}
-                      placeholder="효성 계정 SHARED_KEY"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>TID (Service ID) *</span>
-                    <input
-                      value={form.cdnDistributionId}
-                      onChange={setField("cdnDistributionId")}
-                      placeholder="TID_XXXXX"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>Edge Domain (서비스 도메인) *</span>
-                    <input
-                      value={form.cdnDomain}
-                      onChange={setField("cdnDomain")}
-                      placeholder="sklb-test.dn.nexoncdn.co.kr.gtmc.hscdn.net"
-                    />
-                  </label>
-                  <label className={styles.field}>
-                    <span>API_URL (엔드포인트)</span>
-                    <input
-                      value={form.hyosungEndpoint}
-                      onChange={setField("hyosungEndpoint")}
-                      placeholder="https://api.xtrmcdn.co.kr:28091 (기본값)"
-                    />
-                  </label>
-                </>
-              )}
-
-              {form.cdnProvider && (
-                <label className={styles.field}>
-                  <span>CDN Base Path (S3 → CDN 경로 변환)</span>
-                  <input
-                    value={form.cdnBasePath}
-                    onChange={setField("cdnBasePath")}
-                    placeholder="예: contents/ (S3 키에서 이 접두사를 제거해 CDN URL 구성)"
-                  />
-                  <small className={styles.helpText}>
-                    S3 키가 <code>contents/file.txt</code>이고 CDN이 <code>/file.txt</code>로 서빙한다면 <code>contents/</code> 입력
-                  </small>
-                </label>
-              )}
-              </fieldset>
-            </details>
-
-            </div>
-
-            <div className={styles.formActions}>
-              <button type="button" onClick={resetForm} className={styles.cancelBtn}>
-                취소
-              </button>
-              <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>
-                {isSubmitting ? "저장 중..." : "저장"}
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     </div>

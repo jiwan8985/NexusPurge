@@ -37,13 +37,17 @@ describe("ProfileModal — 프로필 정보 잠금", () => {
     expect(screen.queryByText(/secret-domain/)).not.toBeInTheDocument();
   });
 
-  it("프로필 이름을 클릭해도 편집 폼이 열리지 않는다 (폼은 새 프로필 전용, 빈 상태 유지)", () => {
+  it("직접 입력 폼이 없고, 프로필 이름을 클릭해도 아무 정보도 열리지 않는다 (가져오기 전용)", () => {
     render(<ProfileModal />);
     fireEvent.click(screen.getByText("고객사 프로필"));
-    expect(screen.getByText("새 프로필")).toBeInTheDocument();
+    // 신규 프로필 직접 입력 폼 자체가 존재하지 않음 (파일 가져오기로만 등록)
+    expect(document.querySelector("form")).toBeNull();
+    expect(screen.queryByText("새 프로필")).not.toBeInTheDocument();
     expect(screen.queryByText("프로필 편집")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("secret-bucket-name")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("AKIASECRETKEY")).not.toBeInTheDocument();
+    // 가져오기 버튼은 존재
+    expect(screen.getByRole("button", { name: /가져오기/ })).toBeInTheDocument();
   });
 
   it("행 액션은 연결/테스트/내보내기/삭제만 제공한다", () => {
