@@ -297,7 +297,17 @@ export default function PropertiesDialog({ file, profile, activeCdns, onClose }:
                               {publicUrl}
                             </span>
                           )}
-                          {inspErr && <div className={styles.errorBox}>{inspErr}</div>}
+                          {inspErr && (
+                            <>
+                              <div className={styles.errorBox}>{inspErr}</div>
+                              {inspection?.errorKind === "dns" && (
+                                <div className={styles.hintBox}>
+                                  이 도메인은 브라우저에서도 접속할 수 없습니다(ERR_NAME_NOT_RESOLVED).
+                                  앱 오류가 아니라 도메인이 아직 DNS에 등록되지 않은 상태입니다.
+                                </div>
+                              )}
+                            </>
+                          )}
                           {inspection && !inspErr && (
                             <div className={styles.inspectResult}>
                               <div className={styles.inspectSummary}>

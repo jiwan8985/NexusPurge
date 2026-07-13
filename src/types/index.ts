@@ -298,6 +298,7 @@ export interface UrlInspection {
   headers: [string, string][];
   durationMs: number;
   error?: string;
+  errorKind?: "dns" | "timeout" | "connect" | "tls" | "other";
 }
 
 export interface CdnPurgeStatusResult {

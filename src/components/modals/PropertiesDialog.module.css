@@ -244,6 +244,17 @@
   word-break: break-all;
 }
 
+.hintBox {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .inspectBox {
   margin-top: 10px;
   padding-top: 10px;
