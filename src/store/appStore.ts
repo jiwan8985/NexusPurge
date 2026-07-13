@@ -104,6 +104,7 @@ interface AppState {
   addTransfer: (item: TransferItem) => void;
   updateTransfer: (id: string, patch: Partial<TransferItem>) => void;
   clearCompletedTransfers: () => void;
+  clearFinishedTransfers: () => void;
   setTransferring: (transferring: boolean) => void;
   setShowProgressDialog: (show: boolean) => void;
   setSyncPlan: (plan: SyncPlan | null) => void;
@@ -260,6 +261,16 @@ export const useAppStore = create<AppState>()(
         transfers: s.transfers.filter(
           (t) => t.status !== "complete" && t.status !== "skipped"
             && t.status !== "canceled"
+        ),
+      })),
+    // 새 전송 배치 시작 시 호출 — 이전 배치(완료/스킵/취소/오류)를 비워 진행률이
+    // 배치 단위로 1부터 집계되게 한다 (진행 중인 항목만 유지)
+    clearFinishedTransfers: () =>
+      set((s) => ({
+        transfers: s.transfers.filter(
+          (t) => t.status === "pending" || t.status === "uploading"
+            || t.status === "downloading" || t.status === "hashing"
+            || t.status === "overwriting"
         ),
       })),
     setTransferring: (isTransferring) => set({ isTransferring }),

@@ -50,6 +50,7 @@ export function useTransfer() {
     addLog,
     setSyncPlan,
     autoPurgeEnabled,
+    clearFinishedTransfers,
   } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
     activeCdns: s.activeCdns,
@@ -66,6 +67,7 @@ export function useTransfer() {
     addLog: s.addLog,
     setSyncPlan: s.setSyncPlan,
     autoPurgeEnabled: s.autoPurgeEnabled,
+    clearFinishedTransfers: s.clearFinishedTransfers,
   }));
 
   const unlistenRef = useRef<Array<() => void>>([]);
@@ -149,6 +151,8 @@ export function useTransfer() {
     const selectedPaths = paths && paths.length > 0 ? paths : Array.from(local.selectedPaths);
     if (!activeProfile || selectedPaths.length === 0) return;
 
+    // 이전 배치의 완료/오류 항목 정리 — 진행률(N/M)이 이번 배치 기준으로 집계되게 함
+    clearFinishedTransfers();
     setTransferring(true);
     // M-8: dialog는 실제 전송 항목이 있을 때만 열기
 
@@ -431,7 +435,7 @@ export function useTransfer() {
   }, [
     activeProfile, activeCdns, local, remote, addTransfer, updateTransfer, buildSyncPlan,
     setTransferring, setShowProgressDialog, clearLocalSelection, triggerRemoteRefresh,
-    addLog, setSyncPlan, autoPurgeEnabled,
+    addLog, setSyncPlan, autoPurgeEnabled, clearFinishedTransfers,
   ]);
 
   // keys 미지정 시 원격 패널에서 선택된 항목을 다운로드 (우클릭 "다운로드"는 keys로 단일 파일 전달)
@@ -448,6 +452,8 @@ export function useTransfer() {
     // 사용자가 취소했을 때
     if (!selectedDir) return;
 
+    // 이전 배치의 완료/오류 항목 정리 — 진행률(N/M)이 이번 배치 기준으로 집계되게 함
+    clearFinishedTransfers();
     setTransferring(true);
     setShowProgressDialog(true);
 
@@ -537,6 +543,7 @@ export function useTransfer() {
   }, [
     activeProfile, local, remote, addTransfer,
     setTransferring, setShowProgressDialog, clearRemoteSelection, triggerLocalRefresh, addLog,
+    clearFinishedTransfers,
   ]);
 
   const retryTransfer = useCallback(async (item: TransferItem) => {
