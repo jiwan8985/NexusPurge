@@ -104,13 +104,8 @@ export function useProfile() {
         const result = await runtime.invoke<S3ConnectionTestResult>("connect_s3", { profileId: profile.id });
         setRemotePath(normalizePrefix(profile.basePrefix));
         setConnected(true);
-        // Purge 대상 CDN 초기화: 프로필 기본 CDN 하나만 우선 선택 (필요 시 툴바에서 추가 선택)
-        const cdns = availableCdns(profile);
-        const defaultCdn =
-          profile.cdnProvider && cdns.includes(profile.cdnProvider)
-            ? profile.cdnProvider
-            : cdns[0];
-        setActiveCdns(defaultCdn ? [defaultCdn] : []);
+        // Purge 대상 CDN 초기화: 기본은 사용 가능한 CDN 전체 활성화 (툴바에서 개별 해제 가능)
+        setActiveCdns(availableCdns(profile));
         // 연결 직후 S3 패널 자동 조회 (리로드 버튼 없이 바로 목록 표시)
         triggerRemoteRefresh();
         // H-7: 마지막 연결 프로파일 저장
