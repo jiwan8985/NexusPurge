@@ -3,6 +3,7 @@ import { useAppStore } from "../../store/appStore";
 import { useProfile } from "../../hooks/useProfile";
 import { runtime } from "../../services/runtime";
 import ConfirmDialog from "../common/ConfirmDialog";
+import { availableCdns, cdnDistributionIdFor, CDN_LABELS } from "../../utils/cdn";
 import type { S3Profile, CdnProvider, CdnConnectionTestResult } from "../../types";
 import styles from "./ProfileModal.module.css";
 
@@ -13,19 +14,6 @@ const CDN_PROVIDERS: { value: CdnProvider; label: string }[] = [
   { value: "kt",         label: "KT CDN" },
   { value: "hyosung",    label: "Hyosung ITX CDN" },
 ];
-
-// 기존 프로필 편집 시 CDN 상세정보(Domain/ID/Endpoint 등)를 가리는 자리표시자.
-// "표시" 클릭 전까지 실제 값은 렌더링하지 않는다 (값은 폼 상태에 그대로 유지됨).
-function CdnDetailsMasked({ onReveal }: { onReveal: () => void }) {
-  return (
-    <div className={styles.infoMsg}>
-      CDN 상세정보(도메인, ID, 엔드포인트 등)가 가려져 있습니다.
-      <button type="button" className={styles.testBtn} style={{ marginLeft: "0.6rem" }} onClick={onReveal}>
-        표시
-      </button>
-    </div>
-  );
-}
 
 const REGION_SUGGESTIONS = [
   "ap-northeast-2",
@@ -130,21 +118,19 @@ export default function ProfileModal() {
   const { profiles, saveProfile, deleteProfile, connectWithProfile, testConnection, exportProfile, importProfile, loadProfiles } = useProfile();
 
   const [form, setForm] = useState<FormState>(emptyForm());
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [isTestingCdn, setIsTestingCdn] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string; warnings?: string[] } | null>(null);
-  const [cdnTestResult, setCdnTestResult] = useState<CdnConnectionTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const isLocalStack = form.endpoint.includes("localhost:4566") || form.endpoint.includes("127.0.0.1:4566");
 
-  // 고객사 요청: 기존 프로필 편집 시 CDN 상세정보(Domain/ID/Endpoint 등)는 기본적으로 가리고,
-  // 명시적으로 "표시" 버튼을 눌러야만 보이도록 함. 값 자체는 폼 상태에 그대로 있어 저장/테스트에 영향 없음.
-  const [cdnDetailsRevealed, setCdnDetailsRevealed] = useState(true);
-  const cdnFieldsMasked = !!editingId && !cdnDetailsRevealed;
+  // 고객사 요청: 저장된 프로필은 write-only — 목록에서 어떤 설정값도 다시 열람할 수 없다.
+  // 검증은 목록 행의 [테스트]로 수행하며, 결과(✓/✗)만 표시하고 설정값은 노출하지 않는다.
+  const [rowTests, setRowTests] = useState<
+    Record<string, { testing: boolean; lines: { label: string; success: boolean; error?: string }[] }>
+  >({});
 
   // 검색
   const [search, setSearch] = useState("");
@@ -162,61 +148,35 @@ export default function ProfileModal() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
-  const handleEdit = (profile: S3Profile) => {
-    setEditingId(profile.id);
-    setTestResult(null);
-    setCdnTestResult(null);
-    setError(null);
-    // 고객사 요청: 기존 프로필 편집 시 CDN 상세정보(도메인/ID/엔드포인트 등)를 기본적으로 가림.
-    // 값은 폼 상태에 그대로 유지되어 저장/테스트는 정상 동작하며, 화면 표시만 마스킹된다.
-    setCdnDetailsRevealed(false);
-    // 멀티 CDN 프로필: 기본 provider의 도메인/ID를 폼에 로드 (공용 필드보다 우선)
-    const defaultEntry = profile.cdnProviders?.find((c) => c.provider === profile.cdnProvider);
-    setForm({
-      name: profile.name,
-      region: profile.region,
-      bucket: profile.bucket,
-      basePrefix: profile.basePrefix ?? "",
-      accessKeyId: profile.accessKeyId,
-      secretAccessKey: "",  // 보안상 마스킹
-      endpoint: profile.endpoint ?? "",
-      cdnProvider: profile.cdnProvider ?? "",
-      cdnDistributionId: defaultEntry?.distributionId ?? profile.cdnDistributionId ?? "",
-      cdnDomain: defaultEntry?.domain ?? profile.cdnDomain ?? "",
-      cdnBasePath: profile.cdnBasePath ?? "",
-      defaultCacheControl: profile.defaultCacheControl ?? "",
-      contentTypeOverride: profile.contentTypeOverride ?? "",
-      multipartEtagFallback: profile.multipartEtagFallback ?? true,
-      akamaiClientToken: profile.akamaiClientToken ?? "",
-      akamaiClientSecret: "",  // 보안상 마스킹
-      akamaiAccessToken: profile.akamaiAccessToken ?? "",
-      akamaiHost: profile.akamaiHost ?? "",
-      akamaiCpCode: profile.akamaiCpCode ?? "",
-      lguplusUsername: profile.lguplusUsername ?? "",
-      lguplusPassword: "",     // 보안상 마스킹
-      lguplusServiceName: profile.lguplusServiceName ?? "",
-      lguplusVolumeName: profile.lguplusVolumeName ?? "",
-      lguplusEndpoint: profile.lguplusEndpoint ?? "",
-      lguplusServiceType: profile.lguplusServiceType ?? "volume",
-      ktUsername: profile.ktUsername ?? "",
-      ktPassword: "",          // 보안상 마스킹
-      ktServiceName: profile.ktServiceName ?? "",
-      ktVolumeName: profile.ktVolumeName ?? "",
-      ktEndpoint: profile.ktEndpoint ?? "",
-      ktServiceType: profile.ktServiceType ?? "volume",
-      hyosungApiKey: profile.hyosungApiKey ?? "",
-      hyosungApiSecret: "",    // 보안상 마스킹
-      hyosungEndpoint: profile.hyosungEndpoint ?? "",
-    });
-  };
-
-  const handleNew = () => {
-    setEditingId(null);
+  const resetForm = () => {
     setForm(emptyForm());
     setError(null);
     setTestResult(null);
-    setCdnTestResult(null);
-    setCdnDetailsRevealed(true); // 새 프로필은 입력 중인 값이므로 가릴 필요 없음
+  };
+
+  /** 목록 행 [테스트]: 저장된 자격증명으로 S3 + 구성된 CDN 연결을 검사 (설정값 비노출) */
+  const handleRowTest = async (p: S3Profile) => {
+    setRowTests((s) => ({ ...s, [p.id]: { testing: true, lines: [] } }));
+    const lines: { label: string; success: boolean; error?: string }[] = [];
+    try {
+      await runtime.invoke("connect_s3", { profileId: p.id });
+      lines.push({ label: "S3", success: true });
+    } catch (err) {
+      lines.push({ label: "S3", success: false, error: String(err) });
+    }
+    for (const provider of availableCdns(p)) {
+      try {
+        const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
+          profileId: p.id,
+          provider,
+          distributionId: cdnDistributionIdFor(p, provider) ?? "",
+        });
+        lines.push({ label: CDN_LABELS[provider], success: result.success, error: result.error });
+      } catch (err) {
+        lines.push({ label: CDN_LABELS[provider], success: false, error: String(err) });
+      }
+    }
+    setRowTests((s) => ({ ...s, [p.id]: { testing: false, lines } }));
   };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -279,23 +239,9 @@ export default function ProfileModal() {
     }
   };
 
-  const buildProfilePayload = (id: string): S3Profile => {
-    // 멀티 CDN 프로필(파일 가져오기): 폼에 없는 cdnProviders 배열을 보존해야 함.
-    // 저장 시 이 배열이 빠지면 CDN별 도메인/ID가 통째로 유실되어 모든 provider가
-    // 공용 cdnDomain으로 폴백된다. 현재 선택된 provider 항목만 폼 값으로 갱신.
-    const existing = profiles.find((p) => p.id === id);
-    const cdnProviders = existing?.cdnProviders?.map((c) =>
-      c.provider === form.cdnProvider
-        ? {
-            ...c,
-            domain: form.cdnDomain || c.domain,
-            distributionId: form.cdnDistributionId || c.distributionId,
-          }
-        : c
-    );
-
+  const buildProfilePayload = (): S3Profile => {
     return {
-    id,
+    id: crypto.randomUUID(),
     name: form.name,
     region: form.region,
     bucket: form.bucket,
@@ -304,7 +250,6 @@ export default function ProfileModal() {
     secretAccessKey: normalizeSecretAccessKey(form.secretAccessKey),
     endpoint: form.endpoint.trim() || undefined,
     cdnProvider: (form.cdnProvider as CdnProvider) || undefined,
-    cdnProviders,
     cdnDistributionId: form.cdnDistributionId || undefined,
     cdnDomain: form.cdnDomain || undefined,
     cdnBasePath: form.cdnBasePath || undefined,
@@ -345,8 +290,8 @@ export default function ProfileModal() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await saveProfile(buildProfilePayload(editingId ?? crypto.randomUUID()));
-      handleNew();
+      await saveProfile(buildProfilePayload());
+      resetForm();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -362,8 +307,7 @@ export default function ProfileModal() {
       setError("버킷과 Access Key는 필수입니다.");
       return;
     }
-    // 비밀키: 폼에 입력된 값 우선, 없으면 기존 프로파일 사용
-    if (!form.secretAccessKey && !editingId) {
+    if (!form.secretAccessKey) {
       setError("연결 테스트를 위해 Secret Access Key를 입력하세요.");
       return;
     }
@@ -384,96 +328,18 @@ export default function ProfileModal() {
     setError(null);
 
     try {
-      if (secretAccessKey) {
-        // 직접 입력값으로 테스트
-        const result = await testConnection({
-          region:    form.region,
-          bucket:    form.bucket,
-          basePrefix: form.basePrefix,
-          accessKey: accessKeyId,
-          secretKey: secretAccessKey,
-          endpoint:  form.endpoint.trim() || undefined,
-        });
-        setTestResult(result);
-      } else if (editingId) {
-        // 기존 저장된 자격증명으로 테스트 (connect_s3 재사용)
-        try {
-          const result = await runtime.invoke<{ success: boolean; warnings: string[] }>("connect_s3", { profileId: editingId });
-          setTestResult(result);
-        } catch (err) {
-          setTestResult({ success: false, error: String(err) });
-        }
-      }
+      // 직접 입력값으로 테스트 (저장된 프로필 검증은 목록 행 [테스트] 사용)
+      const result = await testConnection({
+        region:    form.region,
+        bucket:    form.bucket,
+        basePrefix: form.basePrefix,
+        accessKey: accessKeyId,
+        secretKey: secretAccessKey,
+        endpoint:  form.endpoint.trim() || undefined,
+      });
+      setTestResult(result);
     } finally {
       setIsTesting(false);
-    }
-  };
-
-  const handleTestCdnConnection = async () => {
-    if (!editingId) {
-      setError("CDN 연결 테스트는 프로파일 저장 후 실행할 수 있습니다.");
-      return;
-    }
-    if (!form.cdnProvider) {
-      setError("CDN 제공자를 선택하세요.");
-      return;
-    }
-    if (form.cdnProvider === "cloudfront" && !form.cdnDistributionId) {
-      setError("CloudFront Distribution ID를 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "akamai" && !form.cdnDomain) {
-      setError("CDN 도메인을 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "lguplus" && (!form.lguplusUsername || !form.lguplusServiceName || !form.cdnDomain)) {
-      setError("LG U+ CDN Username, Service Name, Edge Domain을 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "kt" && (!form.ktUsername || !form.ktServiceName || !form.cdnDomain)) {
-      setError("KT CDN Username, Service Name, Edge Domain을 입력하세요.");
-      return;
-    }
-    if (form.cdnProvider === "hyosung" && (!form.hyosungApiKey || !form.cdnDistributionId)) {
-      setError("효성 ITX CDN USER_ID와 TID(Service ID)를 입력하세요.");
-      return;
-    }
-
-    if (shouldConfirmExternalRequests()) {
-      setConfirmRequest({
-        message: "실제 CDN Provider API로 연결 테스트를 실행합니다. CloudFront/Akamai 계정 정책에 따라 요청 비용이 발생할 수 있습니다.",
-        onConfirm: () => void runCdnTest(),
-      });
-      return;
-    }
-    void runCdnTest();
-  };
-
-  const runCdnTest = async () => {
-    if (!editingId || !form.cdnProvider) return;
-    setIsTestingCdn(true);
-    setCdnTestResult(null);
-    setError(null);
-
-    try {
-      // 테스트는 저장된 프로필 값으로 실행되므로, 현재 폼 내용을 먼저 저장해 반영
-      if (form.name && form.bucket && form.accessKeyId) {
-        await saveProfile(buildProfilePayload(editingId));
-      }
-      const result = await runtime.invoke<CdnConnectionTestResult>("test_cdn_connection", {
-        profileId: editingId,
-        provider: form.cdnProvider,
-        distributionId: form.cdnDistributionId,
-      });
-      setCdnTestResult(result);
-    } catch (err) {
-      setCdnTestResult({
-        success: false,
-        provider: form.cdnProvider as CdnProvider,
-        error: String(err),
-      });
-    } finally {
-      setIsTestingCdn(false);
     }
   };
 
@@ -486,32 +352,13 @@ export default function ProfileModal() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setTestResult(null);
-    setCdnTestResult(null);
     setForm((f) => ({ ...f, [field]: e.target.value }));
-  };
-
-  // 멀티 CDN 프로필: 제공자 변경 시 해당 provider의 도메인/ID를 폼에 로드
-  // (도메인·Distribution ID 폼 필드는 하나뿐이므로 provider 전환에 맞춰 값을 바꿔줘야 함)
-  const handleProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const provider = e.target.value as CdnProvider | "";
-    const entry = provider && editingId
-      ? profiles.find((p) => p.id === editingId)?.cdnProviders?.find((c) => c.provider === provider)
-      : undefined;
-    setTestResult(null);
-    setCdnTestResult(null);
-    setForm((f) => ({
-      ...f,
-      cdnProvider: provider,
-      cdnDomain: entry?.domain ?? f.cdnDomain,
-      cdnDistributionId: entry?.distributionId ?? f.cdnDistributionId,
-    }));
   };
 
   const setCheckedField = (field: "multipartEtagFallback") => (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     setTestResult(null);
-    setCdnTestResult(null);
     setForm((f) => ({ ...f, [field]: e.target.checked }));
   };
 
@@ -562,7 +409,6 @@ export default function ProfileModal() {
         danger
         onConfirm={() => {
           deleteProfile(deleteConfirmId);
-          if (editingId === deleteConfirmId) handleNew();
           setDeleteConfirmId(null);
         }}
         onCancel={() => setDeleteConfirmId(null)}
@@ -669,7 +515,7 @@ export default function ProfileModal() {
               저장된 프로필
               <div style={{ display: "flex", gap: "0.4rem" }}>
                 <button type="button" className={styles.newBtn} onClick={() => setShowImportModal(true)}>↓ 가져오기</button>
-                <button type="button" className={styles.newBtn} onClick={handleNew}>+ 새 프로필</button>
+                <button type="button" className={styles.newBtn} onClick={resetForm}>+ 새 프로필</button>
               </div>
             </div>
 
@@ -688,20 +534,26 @@ export default function ProfileModal() {
                 <div className={styles.empty}>{search ? "검색 결과가 없습니다" : "저장된 프로필이 없습니다"}</div>
               ) : (
                 filteredProfiles.map((p) => (
-                  <div
-                    key={p.id}
-                    className={`${styles.profileItem} ${editingId === p.id ? styles.active : ""}`}
-                  >
-                    {/* 고객사 요청: 목록에서 버킷/리전 상세정보 비노출 — 프로필 이름만 표시 */}
-                    <button type="button" className={styles.profileInfo} onClick={() => handleEdit(p)}>
+                  <div key={p.id} className={styles.profileItem}>
+                    {/* 고객사 요청: 저장된 프로필은 write-only — 이름만 표시, 클릭해도 아무 정보도 열리지 않음 */}
+                    <div className={styles.profileInfo}>
                       <span className={styles.profileName}>{p.name}</span>
                       {p.permissions?.role && (
                         <span className={styles.profileDetail} style={{ opacity: 0.6 }}>{p.permissions.role}</span>
                       )}
-                    </button>
+                    </div>
                     <div className={styles.profileActions}>
                       <button type="button" className={styles.connectBtn} onClick={() => handleConnect(p)}>
                         연결
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.testBtn}
+                        title="저장된 자격증명으로 S3/CDN 연결 검사"
+                        disabled={rowTests[p.id]?.testing}
+                        onClick={() => void handleRowTest(p)}
+                      >
+                        {rowTests[p.id]?.testing ? "테스트 중" : "테스트"}
                       </button>
                       <button
                         type="button"
@@ -715,6 +567,20 @@ export default function ProfileModal() {
                         삭제
                       </button>
                     </div>
+                    {rowTests[p.id]?.lines.length ? (
+                      <div className={styles.testResultLines}>
+                        {rowTests[p.id].lines.map((line) => (
+                          <span
+                            key={line.label}
+                            className={line.success ? styles.testOk : styles.testFail}
+                            title={line.error}
+                          >
+                            {line.success ? "✓" : "✗"} {line.label}
+                            {!line.success && line.error ? ` — ${line.error}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ))
               )}
@@ -724,7 +590,7 @@ export default function ProfileModal() {
           {/* 프로필 편집 폼 */}
           <form className={styles.form} onSubmit={handleSubmit}>
             <div className={styles.formHeader}>
-              <span>{editingId ? "프로필 편집" : "새 프로필"}</span>
+              <span>새 프로필</span>
             </div>
 
             <div className={styles.formScroll}>
@@ -780,7 +646,6 @@ export default function ProfileModal() {
                   type="password"
                   value={form.secretAccessKey}
                   onChange={setField("secretAccessKey")}
-                  placeholder={editingId ? "변경하려면 입력" : ""}
                 />
               </label>
               <label className={styles.field}>
@@ -850,7 +715,7 @@ export default function ProfileModal() {
 
               <label className={styles.field}>
                 <span>CDN 제공자</span>
-                <select value={form.cdnProvider} onChange={handleProviderChange}>
+                <select value={form.cdnProvider} onChange={setField("cdnProvider")}>
                   <option value="">사용 안 함</option>
                   {CDN_PROVIDERS.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -858,9 +723,7 @@ export default function ProfileModal() {
                 </select>
               </label>
 
-              {isCloudFront && (cdnFieldsMasked ? (
-                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
-              ) : (
+              {isCloudFront && (
                 <>
                   <label className={styles.field}>
                     <span>Distribution ID</span>
@@ -879,11 +742,9 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              ))}
+              )}
 
-              {isAkamai && (cdnFieldsMasked ? (
-                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
-              ) : (
+              {isAkamai && (
                 <>
                   <label className={styles.field}>
                     <span>EdgeGrid 호스트</span>
@@ -915,7 +776,6 @@ export default function ProfileModal() {
                       type="password"
                       value={form.akamaiClientSecret}
                       onChange={setField("akamaiClientSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : ""}
                     />
                   </label>
                   <label className={styles.field}>
@@ -935,11 +795,9 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              ))}
+              )}
 
-              {isLguplus && (cdnFieldsMasked ? (
-                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
-              ) : (
+              {isLguplus && (
                 <>
                   <label className={styles.field}>
                     <span>Username *</span>
@@ -955,7 +813,7 @@ export default function ProfileModal() {
                       type="password"
                       value={form.lguplusPassword}
                       onChange={setField("lguplusPassword")}
-                      placeholder={editingId ? "변경하려면 입력" : "LG U+ CDN 계정 비밀번호"}
+                      placeholder="LG U+ CDN 계정 비밀번호"
                     />
                   </label>
                   <label className={styles.field}>
@@ -998,11 +856,9 @@ export default function ProfileModal() {
                     </select>
                   </label>
                 </>
-              ))}
+              )}
 
-              {isKt && (cdnFieldsMasked ? (
-                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
-              ) : (
+              {isKt && (
                 <>
                   <label className={styles.field}>
                     <span>Username *</span>
@@ -1018,7 +874,7 @@ export default function ProfileModal() {
                       type="password"
                       value={form.ktPassword}
                       onChange={setField("ktPassword")}
-                      placeholder={editingId ? "변경하려면 입력" : "KT CDN 계정 비밀번호"}
+                      placeholder="KT CDN 계정 비밀번호"
                     />
                   </label>
                   <label className={styles.field}>
@@ -1061,11 +917,9 @@ export default function ProfileModal() {
                     </select>
                   </label>
                 </>
-              ))}
+              )}
 
-              {isHyosung && (cdnFieldsMasked ? (
-                <CdnDetailsMasked onReveal={() => setCdnDetailsRevealed(true)} />
-              ) : (
+              {isHyosung && (
                 <>
                   <label className={styles.field}>
                     <span>USER_ID (Principal) *</span>
@@ -1081,7 +935,7 @@ export default function ProfileModal() {
                       type="password"
                       value={form.hyosungApiSecret}
                       onChange={setField("hyosungApiSecret")}
-                      placeholder={editingId ? "변경하려면 입력" : "효성 계정 SHARED_KEY"}
+                      placeholder="효성 계정 SHARED_KEY"
                     />
                   </label>
                   <label className={styles.field}>
@@ -1109,26 +963,6 @@ export default function ProfileModal() {
                     />
                   </label>
                 </>
-              ))}
-
-              {form.cdnProvider && (
-                <div className={styles.testRow}>
-                  <button
-                    type="button"
-                    className={styles.testBtn}
-                    onClick={handleTestCdnConnection}
-                    disabled={isTestingCdn}
-                  >
-                    {isTestingCdn ? "CDN 테스트 중..." : "CDN 연결 테스트"}
-                  </button>
-                  {cdnTestResult && (
-                    <span className={cdnTestResult.success ? styles.testOk : styles.testFail}>
-                      {cdnTestResult.success
-                        ? `✓ CDN 연결 성공${cdnTestResult.domain && !cdnFieldsMasked ? ` · ${cdnTestResult.domain}` : ""}`
-                        : `✗ ${cdnTestResult.error}`}
-                    </span>
-                  )}
-                </div>
               )}
 
               {form.cdnProvider && (
@@ -1150,7 +984,7 @@ export default function ProfileModal() {
             </div>
 
             <div className={styles.formActions}>
-              <button type="button" onClick={handleNew} className={styles.cancelBtn}>
+              <button type="button" onClick={resetForm} className={styles.cancelBtn}>
                 취소
               </button>
               <button type="submit" className={styles.saveBtn} disabled={isSubmitting}>

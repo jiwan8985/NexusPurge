@@ -555,3 +555,23 @@
     border-bottom: var(--border-width) solid var(--color-border);
   }
 }
+
+/* ── 목록 행 [테스트] 결과 (S3/CDN별 ✓/✗ — 설정값 비노출) ─────────────────────── */
+.profileItem {
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.testResultLines {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 2px 2px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.testResultLines .testFail {
+  white-space: normal;
+}
