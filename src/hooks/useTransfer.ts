@@ -144,13 +144,14 @@ export function useTransfer() {
     [activeProfile]
   );
 
-  const startUpload = useCallback(async () => {
-    if (!activeProfile || local.selectedPaths.size === 0) return;
+  // paths 미지정 시 로컬 패널에서 선택된 항목을 업로드 (DnD/탐색기 드랍은 paths로 명시 전달)
+  const startUpload = useCallback(async (paths?: string[]) => {
+    const selectedPaths = paths && paths.length > 0 ? paths : Array.from(local.selectedPaths);
+    if (!activeProfile || selectedPaths.length === 0) return;
 
     setTransferring(true);
     // M-8: dialog는 실제 전송 항목이 있을 때만 열기
 
-    const selectedPaths = Array.from(local.selectedPaths);
     addLog("info", `업로드 시작: ${selectedPaths.length}개 파일 선택됨`, "transfer");
 
     try {
