@@ -96,6 +96,8 @@ export default function LocalPanel() {
   }));
 
   const { startUpload } = useTransfer();
+  const startUploadRef = useRef(startUpload);
+  startUploadRef.current = startUpload;
   const [pathInput, setPathInput] = useState(local.path);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
@@ -153,13 +155,22 @@ export default function LocalPanel() {
     }
   }, []);
 
+  // 로컬 → S3: 드래그한 선택 항목(폴더 포함)을 업로드 (미연결 시 무시 — 기존 HTML5 DnD 가드와 동일)
+  const onDropToOpposite = useCallback(() => {
+    if (!useAppStore.getState().isConnected) return;
+    return startUploadRef.current(Array.from(useAppStore.getState().local.selectedPaths));
+  }, []);
+
+  const ghostLabel = useCallback(
+    () => `${useAppStore.getState().local.selectedPaths.size}개 항목`,
+    []
+  );
+
   const { onRowPointerDown, isDropTarget } = usePanelDrag({
     side: "local",
     ensureSelected: ensureLocalSelected,
-    // 로컬 → S3: 드래그한 선택 항목(폴더 포함)을 업로드
-    onDropToOpposite: () =>
-      startUpload(Array.from(useAppStore.getState().local.selectedPaths)),
-    ghostLabel: () => `${useAppStore.getState().local.selectedPaths.size}개 항목`,
+    onDropToOpposite,
+    ghostLabel,
   });
 
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =

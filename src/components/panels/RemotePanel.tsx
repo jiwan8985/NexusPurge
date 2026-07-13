@@ -60,6 +60,8 @@ export default function RemotePanel() {
 
   const { listObjects, deleteObjects, renameObject } = useS3();
   const { startDownload } = useTransfer();
+  const startDownloadRef = useRef(startDownload);
+  startDownloadRef.current = startDownload;
   const { executePurge, isPurging } = usePurge();
   const [pathInput, setPathInput] = useState(remote.path);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
@@ -164,13 +166,22 @@ export default function RemotePanel() {
     }
   }, []);
 
+  // S3 → 로컬: 드래그한 선택 항목을 다운로드 (폴더 확장은 startDownload 내부 처리, 미연결 시 무시)
+  const onDropToOpposite = useCallback(() => {
+    if (!useAppStore.getState().isConnected) return;
+    return startDownloadRef.current(Array.from(useAppStore.getState().remote.selectedPaths));
+  }, []);
+
+  const ghostLabel = useCallback(
+    () => `${useAppStore.getState().remote.selectedPaths.size}개 항목`,
+    []
+  );
+
   const { onRowPointerDown, isDropTarget } = usePanelDrag({
     side: "remote",
     ensureSelected: ensureRemoteSelected,
-    // S3 → 로컬: 드래그한 선택 항목을 다운로드 (폴더 확장은 startDownload 내부 처리)
-    onDropToOpposite: () =>
-      startDownload(Array.from(useAppStore.getState().remote.selectedPaths)),
-    ghostLabel: () => `${useAppStore.getState().remote.selectedPaths.size}개 항목`,
+    onDropToOpposite,
+    ghostLabel,
   });
 
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
@@ -187,7 +198,7 @@ export default function RemotePanel() {
   return (
     <div
       data-panel="remote"
-      className={`${styles.panel} ${isDropTarget ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
+      className={`${styles.panel} ${isDropTarget && isConnected ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("remote")}
       onContextMenu={(event) => event.preventDefault()}
     >
@@ -310,7 +321,7 @@ export default function RemotePanel() {
 
       <div className={styles.footer}>
         {isConnected ? footerText : bucketLabel}
-        {isDropTarget && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
+        {isDropTarget && isConnected && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
       </div>
 
       {ctxMenu && (

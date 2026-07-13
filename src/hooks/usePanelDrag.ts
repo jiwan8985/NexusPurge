@@ -88,7 +88,11 @@ export function usePanelDrag({ side, ensureSelected, onDropToOpposite, ghostLabe
           },
           { capture: true, once: true }
         );
-        if (target && target !== side) void onDropToOpposite();
+        if (target && target !== side) {
+          void Promise.resolve(onDropToOpposite()).catch((err) =>
+            console.error("[usePanelDrag] 드랍 처리 실패:", err)
+          );
+        }
       }
     };
 
@@ -103,6 +107,8 @@ export function usePanelDrag({ side, ensureSelected, onDropToOpposite, ghostLabe
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("keydown", onKey);
+      // 드래그 도중 언마운트되는 경우(라우팅/조건부 렌더 등) 고스트/body 클래스가 남지 않도록 정리
+      if (dragRef.current) cleanup();
     };
   }, [side, ensureSelected, onDropToOpposite, ghostLabel, setPanelDrag, cleanup]);
 
