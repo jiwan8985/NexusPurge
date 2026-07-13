@@ -2,6 +2,7 @@ use crate::adapters::cdn;
 use crate::utils::config::CdnCredentials;
 use crate::utils::config::ProfileStore;
 use serde::Serialize;
+use std::error::Error;
 use tauri::State;
 
 #[derive(Debug, Serialize)]
@@ -637,6 +638,57 @@ pub struct UrlInspection {
     #[serde(rename = "durationMs")]
     pub duration_ms: u64,
     pub error: Option<String>,
+    /// 오류 분류: "dns" | "timeout" | "connect" | "tls" | "other" (성공 시 None)
+    #[serde(rename = "errorKind")]
+    pub error_kind: Option<String>,
+}
+
+/// URL에서 DNS 사전 조회용 (호스트, 포트) 추출. 유효한 절대 URL이 아니면 None.
+fn inspect_target(url: &str) -> Option<(String, u16)> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_string();
+    let port = parsed.port_or_known_default()?;
+    Some((host, port))
+}
+
+fn dns_failure_message(host: &str) -> String {
+    format!(
+        "DNS 조회 실패: {} — 도메인이 DNS에 등록되어 있지 않습니다(NXDOMAIN). \
+         CDN 서비스 도메인의 DNS/CNAME 등록 후 다시 시도하세요.",
+        host
+    )
+}
+
+/// reqwest 전송 오류를 (errorKind, 한국어 메시지)로 분류.
+/// reqwest::Error는 테스트에서 직접 생성할 수 없어 판별 플래그 + 오류 원문으로 분리했다.
+fn classify_send_error(
+    is_timeout: bool,
+    is_connect: bool,
+    detail: &str,
+    url: &str,
+) -> (&'static str, String) {
+    let lower = detail.to_lowercase();
+    if is_timeout {
+        (
+            "timeout",
+            format!(
+                "응답 시간 초과(10초): {} — 서버가 응답하지 않습니다. 방화벽/사설망 여부를 확인하세요.",
+                url
+            ),
+        )
+    } else if lower.contains("certificate") || lower.contains("tls") || lower.contains("ssl") {
+        ("tls", format!("TLS 인증서 오류: {} ({})", url, detail))
+    } else if is_connect {
+        (
+            "connect",
+            format!(
+                "연결 실패: {} — 호스트에 연결할 수 없습니다(포트 차단 또는 서버 다운). ({})",
+                url, detail
+            ),
+        )
+    } else {
+        ("other", format!("요청 실패: {} ({})", url, detail))
+    }
 }
 
 /// 주어진 URL에 실제 HTTP 요청(HEAD, 미지원 시 GET Range)을 보내 상태코드·응답 헤더·소요시간을 그대로 반환.
@@ -647,6 +699,30 @@ pub struct UrlInspection {
 /// 이 커맨드는 진단/디버깅 전용이며 실제 Purge 요청 경로와는 무관하다.
 #[tauri::command]
 pub async fn inspect_url(url: String) -> Result<UrlInspection, String> {
+    let started = std::time::Instant::now();
+
+    // DNS 사전 조회 — 미등록 도메인(NXDOMAIN)이면 10초 타임아웃을 기다리지 않고 즉시 원인 반환
+    let Some((host, port)) = inspect_target(&url) else {
+        return Ok(UrlInspection {
+            url: url.clone(),
+            status_code: None,
+            headers: vec![],
+            duration_ms: 0,
+            error: Some(format!("URL 형식이 올바르지 않습니다: {}", url)),
+            error_kind: Some("other".into()),
+        });
+    };
+    if tokio::net::lookup_host((host.as_str(), port)).await.is_err() {
+        return Ok(UrlInspection {
+            url,
+            status_code: None,
+            headers: vec![],
+            duration_ms: started.elapsed().as_millis() as u64,
+            error: Some(dns_failure_message(&host)),
+            error_kind: Some("dns".into()),
+        });
+    }
+
     let client = reqwest::Client::builder()
         .use_native_tls()
         .danger_accept_invalid_certs(true)
@@ -655,7 +731,7 @@ pub async fn inspect_url(url: String) -> Result<UrlInspection, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let started = std::time::Instant::now();
+    let request_started = std::time::Instant::now();
     let response = match client.head(&url).send().await {
         Ok(resp) if resp.status().as_u16() != 405 => Ok(resp),
         _ => {
@@ -666,7 +742,7 @@ pub async fn inspect_url(url: String) -> Result<UrlInspection, String> {
                 .await
         }
     };
-    let duration_ms = started.elapsed().as_millis() as u64;
+    let duration_ms = request_started.elapsed().as_millis() as u64;
 
     match response {
         Ok(resp) => {
@@ -676,15 +752,27 @@ pub async fn inspect_url(url: String) -> Result<UrlInspection, String> {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("<binary>").to_string()))
                 .collect();
-            Ok(UrlInspection { url, status_code, headers, duration_ms, error: None })
+            Ok(UrlInspection { url, status_code, headers, duration_ms, error: None, error_kind: None })
         }
-        Err(e) => Ok(UrlInspection {
-            url,
-            status_code: None,
-            headers: vec![],
-            duration_ms,
-            error: Some(e.to_string()),
-        }),
+        Err(e) => {
+            // 오류 원인 체인 전체를 모아 TLS/연결 오류 문구를 판별
+            let mut detail_parts = Vec::new();
+            let mut current: Option<&dyn Error> = Some(&e);
+            while let Some(err) = current {
+                detail_parts.push(err.to_string());
+                current = err.source();
+            }
+            let detail = detail_parts.join(": ");
+            let (kind, message) = classify_send_error(e.is_timeout(), e.is_connect(), &detail, &url);
+            Ok(UrlInspection {
+                url,
+                status_code: None,
+                headers: vec![],
+                duration_ms,
+                error: Some(message),
+                error_kind: Some(kind.into()),
+            })
+        }
     }
 }
 
@@ -724,5 +812,46 @@ mod tests {
             "/contents/file2.txt".to_string(), // 선행 슬래시 혼재 허용
         ];
         assert_eq!(collapse_to_folder_wildcard(&paths), "contents/*");
+    }
+
+    #[test]
+    fn inspect_target_parses_host_and_port() {
+        assert_eq!(
+            inspect_target("http://cdn.example.com/a.txt"),
+            Some(("cdn.example.com".to_string(), 80))
+        );
+        assert_eq!(
+            inspect_target("https://cdn.example.com:8443/contents/a.txt"),
+            Some(("cdn.example.com".to_string(), 8443))
+        );
+        // 스킴 없는 상대 경로는 URL이 아님
+        assert_eq!(inspect_target("contents/a.txt"), None);
+    }
+
+    #[test]
+    fn dns_failure_message_mentions_host_and_guidance() {
+        let msg = dns_failure_message("sklb-test.dn.nexoncdn.co.kr");
+        assert!(msg.contains("sklb-test.dn.nexoncdn.co.kr"));
+        assert!(msg.contains("NXDOMAIN"));
+        assert!(msg.contains("CNAME"));
+    }
+
+    #[test]
+    fn classify_send_error_priority() {
+        // timeout이 최우선
+        let (kind, msg) = classify_send_error(true, false, "operation timed out", "http://a/b");
+        assert_eq!(kind, "timeout");
+        assert!(msg.contains("http://a/b"));
+
+        // TLS 문구는 connect보다 우선 (TLS 핸드셰이크 실패도 is_connect=true로 옴)
+        let (kind, _) = classify_send_error(false, true, "invalid peer certificate", "http://a/b");
+        assert_eq!(kind, "tls");
+
+        let (kind, msg) = classify_send_error(false, true, "connection refused", "http://a/b");
+        assert_eq!(kind, "connect");
+        assert!(msg.contains("connection refused"));
+
+        let (kind, _) = classify_send_error(false, false, "unexpected", "http://a/b");
+        assert_eq!(kind, "other");
     }
 }
