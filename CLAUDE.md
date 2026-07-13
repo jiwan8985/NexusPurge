@@ -84,6 +84,7 @@ src-tauri/src/
 - 한 프로필에 여러 CDN 가능: `cdnProviders[]` (provider/domain/distributionId), CDN별 도메인은 `provider_domain()` (config.rs)로 해석
 - 고객사 전달용 JSON 프로필 파일: `profile-sample.json` 참고 — 프로필 관리 "가져오기"로 임포트 (`import_profile_file` 커맨드)
 - 런타임 Purge 대상 CDN: `appStore.activeCdn` — 툴바 드롭다운에서 전환, 모든 Purge(업로드/삭제/수동)가 이 값을 따름
+- 저장된 프로필은 write-only: 목록에서 정보 열람/편집 불가(연결·테스트·내보내기·삭제만). 수정은 삭제 후 재생성/재임포트
 
 ## 코딩 컨벤션
 
@@ -135,7 +136,7 @@ npm run tauri build
 - Tauri 이벤트명 (`transfer:progress`, `transfer:complete`) 변경 시 `useTransfer.ts`와 동기화
 - S3 ETag와 MD5는 Multipart 업로드(>8MB 기본값) 시 일치하지 않음 → `hash.rs::parse_multipart_etag` 참고
 - 모달/다이얼로그는 반드시 `createPortal(…, document.body)`로 렌더링할 것 — Toolbar/Panel에 `backdrop-filter`(글래스 효과)가 걸려 있어 내부에서 `position: fixed`를 쓰면 해당 요소가 containing block이 되어 레이아웃이 겹침
-- `tauri.conf.json`의 `dragDropEnabled: false`는 패널 간 HTML5 드래그앤드랍(업로드/다운로드)에 필수 — true(기본값)면 Windows WebView2가 드랍 이벤트를 가로채 DnD가 조용히 동작하지 않음
+- `tauri.conf.json`의 `dragDropEnabled: true`는 탐색기 파일/폴더 드랍 업로드(`useOsFileDrop.ts`, `tauri://drag-drop` 이벤트)에 필수. 이 설정에서는 WebView2가 HTML5 DnD를 가로채므로 패널 간 드래그는 HTML5 DnD가 아닌 pointer 이벤트 기반 커스텀 구현(`usePanelDrag.ts`)을 사용한다 — 패널 루트의 `data-panel="local|remote"` 속성이 드랍 대상 판정 기준
 - 운영 로그(업로드/다운로드/삭제/Purge)는 JSON(`operation_logs.json`, 전체 이력) + 날짜·타입별 텍스트 파일로 `%LOCALAPPDATA%/cdn-upload-tool/logs/`에 저장됨 — LogPanel "로그 폴더" 버튼으로 열기
   - `system-YYYY-MM-DD.log`: mkdir/rename/delete 등 파일 관리 작업
   - `transfer-YYYY-MM-DD.log`: upload/download 파일 전송 결과
