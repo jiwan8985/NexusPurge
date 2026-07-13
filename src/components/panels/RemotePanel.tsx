@@ -4,6 +4,7 @@ import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
+import { usePanelDrag } from "../../hooks/usePanelDrag";
 import { usePurge } from "../../hooks/usePurge";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { useAppStore } from "../../store/appStore";
@@ -58,10 +59,9 @@ export default function RemotePanel() {
   }));
 
   const { listObjects, deleteObjects, renameObject } = useS3();
-  const { startUpload, startDownload } = useTransfer();
+  const { startDownload } = useTransfer();
   const { executePurge, isPurging } = usePurge();
   const [pathInput, setPathInput] = useState(remote.path);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
@@ -156,6 +156,23 @@ export default function RemotePanel() {
     ];
   };
 
+  const ensureRemoteSelected = useCallback((path: string) => {
+    const s = useAppStore.getState();
+    if (!s.remote.selectedPaths.has(path)) {
+      s.clearRemoteSelection();
+      s.toggleRemoteSelection(path);
+    }
+  }, []);
+
+  const { onRowPointerDown, isDropTarget } = usePanelDrag({
+    side: "remote",
+    ensureSelected: ensureRemoteSelected,
+    // S3 → 로컬: 드래그한 선택 항목을 다운로드 (폴더 확장은 startDownload 내부 처리)
+    onDropToOpposite: () =>
+      startDownload(Array.from(useAppStore.getState().remote.selectedPaths)),
+    ghostLabel: () => `${useAppStore.getState().remote.selectedPaths.size}개 항목`,
+  });
+
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
     useVirtualList(remote.files);
 
@@ -169,22 +186,10 @@ export default function RemotePanel() {
 
   return (
     <div
-      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
+      data-panel="remote"
+      className={`${styles.panel} ${isDropTarget ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("remote")}
       onContextMenu={(event) => event.preventDefault()}
-      onDragOver={(event) => {
-        if (!isConnected) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={async (event) => {
-        event.preventDefault();
-        setIsDragOver(false);
-        if (!isConnected || event.dataTransfer.getData("text/plain") !== "local-files") return;
-        await startUpload();
-      }}
     >
       <div className={styles.header}>
         <span className={styles.headerTitle}>
@@ -263,15 +268,7 @@ export default function RemotePanel() {
                       }
                     }}
                     onDoubleClick={() => file.isDirectory && loadPrefix(file.path)}
-                    draggable
-                    onDragStart={(event) => {
-                      if (!remote.selectedPaths.has(file.path)) {
-                        clearRemoteSelection();
-                        toggleRemoteSelection(file.path);
-                      }
-                      event.dataTransfer.setData("text/plain", "remote-files");
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
+                    onPointerDown={(event) => onRowPointerDown(event, file.path)}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
@@ -313,7 +310,7 @@ export default function RemotePanel() {
 
       <div className={styles.footer}>
         {isConnected ? footerText : bucketLabel}
-        {isDragOver && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
+        {isDropTarget && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
       </div>
 
       {ctxMenu && (

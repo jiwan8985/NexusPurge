@@ -64,6 +64,10 @@ interface AppState {
   // Auto-Purge (세션 전역 토글 — 프로필 기본값 위에서 재정의 가능)
   autoPurgeEnabled: boolean;
 
+  // 패널 간 pointer 드래그 / OS 파일 드래그 상태 (over: 현재 커서가 올라간 패널)
+  panelDrag: { source: "local" | "remote" | "os"; over: "local" | "remote" | null } | null;
+  setPanelDrag: (drag: { source: "local" | "remote" | "os"; over: "local" | "remote" | null } | null) => void;
+
   // Actions — Profiles
   setProfiles: (profiles: S3Profile[]) => void;
 
@@ -180,6 +184,9 @@ export const useAppStore = create<AppState>()(
 
     // ── Auto-Purge ────────────────────────────────────────────────────────────
     autoPurgeEnabled: window.localStorage.getItem("nexuspurge.autoPurgeEnabled") === "true",
+
+    // ── Panel Drag ────────────────────────────────────────────────────────────
+    panelDrag: null,
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
@@ -299,6 +306,9 @@ export const useAppStore = create<AppState>()(
       window.localStorage.setItem("nexuspurge.autoPurgeEnabled", String(next));
       return { autoPurgeEnabled: next };
     }),
+
+    // ── Panel Drag Actions ────────────────────────────────────────────────────
+    setPanelDrag: (drag) => set({ panelDrag: drag }),
 
     // ── Modal Actions ─────────────────────────────────────────────────────────
     openProfileModal: () => set({ isProfileModalOpen: true }),
