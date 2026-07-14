@@ -88,8 +88,9 @@ export default function ProfileModal() {
     // Windows 편집기가 저장 시 붙이는 UTF-8 BOM 제거 (JSON 인식·파싱 오류 방지)
     const text = (await file.text()).replace(/^﻿/, "");
 
-    // 일반 JSON 프로필 파일(테스트용, profile-sample.json 참고)은 패스프레이즈 없이 가져오기
-    const isPlainJson = text.trim().startsWith("{");
+    // 확장자로 판별: .nexprofile은 암호화 파일. 내용은 둘 다 JSON 객체({...})라서
+    // startsWith("{") 같은 내용 기반 판별은 암호화 파일을 오탐(평문으로 인식)한다.
+    const isPlainJson = !file.name.toLowerCase().endsWith(".nexprofile");
     if (!isPlainJson && !importPassphrase.trim()) {
       setImportError("암호화된 프로필(.nexprofile)은 패스프레이즈를 입력하세요.");
       return;
