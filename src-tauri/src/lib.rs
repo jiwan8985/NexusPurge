@@ -12,20 +12,44 @@ use utils::transfer_control::TransferControl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "cdn_upload_tool_lib=debug".into()),
-        )
-        .init();
+    let data_dir = dirs::data_local_dir()
+        .expect("data_local_dir lookup failed")
+        .join("cdn-upload-tool");
+
+    // tracing을 콘솔 + 파일(logs/audit.YYYY-MM-DD.log)에 동시 기록.
+    // CDN 어댑터의 요청/응답 상세(HTTP 상태·소요시간·응답 본문)가 릴리즈 빌드에서도
+    // 파일로 남아, CDN Purge 실패 원인을 사후에 추적할 수 있다 (LogPanel "로그 폴더"에서 열람).
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        let audit_appender = tracing_appender::rolling::Builder::new()
+            .rotation(tracing_appender::rolling::Rotation::DAILY)
+            .filename_prefix("audit")
+            .filename_suffix("log")
+            .build(data_dir.join("logs"))
+            .expect("audit 로그 파일 초기화 실패");
+        let (audit_writer, audit_guard) = tracing_appender::non_blocking(audit_appender);
+        // non_blocking writer는 guard가 drop되면 기록이 멈추므로 앱 수명 동안 유지
+        Box::leak(Box::new(audit_guard));
+
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "cdn_upload_tool_lib=debug".into()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(audit_writer),
+            )
+            .init();
+    }
 
     let profile_store = ProfileStore::new().expect("ProfileStore 초기화 실패");
     let adapter_cache = AdapterCache::new();
-    let operation_log_service = OperationLogService::new(
-        dirs::data_local_dir()
-            .expect("data_local_dir lookup failed")
-            .join("cdn-upload-tool"),
-    );
+    let operation_log_service = OperationLogService::new(data_dir);
 
     tauri::Builder::default()
         .manage(profile_store)

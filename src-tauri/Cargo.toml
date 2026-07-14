@@ -72,6 +72,7 @@ dirs      = "5"
 mime_guess = "2"
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender   = "0.2"   # 날짜별 audit 로그 파일 (logs/audit.YYYY-MM-DD.log)
 
 [profile.dev]
 incremental = true

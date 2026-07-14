@@ -142,3 +142,4 @@ npm run tauri build
   - `transfer-YYYY-MM-DD.log`: upload/download 파일 전송 결과
   - `cdn-YYYY-MM-DD.log`: CDN Purge 상세(provider별 상태, 요청 엔드포인트, 소요시간, 대상 경로 최대 50개 미리보기, 전체 오류 메시지) — upload/delete에 딸린 Purge 결과도 여기 기록. 전체 경로 목록은 `operation_logs.json`에 무제한 보관
   - 타입 분리는 `OperationLogService::append_log_file` (operation_log.rs) 참고
+  - `audit.YYYY-MM-DD.log`: Rust `tracing` 출력의 파일 사본 (lib.rs에서 tracing-appender daily rolling으로 초기화) — CDN 어댑터의 모든 API 호출 상세(메서드/URL/HTTP 상태/소요시간/응답 본문 1,000자)가 남음. 어댑터에서 응답 수신 후 `adapters/cdn/mod.rs::log_cdn_http()` 호출이 규약 (인증 요청은 토큰 노출 방지를 위해 본문 제외)

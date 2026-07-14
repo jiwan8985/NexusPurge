@@ -105,6 +105,7 @@ impl AkamaiAdapter {
         let body_bytes = body.as_bytes();
         let auth_header = self.sign_request("POST", &url, body_bytes);
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(url.as_str())
@@ -115,9 +116,17 @@ impl AkamaiAdapter {
             .await
             .context("Akamai Fast Purge 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        crate::adapters::cdn::log_cdn_http(
+            "Akamai",
+            "POST(URL Purge)",
+            url.as_str(),
+            status,
+            started.elapsed().as_millis(),
+            &text,
+        );
+        if !status.is_success() {
             return Err(anyhow::anyhow!(
                 "Akamai Purge 실패 (HTTP {}): {}",
                 status,
@@ -184,6 +193,7 @@ impl AkamaiAdapter {
         let body = serde_json::json!({ "objects": cp_codes }).to_string();
         let auth_header = self.sign_request("POST", &url, body.as_bytes());
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(url.as_str())
@@ -194,9 +204,17 @@ impl AkamaiAdapter {
             .await
             .context("Akamai CP Code Purge 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        crate::adapters::cdn::log_cdn_http(
+            "Akamai",
+            "POST(CP Code Purge)",
+            url.as_str(),
+            status,
+            started.elapsed().as_millis(),
+            &text,
+        );
+        if !status.is_success() {
             return Err(anyhow::anyhow!(
                 "Akamai CP Code Purge 실패 (HTTP {}): {}",
                 status,

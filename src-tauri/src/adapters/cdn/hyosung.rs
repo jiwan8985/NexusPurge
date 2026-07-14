@@ -136,6 +136,7 @@ impl HyosungCdnAdapter {
 
         let body = serde_json::json!({ "filelist": urls }).to_string();
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(&url)
@@ -149,6 +150,14 @@ impl HyosungCdnAdapter {
 
         let http_status = resp.status();
         let text = resp.text().await.context("효성 ITX CDN Purge 응답 읽기 실패")?;
+        crate::adapters::cdn::log_cdn_http(
+            "효성 ITX",
+            "POST",
+            &url,
+            http_status,
+            started.elapsed().as_millis(),
+            &text,
+        );
 
         let envelope: PurgeEnvelope = serde_json::from_str(&text)
             .with_context(|| format!("효성 ITX CDN Purge 응답 파싱 실패: {}", text))?;
@@ -241,6 +250,7 @@ impl HyosungCdnAdapter {
             self.endpoint, self.service_id
         );
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .get(&url)
@@ -253,6 +263,14 @@ impl HyosungCdnAdapter {
 
         let http_status = resp.status();
         let text = resp.text().await.unwrap_or_default();
+        crate::adapters::cdn::log_cdn_http(
+            "효성 ITX",
+            "GET(연결 테스트)",
+            &url,
+            http_status,
+            started.elapsed().as_millis(),
+            &text,
+        );
 
         // 오류 코드 표: 401 = 인증 실패, 500 = 서비스 조회 실패(잘못된 serviceId 등),
         // 400 = target 검증 오류(서비스는 찾음), 200 = 성공 → 400/200은 연결 자체 성공

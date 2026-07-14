@@ -59,6 +59,7 @@ impl LguplusCdnAdapter {
         })
         .to_string();
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(&url)
@@ -68,8 +69,15 @@ impl LguplusCdnAdapter {
             .await
             .context("LG U+ CDN 인증 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
+        let status = resp.status();
+        // 인증 응답 본문에는 토큰이 들어 있어 audit 로그에는 상태·소요시간만 남긴다
+        tracing::info!(
+            "[LG U+] POST {} (인증) → HTTP {} ({}ms)",
+            url,
+            status,
+            started.elapsed().as_millis()
+        );
+        if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow::anyhow!(
                 "LG U+ CDN 인증 실패 (HTTP {}): {}",
@@ -146,6 +154,7 @@ impl LguplusCdnAdapter {
         // 기본 invalidate 방식, delete 방식은 "purge_type":"HARD" 추가
         let body = serde_json::json!({ "filelist": normalized }).to_string();
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(&url)
@@ -156,18 +165,24 @@ impl LguplusCdnAdapter {
             .await
             .context("LG U+ CDN Purge 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+        let status = resp.status();
+        // 비동기 트랜잭션 응답(202)도 성공으로 처리 — transactionId 로깅
+        let text = resp.text().await.unwrap_or_default();
+        crate::adapters::cdn::log_cdn_http(
+            "LG U+",
+            "POST",
+            &url,
+            status,
+            started.elapsed().as_millis(),
+            &text,
+        );
+        if !status.is_success() {
             return Err(anyhow::anyhow!(
                 "LG U+ CDN Purge 실패 (HTTP {}): {}",
                 status,
                 text
             ));
         }
-
-        // 비동기 트랜잭션 응답(202)도 성공으로 처리 — transactionId 로깅
-        let text = resp.text().await.unwrap_or_default();
         if let Ok(json) = serde_json::from_str::<Value>(&text) {
             let tid = json["transactionId"]
                 .as_str()
@@ -210,6 +225,7 @@ impl LguplusCdnAdapter {
         let token = self.acquire_token().await?;
         let url = service_purge_url(&self.endpoint, &self.service_name);
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .post(&url)
@@ -218,17 +234,23 @@ impl LguplusCdnAdapter {
             .await
             .context("LG U+ CDN 서비스 전체 Purge 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        crate::adapters::cdn::log_cdn_http(
+            "LG U+",
+            "POST(서비스 전체 Purge)",
+            &url,
+            status,
+            started.elapsed().as_millis(),
+            &text,
+        );
+        if !status.is_success() {
             return Err(anyhow::anyhow!(
                 "LG U+ CDN 서비스 전체 Purge 실패 (HTTP {}): {}",
                 status,
                 text
             ));
         }
-
-        let text = resp.text().await.unwrap_or_default();
         if let Ok(json) = serde_json::from_str::<Value>(&text) {
             let tid = json["transactionId"]
                 .as_str()
@@ -253,6 +275,7 @@ impl LguplusCdnAdapter {
             self.endpoint, transaction_id
         );
 
+        let started = std::time::Instant::now();
         let resp = self
             .client
             .get(&url)
@@ -261,17 +284,23 @@ impl LguplusCdnAdapter {
             .await
             .context("LG U+ CDN 트랜잭션 상태 요청 실패")?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
+        let http_status = resp.status();
+        let text = resp.text().await.context("LG U+ CDN 트랜잭션 상태 응답 읽기 실패")?;
+        crate::adapters::cdn::log_cdn_http(
+            "LG U+",
+            "GET(트랜잭션 상태)",
+            &url,
+            http_status,
+            started.elapsed().as_millis(),
+            &text,
+        );
+        if !http_status.is_success() {
             return Err(anyhow::anyhow!(
                 "LG U+ CDN 트랜잭션 상태 조회 실패 (HTTP {}): {}",
-                status,
+                http_status,
                 text
             ));
         }
-
-        let text = resp.text().await.context("LG U+ CDN 트랜잭션 상태 응답 읽기 실패")?;
         let json: Value =
             serde_json::from_str(&text).context("LG U+ CDN 트랜잭션 상태 응답 JSON 파싱 실패")?;
 

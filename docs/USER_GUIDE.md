@@ -181,7 +181,8 @@ S3 패널에서 파일 우클릭 → **속성**:
 |---|---|
 | `system-YYYY-MM-DD.log` | 폴더 생성/이름 변경/삭제 등 파일 관리 작업 |
 | `transfer-YYYY-MM-DD.log` | 업로드/다운로드 결과 |
-| `cdn-YYYY-MM-DD.log` | CDN Purge 상세 (CDN별 상태, 요청 엔드포인트, 소요시간, 대상 경로, 오류 전문) |
+| `cdn-YYYY-MM-DD.log` | CDN Purge 요약 (CDN별 상태, 요청 엔드포인트, 소요시간, 대상 경로, 오류 전문) |
+| `audit.YYYY-MM-DD.log` | **CDN API 상세 감사 로그** — 인증·Purge·상태조회 등 모든 CDN API 호출의 메서드/URL/**HTTP 상태(예: 200 OK)**/소요시간/응답 본문, 폴더 Purge 확장 내역, 재시도 이력. "왜 Purge가 안 됐는지" 추적할 때 가장 먼저 확인 |
 | `operation_logs.json` | 전체 작업 이력 원본 (경로 목록 무제한 보관 — 감사용) |
 
 장애 문의 시 해당 날짜의 로그 파일을 함께 전달해 주시면 원인 파악이 빠릅니다.

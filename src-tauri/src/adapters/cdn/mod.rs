@@ -11,6 +11,33 @@ use anyhow::Result;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use std::time::Duration;
 
+/// CDN API 요청/응답 상세를 audit 로그(logs/audit.YYYY-MM-DD.log)에 남긴다.
+/// 성공/실패 공통 — "왜 Purge가 안 됐는지"를 사후 추적할 수 있도록
+/// 메서드·URL·HTTP 상태("200 OK" 등)·소요시간·응답 본문을 기록한다.
+/// 응답 본문은 과도한 로그 방지를 위해 1,000자에서 자른다 (오류 전문은 별도로 에러 경로에 포함됨).
+pub(crate) fn log_cdn_http(
+    provider: &str,
+    method: &str,
+    url: &str,
+    status: reqwest::StatusCode,
+    elapsed_ms: u128,
+    body: &str,
+) {
+    const BODY_LIMIT: usize = 1000;
+    let trimmed: String = body.chars().take(BODY_LIMIT).collect();
+    let truncated = body.chars().count() > BODY_LIMIT;
+    tracing::info!(
+        "[{}] {} {} → HTTP {} ({}ms) 응답: {}{}",
+        provider,
+        method,
+        url,
+        status,
+        elapsed_ms,
+        if trimmed.trim().is_empty() { "(빈 응답)" } else { trimmed.as_str() },
+        if truncated { " …(이하 생략)" } else { "" },
+    );
+}
+
 pub async fn purge_with_credentials(
     distribution_id: &str,
     paths: &[String],
