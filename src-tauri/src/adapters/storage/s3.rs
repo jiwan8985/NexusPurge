@@ -20,13 +20,13 @@ use crate::commands::s3::FileItem;
 use crate::utils::config::AwsCredentials;
 use crate::utils::sigv4::Signer;
 
-// ?�?�?� Constants ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ─── Constants ──────────────────────────────────────────────────────────────
 
-/// ???�기 ?�상?�면 멀?�파???�로?�로 ?�환
+/// 이 크기 이상이면 멀티파트 업로드/다운로드로 전환
 pub const MULTIPART_THRESHOLD: u64 = 10 * 1024 * 1024; // 10 MB
-/// ?�트???�기 (S3 최소 5 MB, 마�?�??�트 ?�외)
+/// 파트 크기 (S3 최소 5 MB, 마지막 파트 예외) — 업로드/다운로드 공통 사용
 pub const PART_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-/// ?�시 ?�트 ?�로????
+/// 동시 파트 처리 수 (업로드/다운로드 공통)
 const MAX_CONCURRENT_PARTS: usize = 4;
 
 // ?�?�?� S3Adapter ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
@@ -621,7 +621,7 @@ impl S3Adapter {
         }
     }
 
-    /// ?�트리밍 ?�운로드
+    /// 스트리밍 다운로드 (진행률 콜백만 필요한 호출부용 — 취소 불가)
     pub async fn download_with_progress(
         &self,
         remote_key: &str,
@@ -632,12 +632,51 @@ impl S3Adapter {
             .await
     }
 
+    /// 다운로드 실행 — 객체 크기가 MULTIPART_THRESHOLD 이상이면 Range 요청으로 파트를
+    /// 병렬 다운로드하고, 미만이면 단일 스트리밍 GET으로 처리한다.
+    /// 실패/취소 시 로컬에 남은 불완전한 파일을 삭제한다 — 부분 다운로드가 완료본으로
+    /// 오인되어 CDN에 잘못 업로드되거나 그대로 사용되는 사고를 방지하기 위함.
     pub async fn download_with_cancel(
         &self,
         remote_key: &str,
         local_path: &str,
         is_cancelled: impl Fn() -> bool,
         on_progress: impl Fn(u64, u64),
+    ) -> Result<()> {
+        if let Some(parent) = Path::new(local_path).parent() {
+            fs::create_dir_all(parent)
+                .await
+                .context("디렉터리 생성 실패")?;
+        }
+
+        let meta = self
+            .head_object_meta(remote_key)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("원격 객체를 찾을 수 없습니다: {}", remote_key))?;
+        let total = meta.size;
+
+        let result = if total >= MULTIPART_THRESHOLD {
+            self.download_multipart(remote_key, local_path, total, &is_cancelled, &on_progress)
+                .await
+        } else {
+            self.download_single(remote_key, local_path, total, &is_cancelled, &on_progress)
+                .await
+        };
+
+        if result.is_err() {
+            let _ = fs::remove_file(local_path).await;
+        }
+        result
+    }
+
+    /// 단일 스트리밍 GET (MULTIPART_THRESHOLD 미만 파일)
+    async fn download_single(
+        &self,
+        remote_key: &str,
+        local_path: &str,
+        total: u64,
+        is_cancelled: &impl Fn() -> bool,
+        on_progress: &impl Fn(u64, u64),
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
@@ -649,14 +688,6 @@ impl S3Adapter {
             .send()
             .await
             .map_err(|err| self.sdk_failure("GetObject", Some(remote_key), &err))?;
-
-        let total = resp.content_length().unwrap_or(0).max(0) as u64;
-
-        if let Some(parent) = Path::new(local_path).parent() {
-            fs::create_dir_all(parent)
-                .await
-                .context("디렉터리 생성 실패")?;
-        }
 
         let mut file = fs::File::create(local_path)
             .await
@@ -675,6 +706,105 @@ impl S3Adapter {
             file.write_all(&chunk).await.context("파일 쓰기 실패")?;
             received += chunk.len() as u64;
             on_progress(received, total);
+        }
+
+        file.flush().await.context("파일 flush 실패")?;
+        Ok(())
+    }
+
+    /// Range GET 기반 파트 병렬 다운로드 (MULTIPART_THRESHOLD 이상 파일).
+    /// upload_multipart와 동일한 구조: 네트워크 요청(Range GET)만 JoinSet으로 병렬 처리하고,
+    /// 로컬 파일 쓰기·진행률/취소 콜백 호출은 outer 태스크에서만 순차 수행한다 —
+    /// 이 덕분에 is_cancelled/on_progress 클로저에 Send 제약이 없어도 된다.
+    /// 최대 메모리 사용량 = MAX_CONCURRENT_PARTS × PART_SIZE = 40 MB
+    async fn download_multipart(
+        &self,
+        remote_key: &str,
+        local_path: &str,
+        total: u64,
+        is_cancelled: &impl Fn() -> bool,
+        on_progress: &impl Fn(u64, u64),
+    ) -> Result<()> {
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+        if is_cancelled() {
+            return Err(anyhow::anyhow!("Operation cancelled"));
+        }
+
+        let mut file = fs::File::create(local_path)
+            .await
+            .context("파일 생성 실패")?;
+        file.set_len(total)
+            .await
+            .context("파일 크기 사전 할당 실패")?;
+
+        // (start, end) 바이트 범위(inclusive) 목록 생성
+        let mut ranges: Vec<(u64, u64)> = Vec::new();
+        let mut offset = 0u64;
+        while offset < total {
+            let end = (offset + PART_SIZE as u64 - 1).min(total - 1);
+            ranges.push((offset, end));
+            offset = end + 1;
+        }
+
+        let mut transferred: u64 = 0;
+        let mut idx = 0usize;
+        while idx < ranges.len() {
+            if is_cancelled() {
+                return Err(anyhow::anyhow!("Operation cancelled"));
+            }
+            let batch_end = (idx + MAX_CONCURRENT_PARTS).min(ranges.len());
+            let mut tasks: JoinSet<Result<(u64, Vec<u8>)>> = JoinSet::new();
+            for &(start, end) in &ranges[idx..batch_end] {
+                let adapter = self.clone();
+                let key = remote_key.to_owned();
+                tasks.spawn(async move {
+                    let resp = adapter
+                        .sdk_client
+                        .get_object()
+                        .bucket(&adapter.bucket)
+                        .key(&key)
+                        .range(format!("bytes={}-{}", start, end))
+                        .send()
+                        .await
+                        .map_err(|err| adapter.sdk_failure("GetObject(Range)", Some(&key), &err))?;
+
+                    let mut body = resp.body;
+                    let mut buf: Vec<u8> = Vec::with_capacity((end - start + 1) as usize);
+                    while let Some(chunk) = body
+                        .try_next()
+                        .await
+                        .context("다운로드 파트 스트림 오류")?
+                    {
+                        buf.extend_from_slice(&chunk);
+                    }
+                    Ok((start, buf))
+                });
+            }
+
+            // 파트 완료 순서는 뒤섞일 수 있으므로 시작 오프셋 기준 정렬 후 파일에 기록
+            let mut parts: Vec<(u64, Vec<u8>)> = Vec::new();
+            while let Some(result) = tasks.join_next().await {
+                match result {
+                    Ok(Ok(part)) => parts.push(part),
+                    Ok(Err(e)) => return Err(e.context("다운로드 파트 실패")),
+                    Err(join_err) => {
+                        return Err(anyhow::anyhow!("다운로드 파트 태스크 패닉: {}", join_err))
+                    }
+                }
+            }
+            parts.sort_by_key(|(start, _)| *start);
+
+            for (start, bytes) in parts {
+                file.seek(std::io::SeekFrom::Start(start))
+                    .await
+                    .context("파일 seek 실패")?;
+                file.write_all(&bytes).await.context("파일 쓰기 실패")?;
+                transferred += bytes.len() as u64;
+            }
+            on_progress(transferred, total);
+
+            idx = batch_end;
         }
 
         file.flush().await.context("파일 flush 실패")?;
