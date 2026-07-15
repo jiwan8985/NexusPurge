@@ -2,4 +2,6 @@
 [완료] 2. 패널 간 폴더 드래그앤드랍 업로드 + Windows 탐색기 폴더/파일 드랍 업로드 지원
 [완료] 3·4. 효성ITX CDN URL 접속 불가 원인 진단 — sklb-test.dn.nexoncdn.co.kr / *.gtmc.hscdn.net 모두 DNS 미등록(NXDOMAIN).
        도구가 실시간 확인 시 DNS 사전 조회로 원인을 즉시 안내하도록 개선. 실제 해소는 효성/고객사 DNS(CNAME) 등록 필요.
-로그 부분 이하 여백 이런거 말고 자세히 
+[진행] 로그 자세히 표시
+[진행] operation_logs.json, profile.json, settings.json 부분 처리 필요
+[진행] 효성 ITX CDN 대용량 및 실시간 확인 필요(고객사 도메인 DNS 등록 필요)
