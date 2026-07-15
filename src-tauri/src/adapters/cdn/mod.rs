@@ -9,12 +9,57 @@ pub mod mock;
 use crate::utils::config::CdnCredentials;
 use anyhow::Result;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use serde::Serialize;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// `purge_cdn` 커맨드가 호출하는 동안, 그 호출 과정에서 발생한 개별 HTTP 요청
+/// (인증 → purge 등)을 순서대로 담아 cdn-*.log의 provider 블록에 함께 남긴다.
+#[derive(Debug, Clone, Serialize)]
+pub struct RequestStep {
+    pub method: String,
+    pub url: String,
+    pub status: u16,
+    #[serde(rename = "statusText")]
+    pub status_text: String,
+    #[serde(rename = "elapsedMs")]
+    pub elapsed_ms: u64,
+    pub summary: String,
+}
+
+tokio::task_local! {
+    static REQUEST_STEPS: Arc<Mutex<Vec<RequestStep>>>;
+}
+
+/// `fut` 실행 중 발생한 `log_cdn_http` 호출들을 순서대로 모아 함께 반환한다.
+/// task_local 스코프 밖(연결 테스트 등 단발 호출)에서는 아무 효과 없이 audit 로그에만 남는다.
+pub(crate) async fn capture_request_steps<Fut, T>(fut: Fut) -> (T, Vec<RequestStep>)
+where
+    Fut: std::future::Future<Output = T>,
+{
+    let steps = Arc::new(Mutex::new(Vec::new()));
+    let result = REQUEST_STEPS.scope(steps.clone(), fut).await;
+    let collected = std::mem::take(&mut *steps.lock().unwrap());
+    (result, collected)
+}
+
+/// 응답 본문에 섞인 개행을 공백으로 치환하고 길이를 제한한다 —
+/// CloudFront XML 등 pretty-print된 응답이 로그 한 줄을 깨뜨리는 것을 방지.
+fn sanitize_body_preview(body: &str, limit: usize) -> (String, bool) {
+    let cleaned: String = body
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    let trimmed: String = cleaned.chars().take(limit).collect();
+    let truncated = cleaned.chars().count() > limit;
+    (trimmed, truncated)
+}
 
 /// CDN API 요청/응답 상세를 audit 로그(logs/audit.YYYY-MM-DD.log)에 남긴다.
 /// 성공/실패 공통 — "왜 Purge가 안 됐는지"를 사후 추적할 수 있도록
 /// 메서드·URL·HTTP 상태("200 OK" 등)·소요시간·응답 본문을 기록한다.
 /// 응답 본문은 과도한 로그 방지를 위해 1,000자에서 자른다 (오류 전문은 별도로 에러 경로에 포함됨).
+/// `capture_request_steps`로 감싼 호출 중이면 cdn-*.log용 요약도 함께 수집한다.
 pub(crate) fn log_cdn_http(
     provider: &str,
     method: &str,
@@ -24,8 +69,7 @@ pub(crate) fn log_cdn_http(
     body: &str,
 ) {
     const BODY_LIMIT: usize = 1000;
-    let trimmed: String = body.chars().take(BODY_LIMIT).collect();
-    let truncated = body.chars().count() > BODY_LIMIT;
+    let (trimmed, truncated) = sanitize_body_preview(body, BODY_LIMIT);
     tracing::info!(
         "[{}] {} {} → HTTP {} ({}ms) 응답: {}{}",
         provider,
@@ -36,6 +80,28 @@ pub(crate) fn log_cdn_http(
         if trimmed.trim().is_empty() { "(빈 응답)" } else { trimmed.as_str() },
         if truncated { " …(이하 생략)" } else { "" },
     );
+
+    let _ = REQUEST_STEPS.try_with(|steps| {
+        const STEP_SUMMARY_LIMIT: usize = 200;
+        let (step_trimmed, step_truncated) = sanitize_body_preview(body, STEP_SUMMARY_LIMIT);
+        let summary = if step_trimmed.trim().is_empty() {
+            "(빈 응답)".to_string()
+        } else if step_truncated {
+            format!("{}…", step_trimmed)
+        } else {
+            step_trimmed
+        };
+        if let Ok(mut guard) = steps.lock() {
+            guard.push(RequestStep {
+                method: method.to_string(),
+                url: url.to_string(),
+                status: status.as_u16(),
+                status_text: status.canonical_reason().unwrap_or("").to_string(),
+                elapsed_ms: elapsed_ms as u64,
+                summary,
+            });
+        }
+    });
 }
 
 pub async fn purge_with_credentials(
@@ -271,6 +337,54 @@ fn retry_delay(attempt: usize) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// audit.log에서 CloudFront XML 등 개행 섞인 응답이 한 줄을 깨뜨리던 문제 재현/방지
+    #[test]
+    fn sanitize_body_preview_replaces_newlines_and_truncates() {
+        let (cleaned, truncated) = sanitize_body_preview("line1\nline2\r\nline3", 100);
+        assert_eq!(cleaned, "line1 line2  line3");
+        assert!(!truncated);
+
+        let (cleaned, truncated) = sanitize_body_preview("abcdefgh", 5);
+        assert_eq!(cleaned, "abcde");
+        assert!(truncated);
+    }
+
+    /// capture_request_steps로 감싼 호출 중 log_cdn_http가 호출되면 순서대로 수집되고,
+    /// 스코프 밖(연결 테스트 등 단발 호출)에서는 조용히 무시되어야 함
+    #[tokio::test]
+    async fn capture_request_steps_collects_calls_in_order_and_ignores_outside_scope() {
+        // 스코프 밖: 패닉 없이 그냥 무시됨
+        log_cdn_http("kt", "GET", "https://example.com/outside", reqwest::StatusCode::OK, 1, "");
+
+        let (value, steps) = capture_request_steps(async {
+            log_cdn_http(
+                "kt",
+                "POST(인증)",
+                "https://api.ktcdn.co.kr/v3/auth/tokens",
+                reqwest::StatusCode::OK,
+                372,
+                "",
+            );
+            log_cdn_http(
+                "kt",
+                "POST",
+                "https://api.ktcdn.co.kr/v3/management/service/x/purge",
+                reqwest::StatusCode::CREATED,
+                41,
+                "{\"transid\":123}",
+            );
+            42
+        })
+        .await;
+
+        assert_eq!(value, 42);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].status, 200);
+        assert_eq!(steps[0].elapsed_ms, 372);
+        assert_eq!(steps[1].status, 201);
+        assert_eq!(steps[1].summary, "{\"transid\":123}");
+    }
 
     #[test]
     fn percent_encode_path_segments_encodes_korean_and_space_but_keeps_slashes() {

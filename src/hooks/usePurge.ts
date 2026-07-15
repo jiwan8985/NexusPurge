@@ -69,6 +69,7 @@ export function usePurge() {
             finishedAt: finishedAtIso,
             requestEndpoint: result.requestEndpoint,
             durationMs: result.durationMs,
+            requestSteps: result.requestSteps,
           });
 
           const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
@@ -182,6 +183,7 @@ export function usePurge() {
             finishedAt: b.finishedAt,
             requestEndpoint: b.requestEndpoint,
             durationMs: b.durationMs,
+            requestSteps: b.requestSteps,
           }))
         ),
         startedAt: overallStartedAt,

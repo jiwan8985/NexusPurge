@@ -3,7 +3,7 @@ import { saveOperationLog } from "../services/operation-log/operation-log-servic
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, CDN_LABELS, cdnDistributionIdFor, cdnDomainFor, defaultCacheControlFor } from "../utils/cdn";
-import type { CdnProvider, CdnPurgeResult, TransferItem, SyncPlan } from "../types";
+import type { CdnProvider, CdnPurgeResult, CdnRequestStep, TransferItem, SyncPlan } from "../types";
 import { readBatchSettings } from "../utils/batch-settings";
 import { fmtClockTime } from "../utils/format-time";
 
@@ -280,6 +280,7 @@ export function useTransfer() {
         error?: string;
         requestEndpoint?: string;
         durationMs?: number;
+        requestSteps?: CdnRequestStep[];
         startedAt: string;
         finishedAt: string;
       }[] = [];
@@ -327,6 +328,7 @@ export function useTransfer() {
               let error: string | undefined;
               let requestEndpoint: string | undefined;
               let durationMs: number | undefined;
+              let requestSteps: CdnRequestStep[] | undefined;
               try {
                 const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
                   profileId: activeProfile.id,
@@ -339,12 +341,13 @@ export function useTransfer() {
                 error = result.error ?? undefined;
                 requestEndpoint = result.requestEndpoint;
                 durationMs = result.durationMs;
+                requestSteps = result.requestSteps;
               } catch (err) {
                 error = String(err);
               }
               const finishedAtIso = new Date().toISOString();
               batchPurgeResults.push({
-                provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs,
+                provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs, requestSteps,
                 startedAt: batchStartedAt, finishedAt: finishedAtIso,
               });
               const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
@@ -417,6 +420,7 @@ export function useTransfer() {
           finishedAt: r.finishedAt,
           requestEndpoint: r.requestEndpoint,
           durationMs: r.durationMs,
+          requestSteps: r.requestSteps,
         })),
         startedAt: finishedAt,
         finishedAt,

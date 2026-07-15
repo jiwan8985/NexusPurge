@@ -21,6 +21,10 @@ pub struct CdnPurgeResult {
     /// 요청 소요 시간 (ms)
     #[serde(default, rename = "durationMs")]
     pub duration_ms: Option<u64>,
+    /// 이 Purge 요청 과정에서 실제로 발생한 개별 HTTP 호출(인증 → purge 등) 순서 —
+    /// cdn-*.log에 provider 블록 하위로 상태코드·소요시간과 함께 기록된다.
+    #[serde(default, rename = "requestSteps")]
+    pub request_steps: Vec<cdn::RequestStep>,
 }
 
 /// 대량 Purge → 폴더 Purge 전환 임계값: 개별 경로가 이 수 이상이면
@@ -128,6 +132,7 @@ pub async fn purge_cloudfront(
             error: None,
             request_endpoint: None,
             duration_ms: None,
+            request_steps: Vec::new(),
         }),
         Err(e) => Ok(CdnPurgeResult {
             success: false,
@@ -138,6 +143,7 @@ pub async fn purge_cloudfront(
             error: Some(e.to_string()),
             request_endpoint: None,
             duration_ms: None,
+            request_steps: Vec::new(),
         }),
     }
 }
@@ -423,28 +429,26 @@ pub async fn purge_cdn(
                 _ => None,
             };
             let started = std::time::Instant::now();
-            let result = match &cdn_creds {
+            let (result, request_steps) = match &cdn_creds {
                 CdnCredentials::Lguplus {
                     username, password, service_name, volume_name, endpoint, cdn_domain, service_type,
                 } => {
-                    cdn::lguplus::LguplusCdnAdapter::new(
+                    let adapter = cdn::lguplus::LguplusCdnAdapter::new(
                         username.clone(), password.clone(), service_name.clone(),
                         volume_name.clone(), endpoint.clone(), cdn_domain.clone(), service_type.clone(),
                     )
-                    .map_err(|e| e.to_string())?
-                    .purge_service()
-                    .await
+                    .map_err(|e| e.to_string())?;
+                    cdn::capture_request_steps(adapter.purge_service()).await
                 }
                 CdnCredentials::Kt {
                     username, password, service_name, volume_name, endpoint, cdn_domain, service_type,
                 } => {
-                    cdn::kt::KtCdnAdapter::new(
+                    let adapter = cdn::kt::KtCdnAdapter::new(
                         username.clone(), password.clone(), service_name.clone(),
                         volume_name.clone(), endpoint.clone(), cdn_domain.clone(), service_type.clone(),
                     )
-                    .map_err(|e| e.to_string())?
-                    .purge_service()
-                    .await
+                    .map_err(|e| e.to_string())?;
+                    cdn::capture_request_steps(adapter.purge_service()).await
                 }
                 _ => unreachable!("provider 검사로 Lguplus/Kt만 도달"),
             };
@@ -459,6 +463,7 @@ pub async fn purge_cdn(
                     error: None,
                     request_endpoint,
                     duration_ms,
+                    request_steps,
                 },
                 Err(e) => CdnPurgeResult {
                     success: false,
@@ -469,6 +474,7 @@ pub async fn purge_cdn(
                     error: Some(e.to_string()),
                     request_endpoint,
                     duration_ms,
+                    request_steps,
                 },
             });
         }
@@ -517,6 +523,7 @@ pub async fn purge_cdn(
                             )),
                             request_endpoint: None,
                             duration_ms: None,
+                            request_steps: Vec::new(),
                         });
                     }
                 }
@@ -538,6 +545,7 @@ pub async fn purge_cdn(
                 error: None,
                 request_endpoint: None,
                 duration_ms: None,
+                request_steps: Vec::new(),
             });
         }
         tracing::info!(
@@ -599,7 +607,12 @@ pub async fn purge_cdn(
 
     let request_endpoint = describe_cdn_endpoint(&cdn_creds, &distribution_id);
     let started = std::time::Instant::now();
-    let result = cdn::purge_with_credentials(&distribution_id, &normalized_paths, cdn_creds).await;
+    let (result, request_steps) = cdn::capture_request_steps(cdn::purge_with_credentials(
+        &distribution_id,
+        &normalized_paths,
+        cdn_creds,
+    ))
+    .await;
     let duration_ms = Some(started.elapsed().as_millis() as u64);
 
     match result {
@@ -612,6 +625,7 @@ pub async fn purge_cdn(
             error: None,
             request_endpoint: Some(request_endpoint),
             duration_ms,
+            request_steps,
         }),
         Err(e) => Ok(CdnPurgeResult {
             success: false,
@@ -622,6 +636,7 @@ pub async fn purge_cdn(
             error: Some(e.to_string()),
             request_endpoint: Some(request_endpoint),
             duration_ms,
+            request_steps,
         }),
     }
 }

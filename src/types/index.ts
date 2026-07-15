@@ -227,6 +227,16 @@ export interface CdnPurgeRequest {
   policy?: PurgePolicy;
 }
 
+/** cdn-*.log에 provider 블록 하위로 기록되는 개별 HTTP 호출(인증 → purge 등) 1건 */
+export interface CdnRequestStep {
+  method: string;
+  url: string;
+  status: number;
+  statusText: string;
+  elapsedMs: number;
+  summary: string;
+}
+
 export interface CdnPurgeResult {
   success: boolean;
   provider: CdnProvider;
@@ -238,6 +248,8 @@ export interface CdnPurgeResult {
   requestEndpoint?: string;
   /** 요청 소요 시간 (ms) */
   durationMs?: number;
+  /** 이 Purge 요청 과정에서 실제 발생한 HTTP 호출 단계 (상태코드·소요시간 포함) */
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface PurgeBatchResult {
@@ -249,6 +261,7 @@ export interface PurgeBatchResult {
   finishedAt: string;
   requestEndpoint?: string;
   durationMs?: number;
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface PurgeExecutionResult {
@@ -359,6 +372,8 @@ export interface CdnOperationPurgeResult {
   requestEndpoint?: string;
   /** 요청 소요 시간 (ms) */
   durationMs?: number;
+  /** 이 Purge 요청 과정에서 실제 발생한 HTTP 호출 단계 (상태코드·소요시간 포함) */
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface OperationLog {

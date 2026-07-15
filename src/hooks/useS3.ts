@@ -7,6 +7,7 @@ import { useAppStore } from "../store/appStore";
 import type {
   CdnProvider,
   CdnPurgeResult,
+  CdnRequestStep,
   OperationLog,
   OperationStatus,
   OperationType,
@@ -57,6 +58,7 @@ export function useS3() {
         error?: string;
         requestEndpoint?: string;
         durationMs?: number;
+        requestSteps?: CdnRequestStep[];
         startedAt?: string;
         finishedAt?: string;
       }[] = [];
@@ -90,7 +92,7 @@ export function useS3() {
               purgeEntries.push({
                 provider, paths: purgePaths,
                 success: result.success, invalidationId: result.invalidationId ?? undefined, error: result.error ?? undefined,
-                requestEndpoint: result.requestEndpoint, durationMs: result.durationMs,
+                requestEndpoint: result.requestEndpoint, durationMs: result.durationMs, requestSteps: result.requestSteps,
                 startedAt: batchStartedAt, finishedAt: finishedAtIso,
               });
               const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
@@ -245,6 +247,7 @@ function buildOperationLog(params: {
     error?: string;
     requestEndpoint?: string;
     durationMs?: number;
+    requestSteps?: CdnRequestStep[];
     startedAt?: string;
     finishedAt?: string;
   }[];
@@ -273,6 +276,7 @@ function buildOperationLog(params: {
       error: p.error,
       requestEndpoint: p.requestEndpoint,
       durationMs: p.durationMs,
+      requestSteps: p.requestSteps,
       // 감사 로그에는 실제 Purge 호출 시각 우선 기록 (없으면 작업 시작 시각)
       startedAt: p.startedAt ?? params.startedAt,
       finishedAt: p.finishedAt ?? finishedAt,

@@ -5,6 +5,20 @@ use std::path::PathBuf;
 const OPERATION_LOGS_FILENAME: &str = "operation_logs.json";
 const LOG_FILES_DIR: &str = "logs";
 
+/// system-*.log / transfer-*.log의 파일 1건을 한 줄로 렌더링 (경로·상태·시작/종료 시각·오류)
+fn format_file_line(file: &serde_json::Value) -> String {
+    let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("-");
+    let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+    let started = file.get("startedAt").and_then(|v| v.as_str()).unwrap_or("-");
+    let finished = file.get("finishedAt").and_then(|v| v.as_str()).unwrap_or("-");
+    let error = file.get("error").and_then(|v| v.as_str());
+    let mut line = format!("  - {} [{}] started={} finished={}", path, status, started, finished);
+    if let Some(err) = error {
+        line.push_str(&format!(" error: {}", err));
+    }
+    line
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationLog {
     pub id: String,
@@ -113,18 +127,55 @@ impl OperationLogService {
                 log.prefix.as_deref().unwrap_or("-"),
                 log.files.len(),
             ));
-            for file in &log.files {
-                let path = file.get("path").and_then(|v| v.as_str()).unwrap_or("-");
-                let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
-                let started = file.get("startedAt").and_then(|v| v.as_str()).unwrap_or("-");
-                let finished = file.get("finishedAt").and_then(|v| v.as_str()).unwrap_or("-");
-                let error = file.get("error").and_then(|v| v.as_str());
-                // 보안팀 감사/오류 추적용: 파일별 정확한 시작·종료 시각을 함께 기록
-                let mut line = format!("  - {} [{}] started={} finished={}", path, status, started, finished);
-                if let Some(err) = error {
-                    line.push_str(&format!(" error: {}", err));
+            // 대량 작업(파일 수가 임계값 초과)은 파일마다 한 줄씩 쓰면 사실상 못 읽는
+            // 로그가 되므로, 상태별 건수 + 시간 범위로 요약하고 실패/기타 상태 건만 개별 나열한다.
+            // 전체 파일 목록은 손실 없이 operation_logs.json에 무제한 보관된다.
+            const FILE_SUMMARY_THRESHOLD: usize = 30;
+            const FILE_LIST_LIMIT: usize = 50;
+            if log.files.len() > FILE_SUMMARY_THRESHOLD {
+                let mut status_counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+                let mut min_started: Option<&str> = None;
+                let mut max_finished: Option<&str> = None;
+                for file in &log.files {
+                    let status = file.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                    *status_counts.entry(status).or_insert(0) += 1;
+                    if let Some(s) = file.get("startedAt").and_then(|v| v.as_str()) {
+                        min_started = Some(min_started.map_or(s, |m| if s < m { s } else { m }));
+                    }
+                    if let Some(f) = file.get("finishedAt").and_then(|v| v.as_str()) {
+                        max_finished = Some(max_finished.map_or(f, |m| if f > m { f } else { m }));
+                    }
                 }
-                lines.push(line);
+                let summary = status_counts
+                    .iter()
+                    .map(|(status, count)| format!("{} {}건", status, count))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(format!(
+                    "  요약: {} (started={} ~ finished={})",
+                    summary,
+                    min_started.unwrap_or("-"),
+                    max_finished.unwrap_or("-"),
+                ));
+
+                let non_success: Vec<&serde_json::Value> = log
+                    .files
+                    .iter()
+                    .filter(|f| f.get("status").and_then(|v| v.as_str()) != Some("success"))
+                    .collect();
+                for file in non_success.iter().take(FILE_LIST_LIMIT) {
+                    lines.push(format_file_line(file));
+                }
+                if non_success.len() > FILE_LIST_LIMIT {
+                    lines.push(format!(
+                        "  ... 외 {}건 실패/기타 상태 (전체 목록은 operation_logs.json 참고)",
+                        non_success.len() - FILE_LIST_LIMIT
+                    ));
+                }
+            } else {
+                for file in &log.files {
+                    lines.push(format_file_line(file));
+                }
             }
             lines.push(String::new());
             let mut content = lines.join("\n");
@@ -171,6 +222,25 @@ impl OperationLogService {
                 // 실제 호출된 CDN API 엔드포인트 (감사/디버깅용)
                 if let Some(endpoint) = request_endpoint {
                     lines.push(format!("      endpoint: {}", endpoint));
+                }
+                // 이 Purge 요청 중 실제 발생한 HTTP 호출 단계 (인증 → purge 등) —
+                // 상태코드·소요시간·응답 요약을 순서대로 기록해 "왜 실패했는지"를 이 파일 하나로 추적 가능하게 한다.
+                if let Some(steps) = purge.get("requestSteps").and_then(|v| v.as_array()) {
+                    if !steps.is_empty() {
+                        lines.push("      steps:".to_string());
+                        for (i, step) in steps.iter().enumerate() {
+                            let method = step.get("method").and_then(|v| v.as_str()).unwrap_or("-");
+                            let step_url = step.get("url").and_then(|v| v.as_str()).unwrap_or("-");
+                            let step_status = step.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let status_text = step.get("statusText").and_then(|v| v.as_str()).unwrap_or("");
+                            let elapsed = step.get("elapsedMs").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let summary = step.get("summary").and_then(|v| v.as_str()).unwrap_or("-");
+                            lines.push(format!(
+                                "        {}. {} {} → HTTP {} {} ({}ms) 응답: {}",
+                                i + 1, method, step_url, step_status, status_text, elapsed, summary
+                            ));
+                        }
+                    }
                 }
                 // 대상 경로 목록 (최대 URL_PREVIEW_LIMIT개 — 전량은 JSON 로그(operation_logs.json)에서 확인)
                 if let Some(urls) = urls {
@@ -363,6 +433,102 @@ mod tests {
 
         service.clear().await.unwrap();
         assert!(service.list_recent().await.unwrap().is_empty());
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// cdn-*.log에 provider별 HTTP 호출 단계(인증 → purge 등)가 상태코드·소요시간과 함께
+    /// 순서대로 기록되는지 검증 — audit.log를 따로 뒤지지 않아도 실패 원인을 이 파일에서 추적 가능해야 함
+    #[tokio::test]
+    async fn append_log_file_renders_cdn_request_steps() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-request-steps-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        let mut log = sample_log("purge-1", "2026-07-10T00:00:00Z");
+        log.purge_results = vec![serde_json::json!({
+            "provider": "kt",
+            "status": "success",
+            "startedAt": "2026-07-10T00:00:00Z",
+            "finishedAt": "2026-07-10T00:00:01Z",
+            "urls": ["assets/app.js"],
+            "requestSteps": [
+                {
+                    "method": "POST(인증)",
+                    "url": "https://api.ktcdn.co.kr/v3/auth/tokens",
+                    "status": 200,
+                    "statusText": "OK",
+                    "elapsedMs": 372,
+                    "summary": "(빈 응답)",
+                },
+                {
+                    "method": "POST",
+                    "url": "https://api.ktcdn.co.kr/v3/management/service/x/purge",
+                    "status": 201,
+                    "statusText": "Created",
+                    "elapsedMs": 41,
+                    "summary": "{\"transid\":123}",
+                },
+            ],
+        })];
+        service.save(log).await.unwrap();
+
+        let logs_dir = service.log_files_dir();
+        let cdn = std::fs::read_to_string(logs_dir.join(format!("cdn-{}.log", today))).unwrap();
+
+        assert!(cdn.contains("steps:"));
+        assert!(cdn.contains("1. POST(인증) https://api.ktcdn.co.kr/v3/auth/tokens → HTTP 200 OK (372ms)"));
+        assert!(cdn.contains("2. POST https://api.ktcdn.co.kr/v3/management/service/x/purge → HTTP 201 Created (41ms) 응답: {\"transid\":123}"));
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// 대량 작업(파일 수 > 임계값)은 파일마다 한 줄씩 반복하지 않고 상태별 건수로 요약하며,
+    /// 실패 건만 개별 나열해야 함 — 1000+ 파일 삭제 시 로그가 사실상 못 읽게 되는 문제 방지
+    #[tokio::test]
+    async fn append_log_file_summarizes_large_file_batches() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-large-batch-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        let mut log = sample_log("delete-1", "2026-07-10T00:00:00Z");
+        log.operation = "delete".to_string();
+        let mut files: Vec<serde_json::Value> = (0..40)
+            .map(|i| {
+                serde_json::json!({
+                    "path": format!("contents/file-{:03}.txt", i),
+                    "status": "success",
+                    "startedAt": "2026-07-10T00:00:00Z",
+                    "finishedAt": "2026-07-10T00:00:01Z",
+                })
+            })
+            .collect();
+        files.push(serde_json::json!({
+            "path": "contents/file-broken.txt",
+            "status": "error",
+            "startedAt": "2026-07-10T00:00:00Z",
+            "finishedAt": "2026-07-10T00:00:02Z",
+            "error": "권한 없음",
+        }));
+        log.files = files;
+        service.save(log).await.unwrap();
+
+        let logs_dir = service.log_files_dir();
+        let system = std::fs::read_to_string(logs_dir.join(format!("system-{}.log", today))).unwrap();
+
+        // BTreeMap 키 정렬 순서(알파벳순)대로 출력됨: error < success
+        assert!(system.contains("요약: error 1건, success 40건"));
+        // 실패 건은 개별 라인으로 계속 노출
+        assert!(system.contains("contents/file-broken.txt"));
+        assert!(system.contains("error: 권한 없음"));
+        // 성공 건은 개별 나열되지 않음 (요약에만 반영)
+        assert!(!system.contains("file-000.txt"));
 
         let _ = std::fs::remove_dir_all(data_dir);
     }
