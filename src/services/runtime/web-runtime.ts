@@ -38,4 +38,10 @@ export const webRuntime: RuntimeBridge = {
   async getVersion() {
     return "0.1.0";
   },
+  async isWindowMaximized() {
+    return false;
+  },
+  async onWindowResize() {
+    return () => undefined;
+  },
 };

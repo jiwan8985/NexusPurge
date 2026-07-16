@@ -216,8 +216,13 @@ export default function Toolbar() {
         title: "S3 항목 삭제",
         message: `S3에서 ${keys.length}개 항목을 삭제합니다.${purgeNotice} 삭제된 파일은 복구할 수 없습니다.`,
         onConfirm: async () => {
-          await deleteObjects(keys);
-          triggerRemoteRefresh();
+          try {
+            await deleteObjects(keys);
+          } catch (err) {
+            // 에러 로그는 이미 useS3 내부에서 기록함
+          } finally {
+            triggerRemoteRefresh();
+          }
         },
       });
     } else {

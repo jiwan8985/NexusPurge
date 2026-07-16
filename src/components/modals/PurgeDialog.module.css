@@ -1,5 +1,5 @@
 .overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: var(--color-bg-overlay);
   backdrop-filter: var(--glass-filter);
@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1100;
   animation: fadeIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -49,6 +49,10 @@
   gap: var(--spacing-5);
   overflow-y: auto;
   flex: 1;
+}
+
+.body > * {
+  flex-shrink: 0;
 }
 
 .summary {
