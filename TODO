@@ -3,5 +3,7 @@
 [완료] 3·4. 효성ITX CDN URL 접속 불가 원인 진단 — sklb-test.dn.nexoncdn.co.kr / *.gtmc.hscdn.net 모두 DNS 미등록(NXDOMAIN).
        도구가 실시간 확인 시 DNS 사전 조회로 원인을 즉시 안내하도록 개선. 실제 해소는 효성/고객사 DNS(CNAME) 등록 필요.
 [진행] 로그 자세히 표시
-[진행] operation_logs.json, profile.json, settings.json 부분 처리 필요
+[완료] 로그 최적화 — logs/ 폴더 system·transfer·cdn·audit 로그 중 30일 지난 파일을 앱 시작 시 자동 삭제
+[완료] profile.json 보안 — Access Key ID/Akamai 토큰/Hyosung API Key/LG U+·KT 계정명을 keyring으로 이전(평문 미저장), 기존 파일은 자동 마이그레이션. .nexprofile 가져오기 응답에서도 시크릿·인증값 제거
 [진행] 효성 ITX CDN 대용량 및 실시간 확인 필요(고객사 도메인 DNS 등록 필요)
+[완료] 마우스 우클릭 속성 — CDN 정보 섹션 제거, S3 속성(기본 정보 + 실시간 HeadObject 헤더)만 표시
