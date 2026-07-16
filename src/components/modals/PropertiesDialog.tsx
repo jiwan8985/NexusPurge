@@ -1,22 +1,12 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { runtime } from "../../services/runtime";
-import {
-  availableCdns,
-  buildCdnUrl,
-  buildInspectUrl,
-  CDN_LABELS,
-  cdnDistributionIdFor,
-  cdnDomainFor,
-  describeCdnEndpoint,
-} from "../../utils/cdn";
-import type { CdnProvider, FileItem, S3ObjectDetail, S3Profile, UrlInspection } from "../../types";
+import type { FileItem, S3ObjectDetail, S3Profile } from "../../types";
 import styles from "./PropertiesDialog.module.css";
 
 interface Props {
   file: FileItem;
   profile: S3Profile;
-  activeCdns: CdnProvider[];
   onClose: () => void;
 }
 
@@ -67,17 +57,13 @@ function HeadersTable({ rows }: { rows: [string, string][] }) {
   );
 }
 
-/** S3 객체 + 연결된 모든 CDN의 상세정보를 보여주는 속성 다이얼로그 (우클릭 → 속성) */
-export default function PropertiesDialog({ file, profile, activeCdns, onClose }: Props) {
+/** S3 객체 속성 다이얼로그 (우클릭 → 속성) — 고객사 요청: CDN이 아닌 S3 속성 중심으로 표시 */
+export default function PropertiesDialog({ file, profile, onClose }: Props) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const [s3Detail, setS3Detail] = useState<S3ObjectDetail | null>(null);
   const [s3DetailState, setS3DetailState] = useState<"idle" | "loading" | "error">("idle");
   const [s3DetailError, setS3DetailError] = useState<string | null>(null);
-
-  const [inspections, setInspections] = useState<Record<string, UrlInspection>>({});
-  const [inspecting, setInspecting] = useState<Record<string, boolean>>({});
-  const [inspectError, setInspectError] = useState<Record<string, string>>({});
 
   const copy = async (key: string, value: string) => {
     try {
@@ -106,24 +92,6 @@ export default function PropertiesDialog({ file, profile, activeCdns, onClose }:
       setS3DetailState("error");
     }
   };
-
-  const inspectUrl = async (provider: CdnProvider, url: string) => {
-    setInspecting((s) => ({ ...s, [provider]: true }));
-    setInspectError((s) => ({ ...s, [provider]: "" }));
-    try {
-      const result = await runtime.invoke<UrlInspection>("inspect_url", { url });
-      setInspections((s) => ({ ...s, [provider]: result }));
-      if (result.error) setInspectError((s) => ({ ...s, [provider]: result.error! }));
-    } catch (err) {
-      // invoke 자체가 reject된 경우(커맨드 미등록/직렬화 오류 등) — 콘솔에서 원인 확인 가능
-      console.error(`[PropertiesDialog] inspect_url(${provider}) 실패:`, err);
-      setInspectError((s) => ({ ...s, [provider]: String(err) }));
-    } finally {
-      setInspecting((s) => ({ ...s, [provider]: false }));
-    }
-  };
-
-  const cdns = availableCdns(profile);
 
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
@@ -215,118 +183,6 @@ export default function PropertiesDialog({ file, profile, activeCdns, onClose }:
               )}
             </section>
           )}
-
-          {/* CDN 정보 */}
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>CDN 정보 {cdns.length > 0 && `(${cdns.length}개 구성됨)`}</div>
-            {cdns.length === 0 ? (
-              <div className={styles.empty}>이 프로필에는 구성된 CDN이 없습니다.</div>
-            ) : (
-              <div className={styles.cdnList}>
-                {cdns.map((provider) => {
-                  const domain = cdnDomainFor(profile, provider);
-                  const distId = cdnDistributionIdFor(profile, provider);
-                  const cdnUrl = domain
-                    ? buildCdnUrl(domain, file.path, profile.cdnBasePath)
-                    : null;
-                  // 실시간 확인은 Purge 대상 경로가 아니라 실제 공개 URL로 요청
-                  // (cdnBasePath 미설정 시 basePrefix 제거 — 예: contents/test/a.txt → /test/a.txt)
-                  const publicUrl = buildInspectUrl(
-                    provider,
-                    domain,
-                    file.path,
-                    profile.cdnBasePath,
-                    profile.basePrefix,
-                  );
-                  const isActive = activeCdns.includes(provider);
-                  const endpointDesc = describeCdnEndpoint(profile, provider);
-                  const inspection = inspections[provider];
-                  const isInspecting = !!inspecting[provider];
-                  const inspErr = inspectError[provider];
-                  return (
-                    <div key={provider} className={styles.cdnCard}>
-                      <div className={styles.cdnCardHeader}>
-                        <span className={styles.cdnName}>{CDN_LABELS[provider]}</span>
-                        {isActive && <span className={styles.activeBadge}>Purge 대상</span>}
-                      </div>
-                      <div className={styles.cdnGrid}>
-                        <div className={styles.item}>
-                          <span className={styles.label}>Edge Domain</span>
-                          <span className={styles.value}>{domain || "-"}</span>
-                        </div>
-                        {distId && (
-                          <div className={styles.item}>
-                            <span className={styles.label}>
-                              {provider === "cloudfront" ? "Distribution ID" : provider === "hyosung" ? "Service ID" : "ID"}
-                            </span>
-                            <span className={styles.value}><code className={styles.code}>{distId}</code></span>
-                          </div>
-                        )}
-                        {!file.isDirectory && cdnUrl && (
-                          <div className={styles.item} style={{ gridColumn: "1 / -1" }}>
-                            <span className={styles.label}>CDN URL (Purge 대상)</span>
-                            <span className={styles.value}>
-                              <code className={styles.code}>{cdnUrl}</code>
-                              <button className={styles.copyBtn} onClick={() => copy(`url-${provider}`, cdnUrl)}>
-                                {copiedKey === `url-${provider}` ? "복사됨" : "복사"}
-                              </button>
-                            </span>
-                          </div>
-                        )}
-                        {endpointDesc && (
-                          <div className={styles.item} style={{ gridColumn: "1 / -1" }}>
-                            <span className={styles.label}>Purge 요청 엔드포인트</span>
-                            <span className={styles.value} style={{ fontFamily: "var(--font-family-mono)", fontSize: 11 }}>
-                              {endpointDesc}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {!file.isDirectory && publicUrl && (
-                        <div className={styles.inspectBox}>
-                          <button
-                            className={styles.copyBtn}
-                            onClick={() => inspectUrl(provider, publicUrl)}
-                            disabled={isInspecting}
-                          >
-                            {isInspecting ? "확인 중..." : "실시간 확인 (CDN 응답 헤더)"}
-                          </button>
-                          {publicUrl !== cdnUrl && (
-                            <span className={styles.label} style={{ marginLeft: 8, fontFamily: "var(--font-family-mono)", fontSize: 11 }}>
-                              {publicUrl}
-                            </span>
-                          )}
-                          {inspErr && (
-                            <>
-                              <div className={styles.errorBox}>{inspErr}</div>
-                              {inspection?.errorKind === "dns" && (
-                                <div className={styles.hintBox}>
-                                  이 도메인은 브라우저에서도 접속할 수 없습니다(ERR_NAME_NOT_RESOLVED).
-                                  앱 오류가 아니라 도메인이 아직 DNS에 등록되지 않은 상태입니다.
-                                </div>
-                              )}
-                            </>
-                          )}
-                          {inspection && !inspErr && (
-                            <div className={styles.inspectResult}>
-                              <div className={styles.inspectSummary}>
-                                <span className={inspection.statusCode && inspection.statusCode < 400 ? styles.statusOk : styles.statusFail}>
-                                  HTTP {inspection.statusCode ?? "-"}
-                                </span>
-                                <span className={styles.label}>{inspection.durationMs}ms</span>
-                              </div>
-                              <HeadersTable rows={inspection.headers} />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
         </div>
 
         <div className={styles.footer}>

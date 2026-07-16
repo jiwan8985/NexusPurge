@@ -400,7 +400,6 @@ export default function RemotePanel() {
         <PropertiesDialog
           file={propertiesFile}
           profile={activeProfile}
-          activeCdns={activeCdns}
           onClose={() => setPropertiesFile(null)}
         />
       )}
