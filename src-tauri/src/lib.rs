@@ -27,6 +27,8 @@ pub fn run() {
             .rotation(tracing_appender::rolling::Rotation::DAILY)
             .filename_prefix("audit")
             .filename_suffix("log")
+            // 고객사 환경에서 audit 로그가 무한정 쌓이지 않도록 최근 30일치만 보관
+            .max_log_files(30)
             .build(data_dir.join("logs"))
             .expect("audit 로그 파일 초기화 실패");
         let (audit_writer, audit_guard) = tracing_appender::non_blocking(audit_appender);
@@ -50,6 +52,11 @@ pub fn run() {
     let profile_store = ProfileStore::new().expect("ProfileStore 초기화 실패");
     let adapter_cache = AdapterCache::new();
     let operation_log_service = OperationLogService::new(data_dir);
+
+    // 날짜별 텍스트 로그(system/transfer/cdn-*.log) 중 30일 지난 파일 정리 (앱 시작 시 1회)
+    if let Err(err) = tauri::async_runtime::block_on(operation_log_service.cleanup_old_logs()) {
+        tracing::warn!("오래된 로그 파일 정리 실패: {}", err);
+    }
 
     tauri::Builder::default()
         .manage(profile_store)

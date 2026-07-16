@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 const OPERATION_LOGS_FILENAME: &str = "operation_logs.json";
 const LOG_FILES_DIR: &str = "logs";
+/// system/transfer/cdn-*.log 보관 기간 — 고객사 환경에서 로그가 무한정 쌓이지 않도록 앱 시작 시 정리
+const LOG_RETENTION_DAYS: i64 = 30;
+const TYPED_LOG_KINDS: [&str; 3] = ["system-", "transfer-", "cdn-"];
 
 /// system-*.log / transfer-*.log의 파일 1건을 한 줄로 렌더링 (경로·상태·시작/종료 시각·오류)
 fn format_file_line(file: &serde_json::Value) -> String {
@@ -312,6 +315,44 @@ impl OperationLogService {
         Ok(())
     }
 
+    /// logs/ 폴더의 날짜별 텍스트 로그(system-*.log / transfer-*.log / cdn-*.log) 중
+    /// LOG_RETENTION_DAYS보다 오래된 파일을 삭제한다. audit-*.log는 tracing-appender의
+    /// max_log_files가 별도로 관리하므로 여기서는 건드리지 않는다.
+    pub async fn cleanup_old_logs(&self) -> Result<usize> {
+        let dir = self.log_files_dir();
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(LOG_RETENTION_DAYS);
+        let mut removed = 0usize;
+        let mut entries = tokio::fs::read_dir(&dir)
+            .await
+            .context("log directory read failed")?;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .context("log directory entry read failed")?
+        {
+            let path = entry.path();
+            let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else { continue };
+            if !TYPED_LOG_KINDS.iter().any(|prefix| file_name.starts_with(prefix)) {
+                continue;
+            }
+            let Some(stem) = file_name.strip_suffix(".log") else { continue };
+            if stem.len() < 10 {
+                continue;
+            }
+            let date_str = &stem[stem.len() - 10..];
+            let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else { continue };
+            if date < cutoff {
+                if tokio::fs::remove_file(&path).await.is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+        Ok(removed)
+    }
+
     // TODO: Add CSV export after report columns are confirmed.
 }
 
@@ -529,6 +570,46 @@ mod tests {
         assert!(system.contains("error: 권한 없음"));
         // 성공 건은 개별 나열되지 않음 (요약에만 반영)
         assert!(!system.contains("file-000.txt"));
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// LOG_RETENTION_DAYS(30일)보다 오래된 system/transfer/cdn-*.log는 삭제되고,
+    /// 최근 파일과 audit-*.log(별도 관리 대상)는 남아있어야 함
+    #[tokio::test]
+    async fn cleanup_old_logs_removes_only_stale_typed_logs() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-cleanup-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+        let logs_dir = service.log_files_dir();
+        std::fs::create_dir_all(&logs_dir).unwrap();
+
+        let old_date = (chrono::Local::now().date_naive() - chrono::Duration::days(31))
+            .format("%Y-%m-%d")
+            .to_string();
+        let recent_date = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        let old_system = logs_dir.join(format!("system-{}.log", old_date));
+        let old_transfer = logs_dir.join(format!("transfer-{}.log", old_date));
+        let old_audit = logs_dir.join(format!("audit-{}.log", old_date));
+        let recent_cdn = logs_dir.join(format!("cdn-{}.log", recent_date));
+        for path in [&old_system, &old_transfer, &old_audit, &recent_cdn] {
+            std::fs::write(path, "log content").unwrap();
+        }
+
+        let removed = service.cleanup_old_logs().await.unwrap();
+
+        assert_eq!(removed, 2, "system/transfer의 오래된 파일 2개만 삭제되어야 함");
+        assert!(!old_system.exists());
+        assert!(!old_transfer.exists());
+        // audit-*.log는 tracing-appender의 max_log_files가 관리 — 여기서는 건드리지 않음
+        assert!(old_audit.exists());
+        // 최근 파일은 보존
+        assert!(recent_cdn.exists());
 
         let _ = std::fs::remove_dir_all(data_dir);
     }
