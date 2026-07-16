@@ -786,7 +786,7 @@ pub async fn import_profile_file(
         region: file.region,
         bucket: file.bucket,
         base_prefix: file.base_prefix,
-        access_key_id: file.access_key_id,
+        access_key_id: Some(file.access_key_id),
         secret_access_key: Some(file.secret_access_key),
         endpoint: file.endpoint,
         cdn_provider: None,
@@ -914,11 +914,17 @@ pub async fn import_profile_file(
 
     cache.invalidate(&profile.id).await;
     store.save(profile.clone()).await.map_err(|e| e.to_string())?;
-    // 응답에서 시크릿 제거 (keyring 저장 완료)
+    // 응답에서 시크릿·인증 관련 값 전부 제거 (keyring 저장 완료 — 프론트엔드로 평문 전달 금지)
     profile.secret_access_key = None;
     profile.akamai_client_secret = None;
     profile.kt_password = None;
     profile.lguplus_password = None;
+    profile.access_key_id = None;
+    profile.akamai_client_token = None;
+    profile.akamai_access_token = None;
+    profile.hyosung_api_key = None;
+    profile.lguplus_username = None;
+    profile.kt_username = None;
     Ok(profile)
 }
 
@@ -955,6 +961,14 @@ pub async fn export_encrypted_profile(
         ("_lguplus", &mut profile.lguplus_password),
         ("_hyosung", &mut profile.hyosung_api_secret),
         ("_kt",      &mut profile.kt_password),
+        // 인증 관련이지만 secret은 아닌 값들(Access Key ID, 토큰, 계정명)도
+        // profiles.json이 아닌 keyring에만 있으므로 내보내기 시 여기서 주입해야 함
+        ("_access_key_id",       &mut profile.access_key_id),
+        ("_akamai_client_token", &mut profile.akamai_client_token),
+        ("_akamai_access_token", &mut profile.akamai_access_token),
+        ("_hyosung_api_key",     &mut profile.hyosung_api_key),
+        ("_lguplus_username",    &mut profile.lguplus_username),
+        ("_kt_username",         &mut profile.kt_username),
     ] {
         let key = format!("{}{}", profile_id, suffix);
         if let Ok(entry) = Entry::new(SVC, &key) {
@@ -981,11 +995,23 @@ pub async fn import_encrypted_profile(
     }
 
     let decrypted = crypto::decrypt(&encrypted_data, &passphrase).map_err(|e| e.to_string())?;
-    let profile: ProfileConfig =
+    let mut profile: ProfileConfig =
         serde_json::from_slice(&decrypted).map_err(|e| format!("프로필 파싱 실패: {}", e))?;
 
     // 기존 프로필이 있다면 캐시 무효화
     cache.invalidate(&profile.id).await;
     store.save(profile.clone()).await.map_err(|e| e.to_string())?;
+    // 응답에서 시크릿·인증 관련 값 전부 제거 (keyring 저장 완료 — 프론트엔드는 이 값을 쓰지 않으며,
+    // 복호화된 평문이 IPC를 거쳐 렌더러 프로세스 메모리에 남을 이유가 없다)
+    profile.secret_access_key = None;
+    profile.akamai_client_secret = None;
+    profile.kt_password = None;
+    profile.lguplus_password = None;
+    profile.access_key_id = None;
+    profile.akamai_client_token = None;
+    profile.akamai_access_token = None;
+    profile.hyosung_api_key = None;
+    profile.lguplus_username = None;
+    profile.kt_username = None;
     Ok(profile)
 }

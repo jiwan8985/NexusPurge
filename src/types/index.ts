@@ -8,7 +8,7 @@ export interface S3Profile {
   region: string;
   bucket: string;
   basePrefix?: string;
-  accessKeyId: string;
+  accessKeyId?: string;           // keyring에 저장, 로드 시 빈 값
   secretAccessKey: string;
   endpoint?: string;              // S3-compatible 서비스용 커스텀 엔드포인트
   cdnProvider?: CdnProvider;
