@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { readBatchSettings } from "../../utils/batch-settings";
 import styles from "./PurgeDialog.module.css";
 
@@ -7,11 +8,13 @@ const PREVIEW_MAX = 8;
 interface Props {
   paths: string[];
   mode: "selected" | "all";
+  /** 이 Purge가 실행될 CDN 이름 목록 (멀티 CDN 동시 Purge 시 확인용 표시) */
+  cdnLabels?: string[];
   onConfirm: () => Promise<void>;
   onCancel: () => void;
 }
 
-export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props) {
+export default function PurgeDialog({ paths, mode, cdnLabels, onConfirm, onCancel }: Props) {
   const [isPurging, setIsPurging] = useState(false);
 
   const { purgeWarnThreshold, purgeBatchSize } = readBatchSettings();
@@ -36,7 +39,7 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
     }
   };
 
-  return (
+  return createPortal(
     <div className={styles.overlay}>
       <div className={styles.dialog}>
         <div className={styles.header}>
@@ -49,6 +52,11 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
               ? `현재 경로 전체 (${paths[0]}) 를 CDN에서 무효화합니다.`
               : `선택한 ${count}개 경로를 CDN에서 무효화합니다.`}
           </p>
+          {cdnLabels && cdnLabels.length > 0 && (
+            <p className={styles.summary}>
+              대상 CDN{cdnLabels.length > 1 ? ` (${cdnLabels.length}개 동시 실행)` : ""}: <strong>{cdnLabels.join(", ")}</strong>
+            </p>
+          )}
 
           {isRootPurge && (
             <div className={`${styles.alert} ${styles.alertDanger}`}>
@@ -98,6 +106,7 @@ export default function PurgeDialog({ paths, mode, onConfirm, onCancel }: Props)
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -8,7 +8,7 @@ export interface S3Profile {
   region: string;
   bucket: string;
   basePrefix?: string;
-  accessKeyId: string;
+  accessKeyId?: string;           // keyring에 저장, 로드 시 빈 값
   secretAccessKey: string;
   endpoint?: string;              // S3-compatible 서비스용 커스텀 엔드포인트
   cdnProvider?: CdnProvider;
@@ -30,22 +30,21 @@ export interface S3Profile {
   akamaiClientSecret?: string;    // 저장 시 keyring에 보관, 로드 시 빈 값
   akamaiAccessToken?: string;     // Akamai EdgeGrid access token
   akamaiHost?: string;            // EdgeGrid API 호스트 (e.g. akab-xxxx.luna.akamaiapis.net)
-  akamaiCpCode?: string;          // Akamai CP Code (콘텐츠 제공자 코드)
-  akamaiCdnDomain?: string;       // Akamai CDN 도메인 (CloudFront cdnDomain과 별도)
+  akamaiCpCode?: string;          // Purge 대상 CP Code — 폴더/전체(와일드카드) Purge에 사용
   // LG U+ CDN (Solbox CDN v2)
   lguplusUsername?: string;
   lguplusPassword?: string;    // keyring에 저장, 로드 시 빈 값
   lguplusServiceName?: string;
   lguplusVolumeName?: string;
   lguplusEndpoint?: string;
-  lguplusCdnDomain?: string;   // LG U+ CDN 도메인 (CloudFront/Akamai cdnDomain과 별도)
+  lguplusServiceType?: "cloudcdn" | "volume"; // cloudcdn이면 전체 Purge 시 서비스 전체 즉시 플러시 사용
   // KT CDN (Solbox CDN v3)
   ktUsername?: string;
   ktPassword?: string;         // keyring에 저장, 로드 시 빈 값
   ktServiceName?: string;
   ktVolumeName?: string;
   ktEndpoint?: string;
-  ktCdnDomain?: string;        // KT CDN 도메인 (CloudFront/Akamai cdnDomain과 별도)
+  ktServiceType?: "cloudcdn" | "volume"; // cloudcdn이면 전체 Purge 시 서비스 전체 즉시 플러시 사용
   // Hyosung CDN (미지원, 하위 호환)
   hyosungApiKey?: string;
   hyosungApiSecret?: string;
@@ -228,6 +227,16 @@ export interface CdnPurgeRequest {
   policy?: PurgePolicy;
 }
 
+/** cdn-*.log에 provider 블록 하위로 기록되는 개별 HTTP 호출(인증 → purge 등) 1건 */
+export interface CdnRequestStep {
+  method: string;
+  url: string;
+  status: number;
+  statusText: string;
+  elapsedMs: number;
+  summary: string;
+}
+
 export interface CdnPurgeResult {
   success: boolean;
   provider: CdnProvider;
@@ -235,16 +244,24 @@ export interface CdnPurgeResult {
   paths: string[];
   purgedAt?: string;
   error?: string;
+  /** 실제 호출된 CDN Purge API 엔드포인트 (감사/디버깅용) */
+  requestEndpoint?: string;
+  /** 요청 소요 시간 (ms) */
+  durationMs?: number;
+  /** 이 Purge 요청 과정에서 실제 발생한 HTTP 호출 단계 (상태코드·소요시간 포함) */
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface PurgeBatchResult {
-  provider?: CdnProvider;
   paths: string[];
   success: boolean;
   invalidationId?: string;
   error?: string;
   startedAt: string;
   finishedAt: string;
+  requestEndpoint?: string;
+  durationMs?: number;
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface PurgeExecutionResult {
@@ -263,6 +280,38 @@ export interface CdnConnectionTestResult {
   provider: CdnProvider;
   domain?: string;
   error?: string;
+}
+
+/** 속성(우클릭) 다이얼로그 — S3 HeadObject 응답 전체 (크롬 개발자모드 수준의 상세 헤더) */
+export interface S3ObjectDetail {
+  key: string;
+  etag?: string;
+  contentLength?: number;
+  contentType?: string;
+  contentEncoding?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
+  cacheControl?: string;
+  lastModified?: string;
+  storageClass?: string;
+  serverSideEncryption?: string;
+  sseKmsKeyId?: string;
+  versionId?: string;
+  replicationStatus?: string;
+  acceptRanges?: string;
+  checksumCrc32?: string;
+  checksumSha256?: string;
+  metadata: Record<string, string>;
+}
+
+/** 속성 다이얼로그의 "실시간 확인" — 임의 URL에 대한 실제 HTTP 응답 상세 */
+export interface UrlInspection {
+  url: string;
+  statusCode?: number;
+  headers: [string, string][];
+  durationMs: number;
+  error?: string;
+  errorKind?: "dns" | "timeout" | "connect" | "tls" | "other";
 }
 
 export interface CdnPurgeStatusResult {
@@ -319,6 +368,12 @@ export interface CdnOperationPurgeResult {
   error?: string;
   startedAt: string;
   finishedAt?: string;
+  /** 실제 호출된 CDN Purge API 엔드포인트 — 보안팀 감사 로그 전달 시 참고 */
+  requestEndpoint?: string;
+  /** 요청 소요 시간 (ms) */
+  durationMs?: number;
+  /** 이 Purge 요청 과정에서 실제 발생한 HTTP 호출 단계 (상태코드·소요시간 포함) */
+  requestSteps?: CdnRequestStep[];
 }
 
 export interface OperationLog {
@@ -350,16 +405,6 @@ export interface LogShippingState {
   status: "pending" | "success" | "failed";
   attempts: number;
   nextRetryAt?: string;
-  error?: string;
-}
-
-export interface CdnUrlCheck {
-  url: string;
-  ok: boolean;
-  statusCode?: number;
-  etag?: string;
-  lastModified?: string;
-  cacheControl?: string;
   error?: string;
 }
 

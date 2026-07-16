@@ -8,8 +8,9 @@ import PurgeDialog from "../modals/PurgeDialog";
 import PurgeResultDialog from "../modals/PurgeResultDialog";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
-import { runtime } from "../../services/runtime";
-import type { PurgeExecutionResult, SyncPreviewResult } from "../../types";
+import { availableCdns, CDN_LABELS } from "../../utils/cdn";
+import { validateS3KeySegment } from "../../utils/s3-key";
+import type { PurgeExecutionResult } from "../../types";
 import styles from "./Toolbar.module.css";
 
 /* ── Inline SVG icon primitives ──────────────────────────────────────────── */
@@ -50,15 +51,6 @@ function IconPen() {
   return (
     <svg {...ICON_PROPS}>
       <path d="M11 2.5a1.5 1.5 0 012.1 2.1L5 12.8l-3 .8.8-3L11 2.5z" />
-    </svg>
-  );
-}
-
-function IconEye() {
-  return (
-    <svg {...ICON_PROPS}>
-      <path d="M1 8s3-5 7-5 7 5 7 5-3 5-7 5-7-5-7-5z" />
-      <circle cx="8" cy="8" r="2" />
     </svg>
   );
 }
@@ -120,11 +112,10 @@ export default function Toolbar() {
     remote,
     triggerLocalRefresh,
     triggerRemoteRefresh,
-    setSyncPreview,
-    setShowSyncPreview,
-    addLog,
     autoPurgeEnabled,
     toggleAutoPurge,
+    activeCdns,
+    toggleActiveCdn,
   } = useAppStore((s) => ({
     activeProfile:        s.activeProfile,
     isConnected:          s.isConnected,
@@ -136,12 +127,15 @@ export default function Toolbar() {
     remote:               s.remote,
     triggerLocalRefresh:  s.triggerLocalRefresh,
     triggerRemoteRefresh: s.triggerRemoteRefresh,
-    setSyncPreview:       s.setSyncPreview,
-    setShowSyncPreview:   s.setShowSyncPreview,
-    addLog:               s.addLog,
     autoPurgeEnabled:     s.autoPurgeEnabled,
     toggleAutoPurge:      s.toggleAutoPurge,
+    activeCdns:           s.activeCdns,
+    toggleActiveCdn:      s.toggleActiveCdn,
   }));
+
+  const cdns = availableCdns(activeProfile);
+  const hasCdn = isConnected && (activeCdns.length > 0 || cdns.length > 0);
+  const activeCdnLabels = activeCdns.map((c) => CDN_LABELS[c]);
 
   const perms    = activeProfile?.permissions;
   const canPurge = !perms || perms.canPurge;
@@ -153,13 +147,15 @@ export default function Toolbar() {
   const { executePurge, isPurging, selectedPaths: remotePurgePaths, allPrefix } = usePurge();
 
   const [purgeDialog, setPurgeDialog] = useState<{ paths: string[]; mode: "selected" | "all" } | null>(null);
-  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult[] | null>(null);
   const [inputDialog, setInputDialog] = useState<{
     title: string;
     label?: string;
     initialValue?: string;
     placeholder?: string;
     confirmLabel?: string;
+    multiline?: boolean;
+    validate?: (value: string) => string | null;
     onConfirm: (value: string) => void;
   } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{
@@ -174,6 +170,8 @@ export default function Toolbar() {
       label: focusedSide === "remote" ? `S3 경로 "${remote.path}" 아래에 새 폴더를 만듭니다.` : "로컬에 새 폴더를 만듭니다.",
       placeholder: "폴더 이름",
       confirmLabel: "만들기",
+      // S3 측 폴더명만 문자 제한 적용 (로컬은 OS 규칙 유지)
+      validate: focusedSide === "remote" && isConnected ? validateS3KeySegment : undefined,
       onConfirm: async (name) => {
         if (focusedSide === "remote" && isConnected) {
           const prefix = remote.path.endsWith("/") ? remote.path : remote.path + "/";
@@ -189,27 +187,31 @@ export default function Toolbar() {
     });
   };
 
-  const handleDryRun = async () => {
-    if (!activeProfile || !isConnected) return;
-    try {
-      const preview = await runtime.invoke<SyncPreviewResult>("sync_preview", {
-        profileId: activeProfile.id,
-        localDir: local.path,
-        remotePrefix: remote.path,
-      });
-      setSyncPreview(preview);
-      setShowSyncPreview(true);
-      addLog("info", `Dry-run: 신규 ${preview.new.length}, 수정 ${preview.modified.length}, Purge ${preview.purgeTargets.length}`);
-    } catch (err) {
-      addLog("error", `Dry-run 실패: ${err}`);
-    }
+  const handleCustomPurge = () => {
+    setInputDialog({
+      title: "CDN 경로 직접 입력 Purge",
+      label: "무효화할 CDN 파일 경로를 직접 입력하세요 (쉼표 또는 줄바꿈으로 구분)",
+      placeholder: "/index.html\n/assets/css/*",
+      confirmLabel: "Purge 실행",
+      multiline: true,
+      onConfirm: (text) => {
+        const rawPaths = text
+          .split(/[\n,]+/)
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+        if (rawPaths.length === 0) return;
+        setPurgeDialog({ paths: rawPaths, mode: "selected" });
+      },
+    });
   };
 
   const handleDelete = () => {
     if (focusedSide === "remote" && isConnected) {
       const keys = Array.from(remote.selectedPaths);
       if (keys.length === 0) return;
-      const purgeNotice = activeProfile?.cdnProvider ? " 삭제 성공한 항목은 CDN 캐시도 Purge됩니다." : "";
+      const purgeNotice = activeCdns.length > 0
+        ? ` 삭제 성공한 항목은 CDN(${activeCdnLabels.join(", ")}) 캐시도 Purge됩니다.`
+        : "";
       setDeleteDialog({
         title: "S3 항목 삭제",
         message: `S3에서 ${keys.length}개 항목을 삭제합니다.${purgeNotice} 삭제된 파일은 복구할 수 없습니다.`,
@@ -249,6 +251,7 @@ export default function Toolbar() {
         initialValue: oldName,
         placeholder: "새 이름",
         confirmLabel: "변경",
+        validate: validateS3KeySegment,
         onConfirm: async (newName) => {
           if (newName === oldName) return;
           const newKey = oldKey.replace(/[^/]*\/?$/, newName + (oldKey.endsWith("/") ? "/" : ""));
@@ -293,8 +296,6 @@ export default function Toolbar() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
         e.preventDefault();
         focusedSide === "remote" ? triggerRemoteRefresh() : triggerLocalRefresh();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
-        e.preventDefault(); void handleDryRun();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -328,7 +329,7 @@ export default function Toolbar() {
       <div className={styles.sep} />
 
       {/* ── 자동 Purge 토글 ───────────────────────────────────────────────── */}
-      {isConnected && activeProfile?.cdnProvider && canPurge && (
+      {hasCdn && canPurge && (
         <>
           <button
             className={`${styles.toolBtn} ${autoPurgeEnabled ? styles.purgeOn : styles.purgeOff}`}
@@ -377,22 +378,30 @@ export default function Toolbar() {
           <span className={styles.icon}><IconPen /></span>
           이름 변경
         </button>
-        <button
-          className={styles.toolBtn}
-          disabled={!isConnected || !local.path}
-          onClick={handleDryRun}
-          title="업로드 전 변경 사항과 Purge 대상을 미리 봅니다 (Ctrl/Cmd+D)"
-        >
-          <span className={styles.icon}><IconEye /></span>
-          미리보기
-        </button>
       </div>
 
       {/* ── 수동 Purge ─────────────────────────────────────────────────────── */}
-      {isConnected && activeProfile?.cdnProvider && canPurge && (
+      {hasCdn && canPurge && (
         <>
           <div className={styles.sep} />
           <div className={styles.group}>
+            {cdns.length > 1 && (
+              <div className={styles.cdnChips} title="Purge 대상 CDN 선택 — 여러 CDN을 동시에 선택하면 한 번에 Purge됩니다">
+                {cdns.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`${styles.cdnChip} ${activeCdns.includes(c) ? styles.cdnChipActive : ""}`}
+                    onClick={() => toggleActiveCdn(c)}
+                  >
+                    {CDN_LABELS[c]}
+                  </button>
+                ))}
+              </div>
+            )}
+            {cdns.length === 1 && activeCdns[0] && (
+              <span className={styles.cdnBadge} title="Purge 대상 CDN">{CDN_LABELS[activeCdns[0]]}</span>
+            )}
             <button
               className={styles.toolBtn}
               disabled={remotePurgePaths.length === 0 || isPurging}
@@ -411,6 +420,15 @@ export default function Toolbar() {
               <span className={styles.icon}><IconFlame /></span>
               전체 Purge
             </button>
+            <button
+              className={styles.toolBtn}
+              disabled={isPurging}
+              onClick={handleCustomPurge}
+              title="무효화할 파일 경로를 직접 쉼표나 엔터로 구분하여 입력해 Purge합니다"
+            >
+              <span className={styles.icon}><IconPen /></span>
+              직접 Purge
+            </button>
           </div>
         </>
       )}
@@ -427,6 +445,7 @@ export default function Toolbar() {
         <PurgeDialog
           paths={purgeDialog.paths}
           mode={purgeDialog.mode}
+          cdnLabels={activeCdnLabels}
           onConfirm={async () => {
             const paths = purgeDialog.paths;
             setPurgeDialog(null);
@@ -437,7 +456,7 @@ export default function Toolbar() {
         />
       )}
       {purgeResult && (
-        <PurgeResultDialog result={purgeResult} onClose={() => setPurgeResult(null)} />
+        <PurgeResultDialog results={purgeResult} onClose={() => setPurgeResult(null)} />
       )}
 
       {inputDialog && (
@@ -447,6 +466,8 @@ export default function Toolbar() {
           initialValue={inputDialog.initialValue}
           placeholder={inputDialog.placeholder}
           confirmLabel={inputDialog.confirmLabel}
+          multiline={inputDialog.multiline}
+          validate={inputDialog.validate}
           onConfirm={(value) => {
             const dialog = inputDialog;
             setInputDialog(null);

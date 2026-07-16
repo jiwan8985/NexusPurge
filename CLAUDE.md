@@ -70,13 +70,21 @@ src-tauri/src/
 
 ### CDN Purge
 - 덮어쓰기 감지 → `adapters/cdn/mod.rs::purge_with_credentials()`
-- CloudFront: `InvalidationBatch` API, caller_reference로 멱등성 보장
-- 미구현 CDN (Akamai, LG U+, 효성): `Err` 반환, 로그에 기록
+- CloudFront: `InvalidationBatch` API, caller_reference로 멱등성 보장. Akamai(Fast Purge)/LG U+·KT(Solbox v3)/효성(ITX) 모두 구현됨 — 각 `adapters/cdn/{provider}.rs` 참고
+- 멀티 CDN: `appStore.activeCdns`(배열)에 선택된 CDN 전체에 병렬로 `purge_cdn` 호출 (`usePurge.ts`/`useTransfer.ts`/`useS3.ts` 공통 패턴)
+- `commands/cdn.rs::CdnPurgeResult`에 `requestEndpoint`(실제 호출된 API 엔드포인트 설명)·`durationMs`(소요시간) 포함 — 로그/속성 다이얼로그에서 사용
+- `commands/cdn.rs::inspect_url` / `commands/s3.rs::get_s3_object_detail`: 우클릭 "속성" 다이얼로그의 온디맨드 실시간 조회용 커맨드(자동 실행 아님) — 각각 임의 URL의 HTTP 응답 헤더, S3 HeadObject 전체 응답을 반환
 
 ### 프로파일 저장
 - 메타데이터: `~/.local/share/cdn-upload-tool/profiles.json`
 - `secretAccessKey`: OS keyring (Windows Credential Manager / macOS Keychain)
-- keyring 키 형식: service=`cdn-upload-tool`, username=`{profile_id}`
+- keyring 키 형식: service=`cdn-upload-tool`, username=`{profile_id}` (CDN별 시크릿은 `{profile_id}_akamai` 등 접미사)
+
+### 멀티 CDN 프로필
+- 한 프로필에 여러 CDN 가능: `cdnProviders[]` (provider/domain/distributionId), CDN별 도메인은 `provider_domain()` (config.rs)로 해석
+- 고객사 전달용 JSON 프로필 파일: `profile-sample.json` 참고 — 프로필 관리 "가져오기"로 임포트 (`import_profile_file` 커맨드)
+- 런타임 Purge 대상 CDN: `appStore.activeCdn` — 툴바 드롭다운에서 전환, 모든 Purge(업로드/삭제/수동)가 이 값을 따름
+- 저장된 프로필은 write-only: 목록에서 정보 열람/편집 불가(연결·테스트·내보내기·삭제만). 수정은 삭제 후 재생성/재임포트
 
 ## 코딩 컨벤션
 
@@ -126,5 +134,12 @@ npm run tauri build
 
 - `src/types/index.ts` 타입과 `src-tauri/src/commands/` 구조체의 필드명(serde rename) 일치 필수
 - Tauri 이벤트명 (`transfer:progress`, `transfer:complete`) 변경 시 `useTransfer.ts`와 동기화
-- `ProfileStore`는 `lib.rs`에서 `.manage(ProfileStore::new().unwrap())`로 등록 필요 (현재 누락, 추가 예정)
 - S3 ETag와 MD5는 Multipart 업로드(>8MB 기본값) 시 일치하지 않음 → `hash.rs::parse_multipart_etag` 참고
+- 모달/다이얼로그는 반드시 `createPortal(…, document.body)`로 렌더링할 것 — Toolbar/Panel에 `backdrop-filter`(글래스 효과)가 걸려 있어 내부에서 `position: fixed`를 쓰면 해당 요소가 containing block이 되어 레이아웃이 겹침
+- `tauri.conf.json`의 `dragDropEnabled: true`는 탐색기 파일/폴더 드랍 업로드(`useOsFileDrop.ts`, `tauri://drag-drop` 이벤트)에 필수. 이 설정에서는 WebView2가 HTML5 DnD를 가로채므로 패널 간 드래그는 HTML5 DnD가 아닌 pointer 이벤트 기반 커스텀 구현(`usePanelDrag.ts`)을 사용한다 — 패널 루트의 `data-panel="local|remote"` 속성이 드랍 대상 판정 기준
+- 운영 로그(업로드/다운로드/삭제/Purge)는 JSON(`operation_logs.json`, 전체 이력) + 날짜·타입별 텍스트 파일로 `%LOCALAPPDATA%/cdn-upload-tool/logs/`에 저장됨 — LogPanel "로그 폴더" 버튼으로 열기
+  - `system-YYYY-MM-DD.log`: mkdir/rename/delete 등 파일 관리 작업
+  - `transfer-YYYY-MM-DD.log`: upload/download 파일 전송 결과
+  - `cdn-YYYY-MM-DD.log`: CDN Purge 상세(provider별 상태, 요청 엔드포인트, 소요시간, 대상 경로 최대 50개 미리보기, 전체 오류 메시지) — upload/delete에 딸린 Purge 결과도 여기 기록. 전체 경로 목록은 `operation_logs.json`에 무제한 보관
+  - 타입 분리는 `OperationLogService::append_log_file` (operation_log.rs) 참고
+  - `audit.YYYY-MM-DD.log`: Rust `tracing` 출력의 파일 사본 (lib.rs에서 tracing-appender daily rolling으로 초기화) — CDN 어댑터의 모든 API 호출 상세(메서드/URL/HTTP 상태/소요시간/응답 본문 1,000자)가 남음. 어댑터에서 응답 수신 후 `adapters/cdn/mod.rs::log_cdn_http()` 호출이 규약 (인증 요청은 토큰 노출 방지를 위해 본문 제외)

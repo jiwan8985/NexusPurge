@@ -7,18 +7,18 @@ import LocalPanel from "./components/panels/LocalPanel";
 import RemotePanel from "./components/panels/RemotePanel";
 import TransferButtons from "./components/transfer/TransferButtons";
 import ProgressDialog from "./components/transfer/ProgressDialog";
-import SyncPreviewDialog from "./components/sync/SyncPreviewDialog";
 import LogPanel from "./components/log/LogPanel";
 import ProfileModal from "./components/modals/ProfileModal";
 import SettingsModal from "./components/modals/SettingsModal";
 import { useAppStore } from "./store/appStore";
 import { useProfile } from "./hooks/useProfile";
+import { useOsFileDrop } from "./hooks/useOsFileDrop";
 import { runtime } from "./services/runtime";
 
 export default function App() {
+  useOsFileDrop();
   const isLogPanelVisible  = useAppStore((s) => s.isLogPanelVisible);
   const showProgressDialog = useAppStore((s) => s.showProgressDialog);
-  const showSyncPreview    = useAppStore((s) => s.showSyncPreview);
   const isProfileModalOpen = useAppStore((s) => s.isProfileModalOpen);
   const isSettingsModalOpen = useAppStore((s) => s.isSettingsModalOpen);
   const setActiveProfile   = useAppStore((s) => s.setActiveProfile);
@@ -246,7 +246,6 @@ export default function App() {
         <StatusBar />
 
         {showProgressDialog && <ProgressDialog />}
-        {showSyncPreview && <SyncPreviewDialog />}
         {isProfileModalOpen && <ProfileModal />}
         {isSettingsModalOpen && <SettingsModal />}
       </div>

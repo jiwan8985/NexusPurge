@@ -42,6 +42,46 @@ pub struct ObjectMeta {
     pub content_type:  Option<String>,
 }
 
+/// 속성(우클릭) 다이얼로그 — HeadObject 응답 전체를 담는 상세 정보.
+/// 크롬 개발자모드에서 보는 응답 헤더 수준의 정보를 그대로 노출한다.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3ObjectDetail {
+    pub key: String,
+    pub etag: Option<String>,
+    #[serde(rename = "contentLength")]
+    pub content_length: Option<i64>,
+    #[serde(rename = "contentType")]
+    pub content_type: Option<String>,
+    #[serde(rename = "contentEncoding")]
+    pub content_encoding: Option<String>,
+    #[serde(rename = "contentDisposition")]
+    pub content_disposition: Option<String>,
+    #[serde(rename = "contentLanguage")]
+    pub content_language: Option<String>,
+    #[serde(rename = "cacheControl")]
+    pub cache_control: Option<String>,
+    #[serde(rename = "lastModified")]
+    pub last_modified: Option<String>,
+    #[serde(rename = "storageClass")]
+    pub storage_class: Option<String>,
+    #[serde(rename = "serverSideEncryption")]
+    pub server_side_encryption: Option<String>,
+    #[serde(rename = "sseKmsKeyId")]
+    pub sse_kms_key_id: Option<String>,
+    #[serde(rename = "versionId")]
+    pub version_id: Option<String>,
+    #[serde(rename = "replicationStatus")]
+    pub replication_status: Option<String>,
+    #[serde(rename = "acceptRanges")]
+    pub accept_ranges: Option<String>,
+    #[serde(rename = "checksumCrc32")]
+    pub checksum_crc32: Option<String>,
+    #[serde(rename = "checksumSha256")]
+    pub checksum_sha256: Option<String>,
+    /// 사용자 정의 메타데이터 (x-amz-meta-*)
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
 // ListResult는 기존 commands/s3.rs 의 FileItem 타입을 그대로 사용 (하위 호환)
 pub struct ListResult {
     pub files:        Vec<FileItem>,

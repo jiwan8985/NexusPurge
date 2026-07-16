@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
 import type { TransferItem } from "../../types";
@@ -124,8 +124,10 @@ function CdnBadges({ item }: { item: TransferItem }) {
 }
 
 // ── TransferRow ───────────────────────────────────────────────────────────────
-
-function TransferRow({ item }: { item: TransferItem }) {
+// React.memo 필수: zustand updateTransfer는 변경된 항목의 객체 참조만 바꾸므로,
+// 메모이제이션 없으면 진행률 이벤트마다(초당 여러 번) 수백~수천 개 행 전체가 리렌더되어
+// 대량 업로드 시 UI가 심하게 버벅인다. item 참조가 그대로면 리렌더를 건너뛴다.
+const TransferRow = memo(function TransferRow({ item }: { item: TransferItem }) {
   const isActive = item.status === "uploading" || item.status === "downloading" || item.status === "hashing";
   const eta = isActive && item.speed
     ? fmtEta(item.size - item.transferredBytes, item.speed)
@@ -172,7 +174,7 @@ function TransferRow({ item }: { item: TransferItem }) {
       {item.error && <div className={styles.tError}>{item.error}</div>}
     </div>
   );
-}
+});
 
 // ── ProgressDialog ────────────────────────────────────────────────────────────
 

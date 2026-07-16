@@ -1,4 +1,5 @@
 import { useAppStore } from "../../store/appStore";
+import { CDN_LABELS } from "../../utils/cdn";
 import styles from "./StatusBar.module.css";
 
 function fmtSpeed(bytesPerSec: number) {
@@ -15,10 +16,11 @@ function fmtSize(bytes: number) {
 }
 
 export default function StatusBar() {
-  const { isConnected, activeProfile, transfers, isTransferring, toggleLogPanel, local, remote } =
+  const { isConnected, activeProfile, activeCdns, transfers, isTransferring, toggleLogPanel, local, remote } =
     useAppStore((s) => ({
       isConnected:     s.isConnected,
       activeProfile:   s.activeProfile,
+      activeCdns:      s.activeCdns,
       transfers:       s.transfers,
       isTransferring:  s.isTransferring,
       toggleLogPanel:  s.toggleLogPanel,
@@ -53,11 +55,11 @@ export default function StatusBar() {
             ? `${activeProfile?.bucket} · ${activeProfile?.region}`
             : "S3 연결 대기"}
         </span>
-        {isConnected && activeProfile?.cdnProvider && (
-          <span className={styles.cdnBadge}>
-            {activeProfile.cdnProvider.toUpperCase()}
+        {isConnected && activeCdns.map((c) => (
+          <span key={c} className={styles.cdnBadge} title="현재 Purge 대상 CDN">
+            {CDN_LABELS[c]}
           </span>
-        )}
+        ))}
       </div>
 
       <div className={styles.divider} />

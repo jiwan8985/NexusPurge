@@ -21,7 +21,8 @@
         "resizable": true,
         "center": true,
         "shadow": true,
-        "visible": false
+        "visible": false,
+        "dragDropEnabled": true
       }
     ],
     "security": {

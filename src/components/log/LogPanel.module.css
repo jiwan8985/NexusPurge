@@ -249,6 +249,15 @@
   font-size: 10px;
 }
 
+.tTimeRange {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
 .ts_pending     { color: var(--color-status-pending);   }
 .ts_uploading   { color: var(--color-status-active);    }
 .ts_downloading { color: var(--color-status-active);    }

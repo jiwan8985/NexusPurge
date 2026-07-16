@@ -84,7 +84,11 @@
   border: var(--border-width) solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.01);
-  overflow: hidden;
+  /* 패널별 내부 스크롤 — 항목이 많아도 패널 안에서 스크롤 */
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  flex-shrink: 0;
 }
 
 .sectionTitle {
@@ -92,13 +96,17 @@
   font-size: 10px;
   font-weight: 800;
   color: var(--color-text-tertiary);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--color-bg-secondary);
   border-bottom: var(--border-width) solid var(--color-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  /* 섹션 스크롤 시 제목 고정 */
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .resetBtn {

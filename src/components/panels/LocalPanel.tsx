@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ContextMenu, type MenuEntry } from "../common/ContextMenu";
 import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
+import { useTransfer } from "../../hooks/useTransfer";
+import { usePanelDrag } from "../../hooks/usePanelDrag";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
 import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
@@ -93,8 +95,10 @@ export default function LocalPanel() {
     focusedSide:         s.focusedSide,
   }));
 
+  const { startUpload } = useTransfer();
+  const startUploadRef = useRef(startUpload);
+  startUploadRef.current = startUpload;
   const [pathInput, setPathInput] = useState(local.path);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
@@ -135,7 +139,7 @@ export default function LocalPanel() {
     if (!syncPlan) return map;
     for (const file of syncPlan.toSkip) map.set(file.path, "skipped");
     for (const file of syncPlan.toUpload) {
-      map.set(file.path, activeProfile?.purgeOnNewUpload && activeProfile.cdnProvider ? "purge" : "new");
+      map.set(file.path, "new");
     }
     for (const file of syncPlan.toOverwrite) {
       map.set(file.path, activeProfile?.cdnProvider ? "purge" : "modified");
@@ -143,15 +147,40 @@ export default function LocalPanel() {
     return map;
   })();
 
+  const ensureLocalSelected = useCallback((path: string) => {
+    const s = useAppStore.getState();
+    if (!s.local.selectedPaths.has(path)) {
+      s.clearLocalSelection();
+      s.toggleLocalSelection(path);
+    }
+  }, []);
+
+  // 로컬 → S3: 드래그한 선택 항목(폴더 포함)을 업로드 (미연결 시 무시 — 기존 HTML5 DnD 가드와 동일)
+  const onDropToOpposite = useCallback(() => {
+    if (!useAppStore.getState().isConnected) return;
+    return startUploadRef.current(Array.from(useAppStore.getState().local.selectedPaths));
+  }, []);
+
+  const ghostLabel = useCallback(
+    () => `${useAppStore.getState().local.selectedPaths.size}개 항목`,
+    []
+  );
+
+  const { onRowPointerDown, isDropTarget } = usePanelDrag({
+    side: "local",
+    ensureSelected: ensureLocalSelected,
+    onDropToOpposite,
+    ghostLabel,
+  });
+
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
     useVirtualList(local.files);
 
+  // 클릭 = 선택 (파일/폴더 동일 — 폴더 통째 업로드 가능), 더블클릭 = 폴더 열기
   const handleRowClick = (event: React.MouseEvent, file: FileItem) => {
     if (event.ctrlKey || event.metaKey) {
-      // Ctrl/Cmd+클릭: 파일/폴더 모두 선택 토글 (폴더는 통째 업로드)
+      // Ctrl/Cmd+클릭: 다중 선택 토글
       toggleLocalSelection(file.path);
-    } else if (file.isDirectory) {
-      loadDirectory(file.path);
     } else {
       clearLocalSelection();
       toggleLocalSelection(file.path);
@@ -221,14 +250,10 @@ export default function LocalPanel() {
 
   return (
     <div
-      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "local" ? styles.focused : ""}`}
+      data-panel="local"
+      className={`${styles.panel} ${isDropTarget ? styles.dragOver : ""} ${focusedSide === "local" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("local")}
-      onDragOver={(event) => {
-        event.preventDefault();
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={() => setIsDragOver(false)}
+      onContextMenu={(event) => event.preventDefault()}
     >
       <div className={styles.header}>
         <span className={styles.headerTitle}>
@@ -299,15 +324,7 @@ export default function LocalPanel() {
                         renameLocalFile(file);
                       }
                     }}
-                    draggable
-                    onDragStart={(event) => {
-                      if (!local.selectedPaths.has(file.path)) {
-                        clearLocalSelection();
-                        toggleLocalSelection(file.path);
-                      }
-                      event.dataTransfer.setData("text/plain", "local-files");
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
+                    onPointerDown={(event) => onRowPointerDown(event, file.path)}
                   >
                     <span className={`${styles.col} ${styles.colName}`}>
                       <span className={`${styles.fileIcon} ${file.isDirectory ? styles.folderIcon : ""}`}>
@@ -328,7 +345,10 @@ export default function LocalPanel() {
         )}
       </div>
 
-      <div className={styles.footer}>{footerText}</div>
+      <div className={styles.footer}>
+        {footerText}
+        {isDropTarget && <span className={styles.dropHint}>여기에 놓으면 다운로드됩니다.</span>}
+      </div>
 
       {ctxMenu && (
         <ContextMenu

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import styles from "./ConfirmDialog.module.css";
 
 interface Props {
@@ -20,7 +21,8 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  return (
+  // backdrop-filter가 걸린 조상(Toolbar/Panel)이 fixed 기준점이 되는 것을 피하기 위해 body로 portal
+  return createPortal(
     <div
       className={styles.overlay}
       onClick={(e) => e.target === e.currentTarget && onCancel()}
@@ -43,6 +45,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

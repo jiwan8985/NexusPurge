@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
-import { buildCdnUrl, defaultCacheControlFor } from "../utils/cdn";
-import type { CdnPurgeResult, CdnUrlCheck, TransferItem, SyncPlan, SyncPreviewResult, CdnProvider } from "../types";
-import type { UploadOptions } from "../components/transfer/UploadOptionsModal";
+import { buildCdnUrl, CDN_LABELS, cdnDistributionIdFor, cdnDomainFor, defaultCacheControlFor } from "../utils/cdn";
+import type { CdnProvider, CdnPurgeResult, CdnRequestStep, TransferItem, SyncPlan } from "../types";
 import { readBatchSettings } from "../utils/batch-settings";
+import { fmtClockTime } from "../utils/format-time";
 
 // Tauri 이벤트형: Rust 측에서 emit하는 전송 진행률 이벤트
 interface TransferProgressEvent {
@@ -26,15 +26,17 @@ interface TransferCompleteEvent {
 }
 
 // C-4: Windows 경로 구분자 혼용 방지 — local.path가 '\' 포함 시 '\' 사용
+// fileName에 "/"가 포함된 상대경로(폴더 다운로드)도 OS 구분자로 통일
 function joinPath(dir: string, fileName: string): string {
   const normalized = dir.replace(/[/\\]$/, "");
   const sep = normalized.includes("\\") ? "\\" : "/";
-  return `${normalized}${sep}${fileName}`;
+  return `${normalized}${sep}${fileName.split("/").join(sep)}`;
 }
 
 export function useTransfer() {
   const {
     activeProfile,
+    activeCdns,
     local,
     remote,
     addTransfer,
@@ -48,8 +50,10 @@ export function useTransfer() {
     addLog,
     setSyncPlan,
     autoPurgeEnabled,
+    clearFinishedTransfers,
   } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
+    activeCdns: s.activeCdns,
     local: s.local,
     remote: s.remote,
     addTransfer: s.addTransfer,
@@ -63,6 +67,7 @@ export function useTransfer() {
     addLog: s.addLog,
     setSyncPlan: s.setSyncPlan,
     autoPurgeEnabled: s.autoPurgeEnabled,
+    clearFinishedTransfers: s.clearFinishedTransfers,
   }));
 
   const unlistenRef = useRef<Array<() => void>>([]);
@@ -111,65 +116,6 @@ export function useTransfer() {
             if (payload.cdnPurgeError) {
               addLog("warn", `CDN Purge 실패: ${payload.cdnPurgeError}`, "cdn");
             }
-
-            const state = useAppStore.getState();
-            const transfer = state.transfers.find((item) => item.id === payload.id);
-            const profile = state.activeProfile;
-            if (profile?.cdnProvider && transfer?.direction === "upload") {
-              runtime.invoke<CdnUrlCheck[]>("verify_cdn_urls", {
-                profileId: profile.id,
-                paths: [transfer.remotePath],
-              })
-                .then((checks) => {
-                  const check = checks[0];
-                  if (check?.ok) {
-                    const isRestricted = check.statusCode === 403;
-                    updateTransfer(payload.id, {
-                      cdnVerified: true,
-                      cdnStatusCode: check.statusCode,
-                      cdnCheckError: undefined,
-                    });
-                    state.addLog(
-                      "info",
-                      isRestricted
-                        ? `CDN 반영 확인 (접근 제한 403): ${transfer.remotePath}`
-                        : `CDN 반영 확인: ${transfer.remotePath} (${check.statusCode})`,
-                      "cdn"
-                    );
-                  } else {
-                    updateTransfer(payload.id, {
-                      cdnVerified: false,
-                      cdnStatusCode: check?.statusCode,
-                      cdnCheckError: check?.error ?? "응답 없음",
-                    });
-                    state.addLog(
-                      "warn",
-                      `CDN 반영 미확인: ${transfer.remotePath} (${check?.error ?? check?.statusCode ?? "응답 없음"})`,
-                      "cdn"
-                    );
-                  }
-                })
-                .catch((err) => state.addLog("warn", `CDN 반영 확인 실패: ${err}`, "cdn"));
-
-              if (payload.cdnInvalidationId && profile.cdnProvider === "cloudfront") {
-                runtime.invoke<{ success: boolean; status?: string; error?: string }>("get_purge_status", {
-                  profileId: profile.id,
-                  provider: profile.cdnProvider,
-                  distributionId: profile.cdnDistributionId ?? "",
-                  invalidationId: payload.cdnInvalidationId,
-                })
-                  .then((status) => {
-                    updateTransfer(payload.id, {
-                      cdnPurgeStatus: status.status === "Completed" ? "complete" : "inProgress",
-                      cdnPurgeError: status.success ? undefined : status.error,
-                    });
-                  })
-                  .catch((err) => updateTransfer(payload.id, {
-                    cdnPurgeStatus: "error",
-                    cdnPurgeError: String(err),
-                  }));
-              }
-            }
           } else if (payload.status === "canceled") {
             addLog("warn", `전송 취소: ${payload.id}`, "transfer");
           } else if (payload.status === "error") {
@@ -200,13 +146,16 @@ export function useTransfer() {
     [activeProfile]
   );
 
-  const startUpload = useCallback(async (uploadOptions?: UploadOptions) => {
-    if (!activeProfile || local.selectedPaths.size === 0) return;
+  // paths 미지정 시 로컬 패널에서 선택된 항목을 업로드 (DnD/탐색기 드랍은 paths로 명시 전달)
+  const startUpload = useCallback(async (paths?: string[]) => {
+    const selectedPaths = paths && paths.length > 0 ? paths : Array.from(local.selectedPaths);
+    if (!activeProfile || selectedPaths.length === 0) return;
 
+    // 이전 배치의 완료/오류 항목 정리 — 진행률(N/M)이 이번 배치 기준으로 집계되게 함
+    clearFinishedTransfers();
     setTransferring(true);
     // M-8: dialog는 실제 전송 항목이 있을 때만 열기
 
-    const selectedPaths = Array.from(local.selectedPaths);
     addLog("info", `업로드 시작: ${selectedPaths.length}개 파일 선택됨`, "transfer");
 
     try {
@@ -235,6 +184,13 @@ export function useTransfer() {
 
       setShowProgressDialog(true);
 
+      // 현재 선택된 Purge 대상 CDN들 (고객사 요청: 여러 CDN 동시 선택 가능)
+      const providers: CdnProvider[] = activeCdns.length > 0
+        ? activeCdns
+        : activeProfile.cdnProvider ? [activeProfile.cdnProvider] : [];
+      const provider = providers[0]; // cdnUrl 표시 등 단일 값이 필요한 곳에 사용 (대표 CDN)
+      const cdnDomain = cdnDomainFor(activeProfile, provider);
+
       // 2. 스킵 항목 등록 (autoPurgeEnabled ON이면 나중에 Purge 예정으로 표시)
       for (const file of plan.toSkip) {
         const id = crypto.randomUUID();
@@ -249,7 +205,7 @@ export function useTransfer() {
           progress: 100,
           transferredBytes: file.size,
           cdnPurgeStatus:
-            autoPurgeEnabled && activeProfile.cdnProvider ? "pending" : "notRequested",
+            autoPurgeEnabled && providers.length > 0 ? "pending" : "notRequested",
           startedAt: new Date().toISOString(),
           completedAt: new Date().toISOString(),
         });
@@ -262,7 +218,7 @@ export function useTransfer() {
           const id = crypto.randomUUID();
           // file.name이 "folder/sub/file.txt"처럼 상대경로를 포함하므로 그대로 연결
           const remotePath = remote.path + file.name;
-          const cdnUrl = buildCdnUrl(activeProfile.cdnDomain, remotePath, activeProfile.cdnBasePath) ?? undefined;
+          const cdnUrl = buildCdnUrl(cdnDomain, remotePath, activeProfile.cdnBasePath) ?? undefined;
           const cacheControl =
             activeProfile.defaultCacheControl || defaultCacheControlFor(remotePath) || undefined;
           addTransfer({
@@ -275,41 +231,36 @@ export function useTransfer() {
             status: "pending",
             progress: 0,
             transferredBytes: 0,
-            cdnPurgeStatus: activeProfile.cdnProvider && isOverwrite ? "pending" : "notRequested",
+            cdnPurgeStatus: providers.length > 0 && isOverwrite ? "pending" : "notRequested",
             cdnUrl,
             startedAt: new Date().toISOString(),
           });
-          const extraHeaders = uploadOptions?.headers
-            ? Object.fromEntries(uploadOptions.headers.filter((h) => h.key).map((h) => [h.key, h.value]))
-            : {};
-          const extraMetadata = uploadOptions?.metadata
-            ? Object.fromEntries(uploadOptions.metadata.filter((m) => m.key).map((m) => [m.key, m.value]))
-            : {};
           return {
             id,
             localPath: file.path,
             remotePath,
             isOverwrite,
-            contentTypeOverride: uploadOptions?.contentTypeOverride || activeProfile.contentTypeOverride,
-            cacheControl: uploadOptions?.cacheControl || cacheControl,
-            headers: extraHeaders,
-            metadata: extraMetadata,
+            contentTypeOverride: activeProfile.contentTypeOverride,
+            cacheControl,
+            headers: {},
+            metadata: {},
           };
         });
 
-      // CDN이 설정된 경우 신규 파일도 항상 Purge:
-      // 해당 경로에 CDN이 404를 캐싱하고 있을 수 있으므로 업로드 즉시 무효화 필요
-      const hasCdn = !!activeProfile.cdnProvider;
+      // CDN이 설정된 경우 신규 파일도 Purge 대상:
+      // 해당 경로에 CDN이 404를 캐싱하고 있을 수 있으므로 업로드 후 무효화 필요
+      const hasCdn = providers.length > 0;
       const uploadItems = [
-        ...makeItems(plan.toUpload, hasCdn),       // 신규: CDN 설정 시 항상 Purge
-        ...makeItems(plan.toOverwrite, true),       // 변경: 항상 Purge
+        ...makeItems(plan.toUpload, hasCdn),
+        ...makeItems(plan.toOverwrite, true),
       ];
 
+      // Purge는 업로드 완료 후 일괄 배치로 실행 (cdnProvider 미전달 → Rust 파일별 Purge 비활성)
+      // 파일별 개별 Purge는 CDN API burst 제한에 걸리고(효성 노드 타임아웃 등),
+      // CloudFront는 파일 수만큼 Invalidation 요청이 발생하므로 배치가 올바른 구조.
       await runtime.invoke("upload_files", {
         profileId: activeProfile.id,
         items: uploadItems,
-        cdnDistributionId: activeProfile.cdnDistributionId,
-        cdnProvider: activeProfile.cdnProvider,
         maxConcurrentFiles: readBatchSettings().maxConcurrentTransfers,
       });
       const finishedAt = new Date().toISOString();
@@ -318,6 +269,131 @@ export function useTransfer() {
         .map((item) => transferState.transfers.find((transfer) => transfer.id === item.id))
         .filter((transfer): transfer is TransferItem => Boolean(transfer));
       const uploadStatus = summarizeTransferStatus(uploadTransfers);
+
+      // ── 업로드 완료 후 일괄 Purge (선택된 모든 CDN에 동시 실행) ──────────────
+      // 대상: 업로드 성공 파일 전체 + (자동 Purge ON이면) 스킵된 미변경 파일 경로
+      const batchPurgeResults: {
+        provider: CdnProvider;
+        paths: string[];
+        success: boolean;
+        invalidationId?: string;
+        error?: string;
+        requestEndpoint?: string;
+        durationMs?: number;
+        requestSteps?: CdnRequestStep[];
+        startedAt: string;
+        finishedAt: string;
+      }[] = [];
+
+      if (providers.length > 0) {
+        const uploadedPaths = uploadTransfers
+          .filter((t) => t.status === "complete")
+          .map((t) => t.remotePath);
+        const skipPaths = autoPurgeEnabled
+          ? plan.toSkip.map((f) => remote.path + f.name)
+          : [];
+        const purgePaths = [...uploadedPaths, ...skipPaths];
+
+        if (purgePaths.length > 0) {
+          addLog(
+            "info",
+            `CDN 일괄 Purge 시작 (${providers.map((p) => CDN_LABELS[p]).join(", ")}): 업로드 ${uploadedPaths.length}개${skipPaths.length > 0 ? ` + 스킵 ${skipPaths.length}개` : ""}`,
+            "cdn"
+          );
+          const skipPathSet = new Set(skipPaths);
+          const purgeStatusTargets = [
+            ...uploadTransfers.filter((t) => t.status === "complete"),
+            ...transferState.transfers.filter(
+              (t) => t.status === "skipped" && skipPathSet.has(t.remotePath)
+            ),
+          ];
+          const { purgeBatchSize } = readBatchSettings();
+          const totalBatches = Math.ceil(purgePaths.length / purgeBatchSize);
+
+          // provider별 결과를 remotePath 단위로 집계 (여러 CDN이 같은 파일을 동시에 Purge)
+          const perPathResults = new Map<
+            string,
+            { provider: CdnProvider; success: boolean; invalidationId?: string; error?: string }[]
+          >();
+
+          const purgeOneProvider = async (cdnProvider: CdnProvider) => {
+            const label = CDN_LABELS[cdnProvider];
+            const distributionId = cdnDistributionIdFor(activeProfile, cdnProvider) ?? "";
+            for (let i = 0; i < purgePaths.length; i += purgeBatchSize) {
+              const batch = purgePaths.slice(i, i + purgeBatchSize);
+              const batchLabel = totalBatches > 1 ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${totalBatches})` : "";
+              const batchStartedAt = new Date().toISOString();
+              let success = false;
+              let invalidationId: string | undefined;
+              let error: string | undefined;
+              let requestEndpoint: string | undefined;
+              let durationMs: number | undefined;
+              let requestSteps: CdnRequestStep[] | undefined;
+              try {
+                const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+                  profileId: activeProfile.id,
+                  provider: cdnProvider,
+                  distributionId,
+                  paths: batch,
+                });
+                success = result.success;
+                invalidationId = result.invalidationId ?? undefined;
+                error = result.error ?? undefined;
+                requestEndpoint = result.requestEndpoint;
+                durationMs = result.durationMs;
+                requestSteps = result.requestSteps;
+              } catch (err) {
+                error = String(err);
+              }
+              const finishedAtIso = new Date().toISOString();
+              batchPurgeResults.push({
+                provider: cdnProvider, paths: batch, success, invalidationId, error, requestEndpoint, durationMs, requestSteps,
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
+              });
+              const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
+              if (success) {
+                const inv = invalidationId ? ` (${invalidationId})` : "";
+                const dur = durationMs !== undefined ? ` [${durationMs}ms]` : "";
+                addLog("success", `[${label}] CDN Purge 완료${batchLabel}: ${batch.length}개${inv}${dur}${timeRange}`, "cdn");
+              } else {
+                addLog("error", `[${label}] CDN Purge 실패${batchLabel}: ${error}${timeRange}`, "cdn");
+              }
+
+              for (const path of batch) {
+                const list = perPathResults.get(path) ?? [];
+                list.push({ provider: cdnProvider, success, invalidationId, error });
+                perPathResults.set(path, list);
+              }
+            }
+          };
+
+          // 선택된 CDN 전체를 동시(병렬) 실행 — 고객사 요청: 여러 CDN 한 번에 Purge
+          await Promise.all(providers.map(purgeOneProvider));
+
+          // 진행률 팝업의 파일별 Purge 배지 갱신 — 모든 CDN 결과를 집계해 한 번에 반영
+          for (const t of purgeStatusTargets) {
+            const results = perPathResults.get(t.remotePath);
+            if (!results || results.length === 0) continue;
+            const allOk = results.every((r) => r.success);
+            const anyOk = results.some((r) => r.success);
+            const errorText = results
+              .filter((r) => !r.success)
+              .map((r) => `[${CDN_LABELS[r.provider]}] ${r.error}`)
+              .join(" / ");
+            const invalidationIds = results
+              .filter((r) => r.success && r.invalidationId)
+              .map((r) => `[${CDN_LABELS[r.provider]}] ${r.invalidationId}`)
+              .join(", ");
+            updateTransfer(t.id, {
+              cdnPurged: allOk,
+              cdnPurgeStatus: allOk ? "complete" : anyOk ? "complete" : "error",
+              cdnPurgeError: errorText || undefined,
+              cdnInvalidationId: invalidationIds || undefined,
+            });
+          }
+        }
+      }
+
       const uploadLog = {
         id: crypto.randomUUID(),
         profileId: activeProfile.id,
@@ -333,70 +409,23 @@ export function useTransfer() {
           startedAt: item.startedAt ?? finishedAt,
           finishedAt: item.completedAt ?? finishedAt,
         })),
-        purgeResults: uploadTransfers
-          .filter((item) => item.cdnPurged || item.cdnPurgeError)
-          .map((item) => ({
-            provider: activeProfile.cdnProvider!,
-            urls: [item.remotePath],
-            status: item.cdnPurgeError ? "failed" as const : "success" as const,
-            requestId: item.cdnInvalidationId,
-            error: item.cdnPurgeError,
-            startedAt: item.startedAt ?? finishedAt,
-            finishedAt: item.completedAt ?? finishedAt,
-          })),
+        purgeResults: batchPurgeResults.map((r) => ({
+          provider: r.provider,
+          urls: r.paths,
+          status: r.success ? "success" as const : "failed" as const,
+          requestId: r.invalidationId,
+          error: r.error,
+          // 감사 로그에는 실제 배치 시작/종료 시각 기록 (Purge 지연 추적용)
+          startedAt: r.startedAt,
+          finishedAt: r.finishedAt,
+          requestEndpoint: r.requestEndpoint,
+          durationMs: r.durationMs,
+          requestSteps: r.requestSteps,
+        })),
         startedAt: finishedAt,
         finishedAt,
       };
       void saveOperationLog(uploadLog);
-
-      // autoPurgeEnabled ON: 스킵된 파일(변경 없음)도 포함해 선택한 전체 경로 Purge
-      // 이유: CDN 캐시가 S3와 어긋난 경우(이전 Purge 실패, CDN 장애 등)를 커버
-      if (autoPurgeEnabled && activeProfile.cdnProvider && plan.toSkip.length > 0) {
-        const skipPaths = plan.toSkip.map((f) => remote.path + f.name);
-        addLog(
-          "info",
-          `자동 Purge (스킵 포함): 미변경 ${skipPaths.length}개 경로 추가 Purge`,
-          "cdn"
-        );
-
-        const providersToPurge: { provider: CdnProvider; distributionId?: string }[] = [];
-        if ((activeProfile.cdnProvider as string) === "multiple" && activeProfile.cdnProviders) {
-          activeProfile.cdnProviders.forEach((c) => {
-            if (c.enabled) {
-              providersToPurge.push({ provider: c.provider, distributionId: c.distributionId });
-            }
-          });
-        } else {
-          providersToPurge.push({ provider: activeProfile.cdnProvider, distributionId: activeProfile.cdnDistributionId });
-        }
-
-        const { purgeBatchSize } = readBatchSettings();
-        for (let i = 0; i < skipPaths.length; i += purgeBatchSize) {
-          const batch = skipPaths.slice(i, i + purgeBatchSize);
-          const batchLabel =
-            skipPaths.length > purgeBatchSize
-              ? ` (배치 ${Math.floor(i / purgeBatchSize) + 1}/${Math.ceil(skipPaths.length / purgeBatchSize)})`
-              : "";
-
-          for (const p of providersToPurge) {
-            try {
-              const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
-                profileId: activeProfile.id,
-                provider: p.provider,
-                distributionId: p.distributionId ?? "",
-                paths: batch,
-              });
-              if (result.success) {
-                addLog("success", `스킵 경로 Purge 완료 (${p.provider})${batchLabel}: ${batch.length}개`, "cdn");
-              } else {
-                addLog("error", `스킵 경로 Purge 실패 (${p.provider})${batchLabel}: ${result.error}`, "cdn");
-              }
-            } catch (err) {
-              addLog("error", `스킵 경로 Purge 오류 (${p.provider})${batchLabel}: ${err}`, "cdn");
-            }
-          }
-        }
-      }
 
       clearLocalSelection();
       setSyncPlan(null);
@@ -408,57 +437,65 @@ export function useTransfer() {
       setTransferring(false);
     }
   }, [
-    activeProfile, local, remote, addTransfer, buildSyncPlan,
+    activeProfile, activeCdns, local, remote, addTransfer, updateTransfer, buildSyncPlan,
     setTransferring, setShowProgressDialog, clearLocalSelection, triggerRemoteRefresh,
-    addLog, setSyncPlan, autoPurgeEnabled,
+    addLog, setSyncPlan, autoPurgeEnabled, clearFinishedTransfers,
   ]);
 
-  const startDownload = useCallback(async () => {
-    if (!activeProfile || remote.selectedPaths.size === 0) return;
+  // keys 미지정 시 원격 패널에서 선택된 항목을 다운로드 (우클릭 "다운로드"는 keys로 단일 파일 전달)
+  const startDownload = useCallback(async (keys?: string[]) => {
+    const selectedKeys = keys && keys.length > 0 ? keys : Array.from(remote.selectedPaths);
+    if (!activeProfile || selectedKeys.length === 0) return;
 
-    addLog("info", "다운로드 폴더 선택 대화상자를 엽니다…", "transfer");
-
-    let selectedDir: string | null = null;
-    try {
-      selectedDir = await runtime.openDirectory({
-        defaultPath: local.path || undefined,
-        title: "다운로드 폴더 선택",
-      });
-    } catch (dialogErr) {
-      addLog("error", `폴더 선택 대화상자 오류: ${dialogErr}`, "transfer");
-      return;
-    }
+    // M-7: 다운로드 대상 폴더 선택 다이얼로그
+    const selectedDir = await runtime.openDirectory({
+      defaultPath: local.path || undefined,
+      title: "다운로드 폴더 선택",
+    });
 
     // 사용자가 취소했을 때
-    if (!selectedDir) {
-      addLog("info", "폴더 선택이 취소되었습니다.", "transfer");
-      return;
-    }
+    if (!selectedDir) return;
 
-    addLog("info", `다운로드 대상 폴더: ${selectedDir}`, "transfer");
+    // 이전 배치의 완료/오류 항목 정리 — 진행률(N/M)이 이번 배치 기준으로 집계되게 함
+    clearFinishedTransfers();
     setTransferring(true);
     setShowProgressDialog(true);
 
-    const selectedKeys = Array.from(remote.selectedPaths);
-    addLog("info", `다운로드 시작: ${selectedKeys.length}개 파일`, "transfer");
-
     try {
-      const downloadItems = selectedKeys.flatMap((key) => {
-        const id = crypto.randomUUID();
-        const rawName = key.split("/").pop() ?? "";
-        const fileName = rawName || key.replace(/\//g, "_");
-        if (!fileName) {
-          addLog("warn", `다운로드 건너뜀 (파일명 없음): ${key}`, "transfer");
-          return [];
+      // 폴더("…/")는 하위 전체 키로 확장, 로컬에는 폴더 구조 그대로 저장
+      const entries: { key: string; rel: string }[] = [];
+      for (const key of selectedKeys) {
+        if (key.endsWith("/")) {
+          const children = await runtime.invoke<string[]>("list_s3_keys", {
+            profileId: activeProfile.id,
+            prefix: key,
+          });
+          const parent = key.replace(/[^/]+\/$/, ""); // 폴더의 부모 prefix
+          for (const child of children) {
+            if (child.endsWith("/")) continue; // 폴더 placeholder 제외
+            entries.push({ key: child, rel: child.slice(parent.length) });
+          }
+        } else {
+          entries.push({ key, rel: key.split("/").pop() ?? key });
         }
-        // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준)
-        const localPath = joinPath(selectedDir, fileName);
+      }
+
+      if (entries.length === 0) {
+        addLog("warn", "다운로드할 파일이 없습니다. (빈 폴더)", "transfer");
+        return;
+      }
+      addLog("info", `다운로드 시작: ${entries.length}개 파일`, "transfer");
+
+      const downloadItems = entries.map(({ key, rel }) => {
+        const id = crypto.randomUUID();
+        // C-4: joinPath로 OS별 경로 구분자 통일 (사용자 선택 폴더 기준, 하위 폴더 구조 유지)
+        const localPath = joinPath(selectedDir, rel);
         addTransfer({
           id,
           direction: "download",
           localPath,
           remotePath: key,
-          fileName,
+          fileName: rel,
           size: 0,
           status: "pending",
           progress: 0,
@@ -510,17 +547,8 @@ export function useTransfer() {
   }, [
     activeProfile, local, remote, addTransfer,
     setTransferring, setShowProgressDialog, clearRemoteSelection, triggerLocalRefresh, addLog,
+    clearFinishedTransfers,
   ]);
-
-  // L-1: 로컬 디렉터리 전체 ↔ S3 prefix 비교 (dry-run)
-  const buildPreview = useCallback(async (): Promise<SyncPreviewResult> => {
-    if (!activeProfile) throw new Error("Not connected");
-    return runtime.invoke<SyncPreviewResult>("sync_preview", {
-      profileId: activeProfile.id,
-      localDir: local.path,
-      remotePrefix: remote.path,
-    });
-  }, [activeProfile, local.path, remote.path]);
 
   const retryTransfer = useCallback(async (item: TransferItem) => {
     if (!activeProfile) return;
@@ -539,11 +567,12 @@ export function useTransfer() {
         metadata: {},
       };
       try {
+        const provider = activeCdns[0] ?? activeProfile.cdnProvider;
         await runtime.invoke("upload_files", {
           profileId: activeProfile.id,
           items: [retryItem],
-          cdnDistributionId: activeProfile.cdnDistributionId,
-          cdnProvider: activeProfile.cdnProvider,
+          cdnDistributionId: cdnDistributionIdFor(activeProfile, provider),
+          cdnProvider: provider,
           maxConcurrentFiles: 1,
         });
       } catch (err) {
@@ -562,9 +591,9 @@ export function useTransfer() {
         addLog("error", `재시도 실패 [${item.fileName}]: ${err}`, "transfer");
       }
     }
-  }, [activeProfile, updateTransfer, addLog]);
+  }, [activeProfile, activeCdns, updateTransfer, addLog]);
 
-  return { startUpload, startDownload, buildSyncPlan, buildPreview, retryTransfer };
+  return { startUpload, startDownload, buildSyncPlan, retryTransfer };
 }
 
 function summarizeTransferStatus(transfers: TransferItem[]): "success" | "failed" | "partial" {

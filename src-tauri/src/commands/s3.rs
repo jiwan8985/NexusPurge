@@ -13,7 +13,7 @@ use crate::utils::crypto;
 use crate::utils::transfer_control::TransferControl;
 
 // ─── 동시 파일 전송 상한 (H-2) ───────────────────────────────────────────────
-const MAX_CONCURRENT_FILES: usize = 4;
+const MAX_CONCURRENT_FILES: usize = 8;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -227,6 +227,31 @@ pub async fn list_s3_objects(
     })
 }
 
+/// 폴더 다운로드용: prefix 하위 전체 객체 키 조회 (재귀)
+#[tauri::command]
+pub async fn list_s3_keys(
+    profile_id: String,
+    prefix: String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<Vec<String>, String> {
+    let (creds, region, bucket, endpoint) = store
+        .get_connection_info(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    cache
+        .get_or_create(&profile_id, || async {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .list_keys_recursive(&prefix)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn delete_s3_objects(
     profile_id: String,
@@ -260,6 +285,8 @@ pub async fn put_s3_object(
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    crate::utils::validate::validate_s3_key(&key)?;
+
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
@@ -302,6 +329,32 @@ pub async fn get_presigned_url(
         .map_err(|e| e.to_string())
 }
 
+/// 속성(우클릭) 다이얼로그 — S3 객체의 전체 HeadObject 응답(상세 헤더)을 반환.
+/// 고객사 요청: 크롬 개발자모드 Network 탭에서 보는 수준의 상세 정보 제공.
+#[tauri::command]
+pub async fn get_s3_object_detail(
+    profile_id: String,
+    key:        String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<Option<crate::adapters::storage::base::S3ObjectDetail>, String> {
+    let (creds, region, bucket, endpoint) = store
+        .get_connection_info(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    cache
+        .get_or_create(&profile_id, || async {
+            S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
+                .await
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .head_object_full(&key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// H-1: S3 오브젝트 이름 변경 (CopyObject + DeleteObject)
 #[tauri::command]
 pub async fn rename_s3_object(
@@ -311,6 +364,9 @@ pub async fn rename_s3_object(
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
 ) -> Result<(), String> {
+    // 사용자가 새로 정하는 이름만 검증 (old_key는 기존 객체)
+    crate::utils::validate::validate_s3_key(&new_key)?;
+
     let (creds, region, bucket, endpoint) = store
         .get_connection_info(&profile_id)
         .await
@@ -479,24 +535,17 @@ pub async fn upload_files(
         .await
         .map_err(|e| e.to_string())?;
 
-    // CDN 자격증명 사전 조회 (다중 CDN 지원)
-    let mut cdns = Vec::new();
-    if let Ok(profile) = store.get_profile(&profile_id).await {
-        if profile.cdn_provider.as_deref() == Some("multiple") {
-            for c in &profile.cdn_providers {
-                if c.enabled {
-                    if let Ok(creds) = store.get_cdn_credentials(&profile_id, &c.provider).await {
-                        cdns.push((c.provider.clone(), c.distribution_id.clone().unwrap_or_default(), creds));
-                    }
-                }
-            }
-        } else if let Some(prov) = &profile.cdn_provider {
-            if let Ok(creds) = store.get_cdn_credentials(&profile_id, prov).await {
-                cdns.push((prov.clone(), profile.cdn_distribution_id.clone().unwrap_or_default(), creds));
-            }
-        }
-    }
-    let cdns = Arc::new(cdns);
+    // H-6: CDN 자격증명 사전 조회 (태스크 외부에서 한 번만 실행)
+    let cdn_info: Option<(String, crate::utils::config::CdnCredentials)> =
+        match &cdn_provider {
+            Some(prov) => store
+                .get_cdn_credentials(&profile_id, prov)
+                .await
+                .ok()
+                .map(|c| (cdn_distribution_id.clone().unwrap_or_default(), c)),
+            None => None,
+        };
+    let cdn_info = Arc::new(cdn_info);
 
     let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
     let semaphore = Arc::new(Semaphore::new(concurrent));
@@ -505,7 +554,7 @@ pub async fn upload_files(
     for item in items {
         let adapter   = adapter.clone();
         let app       = app.clone();
-        let cdns      = cdns.clone();
+        let cdn_info  = cdn_info.clone();
         let permit    = semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
@@ -580,41 +629,25 @@ pub async fn upload_files(
             };
 
             // is_overwrite == true 인 경우에만 CDN Purge 실행 (C-1)
-            let mut cdn_purged = false;
-            let mut cdn_purge_error = None;
-            let mut cdn_invalidation_id = None;
-
-            if result.is_ok() && item.is_overwrite && !cdns.is_empty() {
-                let mut errors = Vec::new();
-                let mut invalidation_ids = Vec::new();
-                for (provider, dist, cdn_creds) in cdns.iter() {
-                    match crate::adapters::cdn::purge_with_credentials(
-                        dist,
-                        &[item.remote_path.clone()],
-                        cdn_creds.clone(),
-                    )
-                    .await
-                    {
-                        Ok(id) => {
-                            cdn_purged = true;
-                            if let Some(id_str) = id {
-                                invalidation_ids.push(format!("{}:{}", provider, id_str));
-                            } else {
-                                invalidation_ids.push(format!("{}:success", provider));
-                            }
+            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) =
+                if result.is_ok() && item.is_overwrite {
+                    if let Some((dist, cdn_creds)) = cdn_info.as_ref() {
+                        match crate::adapters::cdn::purge_with_credentials(
+                            dist,
+                            &[item.remote_path.clone()],
+                            cdn_creds.clone(),
+                        )
+                        .await
+                        {
+                            Ok(id)  => (true, None, id),
+                            Err(e) => (false, Some(e.to_string()), None),
                         }
-                        Err(e) => {
-                            errors.push(format!("{}: {}", provider, e));
-                        }
+                    } else {
+                        (false, None, None)
                     }
-                }
-                if !errors.is_empty() {
-                    cdn_purge_error = Some(errors.join(", "));
-                }
-                if !invalidation_ids.is_empty() {
-                    cdn_invalidation_id = Some(invalidation_ids.join(", "));
-                }
-            }
+                } else {
+                    (false, None, None)
+                };
 
             let _ = app.emit(
                 "transfer:complete",
@@ -634,6 +667,265 @@ pub async fn upload_files(
 
     while tasks.join_next().await.is_some() {}
     Ok(())
+}
+
+// ───  프로필 파일(JSON) Import ─────────────────────────────────────────
+
+/// 테스트 프로필 파일 형식 (profile-sample.json 참고)
+#[derive(Debug, Deserialize)]
+pub struct ProfileFile {
+    pub name: String,
+    pub region: String,
+    pub bucket: String,
+    #[serde(default, rename = "basePrefix")]
+    pub base_prefix: Option<String>,
+    #[serde(rename = "accessKeyId")]
+    pub access_key_id: String,
+    #[serde(rename = "secretAccessKey")]
+    pub secret_access_key: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default, rename = "cdnBasePath")]
+    pub cdn_base_path: Option<String>,
+    /// 연결 직후 기본 선택될 CDN (미지정 시 cdns의 첫 항목)
+    #[serde(default, rename = "defaultCdn")]
+    pub default_cdn: Option<String>,
+    #[serde(default)]
+    pub cdns: ProfileFileCdns,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ProfileFileCdns {
+    #[serde(default)]
+    pub cloudfront: Option<ProfileFileCloudfront>,
+    #[serde(default)]
+    pub akamai: Option<ProfileFileAkamai>,
+    #[serde(default)]
+    pub kt: Option<ProfileFileSolbox>,
+    #[serde(default)]
+    pub lguplus: Option<ProfileFileSolbox>,
+    #[serde(default)]
+    pub hyosung: Option<ProfileFileHyosung>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileHyosung {
+    /// X-ITX-Security-Principal
+    #[serde(rename = "apiKey")]
+    pub api_key: String,
+    /// X-ITX-Security-Secret
+    #[serde(rename = "apiSecret")]
+    pub api_secret: String,
+    /// CDN 서비스 ID (예: TID_18656)
+    #[serde(rename = "serviceId")]
+    pub service_id: String,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileCloudfront {
+    #[serde(rename = "distributionId")]
+    pub distribution_id: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileAkamai {
+    pub host: String,
+    #[serde(rename = "clientToken")]
+    pub client_token: String,
+    #[serde(rename = "clientSecret")]
+    pub client_secret: String,
+    #[serde(rename = "accessToken")]
+    pub access_token: String,
+    #[serde(default, rename = "cpCode")]
+    pub cp_code: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProfileFileSolbox {
+    pub username: String,
+    pub password: String,
+    #[serde(rename = "serviceName")]
+    pub service_name: String,
+    #[serde(default, rename = "volumeName")]
+    pub volume_name: Option<String>,
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    /// "cloudcdn" | "volume" — cloudcdn이면 전체 Purge 시 Purge by Service 사용
+    #[serde(default, rename = "serviceType")]
+    pub service_type: Option<String>,
+}
+
+/// JSON 프로필 파일을 가져와 저장한다.
+/// 하나의 파일에 여러 CDN(cloudfront/akamai/kt/lguplus)을 담을 수 있으며,
+/// 시크릿(S3 secret, CDN password 등)은 저장 시 OS keyring으로 이동한다.
+#[tauri::command]
+pub async fn import_profile_file(
+    content: String,
+    store: State<'_, ProfileStore>,
+    cache: State<'_, AdapterCache>,
+) -> Result<ProfileConfig, String> {
+    let file: ProfileFile = serde_json::from_str(&content)
+        .map_err(|e| format!("프로필 파일 파싱 실패: {}", e))?;
+
+    let mut cdn_providers: Vec<crate::utils::config::CdnProviderConfig> = Vec::new();
+    let mut profile = ProfileConfig {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: file.name,
+        scope: None,
+        permissions: None,
+        region: file.region,
+        bucket: file.bucket,
+        base_prefix: file.base_prefix,
+        access_key_id: Some(file.access_key_id),
+        secret_access_key: Some(file.secret_access_key),
+        endpoint: file.endpoint,
+        cdn_provider: None,
+        cdn_providers: Vec::new(),
+        cdn_distribution_id: None,
+        cdn_domain: None,
+        cdn_base_path: file.cdn_base_path,
+        purge_on_new_upload: false,
+        purge_policy: None,
+        upload_policy: None,
+        metadata_policy: None,
+        log_shipping: None,
+        auth_binding: None,
+        default_cache_control: None,
+        content_type_override: None,
+        multipart_etag_fallback: false,
+        akamai_client_token: None,
+        akamai_client_secret: None,
+        akamai_access_token: None,
+        akamai_host: None,
+        akamai_cp_code: None,
+        lguplus_username: None,
+        lguplus_password: None,
+        lguplus_service_name: None,
+        lguplus_volume_name: None,
+        lguplus_endpoint: None,
+        lguplus_service_type: None,
+        kt_username: None,
+        kt_password: None,
+        kt_service_name: None,
+        kt_volume_name: None,
+        kt_endpoint: None,
+        kt_service_type: None,
+        hyosung_api_key: None,
+        hyosung_api_secret: None,
+        hyosung_endpoint: None,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Some(cf) = file.cdns.cloudfront {
+        profile.cdn_distribution_id = Some(cf.distribution_id.clone());
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "cloudfront".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: Some(cf.distribution_id),
+            domain: cf.domain,
+        });
+    }
+    if let Some(ak) = file.cdns.akamai {
+        profile.akamai_host = Some(ak.host);
+        profile.akamai_client_token = Some(ak.client_token);
+        profile.akamai_client_secret = Some(ak.client_secret);
+        profile.akamai_access_token = Some(ak.access_token);
+        profile.akamai_cp_code = ak.cp_code;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "akamai".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: ak.domain,
+        });
+    }
+    if let Some(kt) = file.cdns.kt {
+        profile.kt_username = Some(kt.username);
+        profile.kt_password = Some(kt.password);
+        profile.kt_service_name = Some(kt.service_name);
+        profile.kt_volume_name = kt.volume_name;
+        profile.kt_endpoint = kt.endpoint;
+        profile.kt_service_type = kt.service_type;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "kt".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: kt.domain,
+        });
+    }
+    if let Some(lgu) = file.cdns.lguplus {
+        profile.lguplus_username = Some(lgu.username);
+        profile.lguplus_password = Some(lgu.password);
+        profile.lguplus_service_name = Some(lgu.service_name);
+        profile.lguplus_volume_name = lgu.volume_name;
+        profile.lguplus_endpoint = lgu.endpoint;
+        profile.lguplus_service_type = lgu.service_type;
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "lguplus".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: None,
+            domain: lgu.domain,
+        });
+    }
+    if let Some(hyosung) = file.cdns.hyosung {
+        profile.hyosung_api_key = Some(hyosung.api_key);
+        profile.hyosung_api_secret = Some(hyosung.api_secret);
+        profile.hyosung_endpoint = hyosung.endpoint;
+        // Service ID는 provider별 distribution_id 슬롯에 보관 (CloudFront와 공존 가능)
+        if profile.cdn_distribution_id.is_none() {
+            profile.cdn_distribution_id = Some(hyosung.service_id.clone());
+        }
+        cdn_providers.push(crate::utils::config::CdnProviderConfig {
+            provider: "hyosung".into(),
+            display_name: None,
+            enabled: true,
+            distribution_id: Some(hyosung.service_id),
+            domain: hyosung.domain,
+        });
+    }
+
+    // 기본 CDN: defaultCdn 지정값이 목록에 있으면 사용, 없으면 첫 항목
+    let default_cdn = file
+        .default_cdn
+        .filter(|d| cdn_providers.iter().any(|c| &c.provider == d))
+        .or_else(|| cdn_providers.first().map(|c| c.provider.clone()));
+    if let Some(default) = &default_cdn {
+        profile.cdn_domain = cdn_providers
+            .iter()
+            .find(|c| &c.provider == default)
+            .and_then(|c| c.domain.clone());
+    }
+    profile.cdn_provider = default_cdn;
+    profile.cdn_providers = cdn_providers;
+
+    cache.invalidate(&profile.id).await;
+    store.save(profile.clone()).await.map_err(|e| e.to_string())?;
+    // 응답에서 시크릿·인증 관련 값 전부 제거 (keyring 저장 완료 — 프론트엔드로 평문 전달 금지)
+    profile.secret_access_key = None;
+    profile.akamai_client_secret = None;
+    profile.kt_password = None;
+    profile.lguplus_password = None;
+    profile.access_key_id = None;
+    profile.akamai_client_token = None;
+    profile.akamai_access_token = None;
+    profile.hyosung_api_key = None;
+    profile.lguplus_username = None;
+    profile.kt_username = None;
+    Ok(profile)
 }
 
 // ─── 암호화 프로필 Export / Import ───────────────────────────────────────────
@@ -669,6 +961,14 @@ pub async fn export_encrypted_profile(
         ("_lguplus", &mut profile.lguplus_password),
         ("_hyosung", &mut profile.hyosung_api_secret),
         ("_kt",      &mut profile.kt_password),
+        // 인증 관련이지만 secret은 아닌 값들(Access Key ID, 토큰, 계정명)도
+        // profiles.json이 아닌 keyring에만 있으므로 내보내기 시 여기서 주입해야 함
+        ("_access_key_id",       &mut profile.access_key_id),
+        ("_akamai_client_token", &mut profile.akamai_client_token),
+        ("_akamai_access_token", &mut profile.akamai_access_token),
+        ("_hyosung_api_key",     &mut profile.hyosung_api_key),
+        ("_lguplus_username",    &mut profile.lguplus_username),
+        ("_kt_username",         &mut profile.kt_username),
     ] {
         let key = format!("{}{}", profile_id, suffix);
         if let Ok(entry) = Entry::new(SVC, &key) {
@@ -695,11 +995,23 @@ pub async fn import_encrypted_profile(
     }
 
     let decrypted = crypto::decrypt(&encrypted_data, &passphrase).map_err(|e| e.to_string())?;
-    let profile: ProfileConfig =
+    let mut profile: ProfileConfig =
         serde_json::from_slice(&decrypted).map_err(|e| format!("프로필 파싱 실패: {}", e))?;
 
     // 기존 프로필이 있다면 캐시 무효화
     cache.invalidate(&profile.id).await;
     store.save(profile.clone()).await.map_err(|e| e.to_string())?;
+    // 응답에서 시크릿·인증 관련 값 전부 제거 (keyring 저장 완료 — 프론트엔드는 이 값을 쓰지 않으며,
+    // 복호화된 평문이 IPC를 거쳐 렌더러 프로세스 메모리에 남을 이유가 없다)
+    profile.secret_access_key = None;
+    profile.akamai_client_secret = None;
+    profile.kt_password = None;
+    profile.lguplus_password = None;
+    profile.access_key_id = None;
+    profile.akamai_client_token = None;
+    profile.akamai_access_token = None;
+    profile.hyosung_api_key = None;
+    profile.lguplus_username = None;
+    profile.kt_username = None;
     Ok(profile)
 }

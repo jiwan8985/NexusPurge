@@ -85,7 +85,19 @@ export default function TitleBar() {
   return (
     <div className={styles.titlebar} data-tauri-drag-region>
       <div className={styles.left} data-tauri-drag-region>
-        <span className={styles.brandMark} aria-hidden>NP</span>
+        <div className={styles.brandMark} aria-hidden>
+          <svg className={styles.brandLogo} width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#6366f1" />
+                <stop offset="50%" stopColor="#8b5cf6" />
+                <stop offset="100%" stopColor="#ec4899" />
+              </linearGradient>
+            </defs>
+            <circle className={styles.logoRing} cx="16" cy="16" r="13" stroke="url(#logo-grad)" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="40 15" style={{ transformOrigin: 'center' }} />
+            <path d="M16 6L9 16H15L14 26L23 14H17L20 6H16Z" fill="url(#logo-grad)" stroke="url(#logo-grad)" strokeWidth="1" strokeLinejoin="round" />
+          </svg>
+        </div>
         <div className={styles.brandText}>
           <span className={styles.appName}>NexusPurge</span>
           <span className={styles.appSub}>S3 배포 운영 콘솔</span>

@@ -14,20 +14,19 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use crate::adapters::storage::base::{
-    ListResult, ObjectMeta, Progress, RemoteFile, StorageAdapter, UploadResult,
+    ListResult, ObjectMeta, Progress, RemoteFile, S3ObjectDetail, StorageAdapter, UploadResult,
 };
 use crate::commands::s3::FileItem;
 use crate::utils::config::AwsCredentials;
-use crate::utils::retry::is_retryable_status;
 use crate::utils::sigv4::Signer;
 
-// ?�?�?� Constants ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ─── Constants ──────────────────────────────────────────────────────────────
 
-/// ???�기 ?�상?�면 멀?�파???�로?�로 ?�환
+/// 이 크기 이상이면 멀티파트 업로드/다운로드로 전환
 pub const MULTIPART_THRESHOLD: u64 = 10 * 1024 * 1024; // 10 MB
-/// ?�트???�기 (S3 최소 5 MB, 마�?�??�트 ?�외)
+/// 파트 크기 (S3 최소 5 MB, 마지막 파트 예외) — 업로드/다운로드 공통 사용
 pub const PART_SIZE: usize = 10 * 1024 * 1024; // 10 MB
-/// ?�시 ?�트 ?�로????
+/// 동시 파트 처리 수 (업로드/다운로드 공통)
 const MAX_CONCURRENT_PARTS: usize = 4;
 
 // ?�?�?� S3Adapter ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
@@ -104,10 +103,6 @@ impl S3Adapter {
         })
     }
 
-    fn signer(&self) -> Signer<'_> {
-        self.signer_for("s3")
-    }
-
     fn signer_for(&self, service: &'static str) -> Signer<'_> {
         Signer {
             access_key_id:     &self.creds.access_key_id,
@@ -115,10 +110,6 @@ impl S3Adapter {
             region:            &self.region,
             service,
         }
-    }
-
-    fn bucket_url(&self) -> String {
-        format!("{}/{}", self.endpoint, self.bucket)
     }
 
     fn sdk_failure<E, R>(
@@ -158,158 +149,6 @@ impl S3Adapter {
             operation,
             code
         )
-    }
-
-    // ?�?� Signed HTTP Helpers ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
-
-    async fn signed_get(&self, url: &Url) -> Result<reqwest::Response> {
-        let headers = self.signer().sign_headers("GET", url, &[], b"");
-        let mut last_err = None;
-        for attempt in 0..3 {
-            let mut req = self.client.get(url.as_str());
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if should_retry_status(resp.status()) && attempt < 2 => {
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Ok(resp) => return Ok(resp),
-                Err(err) if attempt < 2 => {
-                    last_err = Some(err);
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Err(err) => return Err(err).context("HTTP GET ?�패"),
-            }
-        }
-        Err(last_err.expect("retry error")).context("HTTP GET ?�패")
-    }
-
-    async fn signed_head(&self, url: &Url) -> Result<reqwest::Response> {
-        let headers = self.signer().sign_headers("HEAD", url, &[], b"");
-        let mut last_err = None;
-        for attempt in 0..3 {
-            let mut req = self.client.head(url.as_str());
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if should_retry_status(resp.status()) && attempt < 2 => {
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Ok(resp) => return Ok(resp),
-                Err(err) if attempt < 2 => {
-                    last_err = Some(err);
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Err(err) => return Err(err).context("HTTP HEAD ?�패"),
-            }
-        }
-        Err(last_err.expect("retry error")).context("HTTP HEAD ?�패")
-    }
-
-    #[allow(dead_code)]
-    async fn signed_put(
-        &self,
-        url: &Url,
-        body: Vec<u8>,
-        content_type: &str,
-        cache_control: Option<&str>,
-    ) -> Result<reqwest::Response> {
-        let mut sign_headers = vec![("content-type", content_type)];
-        if let Some(value) = cache_control {
-            sign_headers.push(("cache-control", value));
-        }
-        let headers = self.signer().sign_headers("PUT", url, &sign_headers, &body);
-        let mut last_err = None;
-        for attempt in 0..3 {
-            let mut req = self
-                .client
-                .put(url.as_str())
-                .header("content-type", content_type)
-                .body(body.clone());
-            if let Some(value) = cache_control {
-                req = req.header("cache-control", value);
-            }
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if should_retry_status(resp.status()) && attempt < 2 => {
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Ok(resp) => return Ok(resp),
-                Err(err) if attempt < 2 => {
-                    last_err = Some(err);
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Err(err) => return Err(err).context("HTTP PUT ?�패"),
-            }
-        }
-        Err(last_err.expect("retry error")).context("HTTP PUT ?�패")
-    }
-
-    async fn signed_post(
-        &self,
-        url: &Url,
-        body: Vec<u8>,
-        content_type: &str,
-        cache_control: Option<&str>,
-    ) -> Result<reqwest::Response> {
-        let mut sign_headers = vec![("content-type", content_type)];
-        if let Some(value) = cache_control {
-            sign_headers.push(("cache-control", value));
-        }
-        let headers = self.signer().sign_headers("POST", url, &sign_headers, &body);
-        let mut last_err = None;
-        for attempt in 0..3 {
-            let mut req = self
-                .client
-                .post(url.as_str())
-                .header("content-type", content_type)
-                .body(body.clone());
-            if let Some(value) = cache_control {
-                req = req.header("cache-control", value);
-            }
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if should_retry_status(resp.status()) && attempt < 2 => {
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Ok(resp) => return Ok(resp),
-                Err(err) if attempt < 2 => {
-                    last_err = Some(err);
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Err(err) => return Err(err).context("HTTP POST ?�패"),
-            }
-        }
-        Err(last_err.expect("retry error")).context("HTTP POST ?�패")
-    }
-
-    async fn signed_delete(&self, url: &Url) -> Result<reqwest::Response> {
-        let headers = self.signer().sign_headers("DELETE", url, &[], b"");
-        let mut last_err = None;
-        for attempt in 0..3 {
-            let mut req = self.client.delete(url.as_str());
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if should_retry_status(resp.status()) && attempt < 2 => {
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Ok(resp) => return Ok(resp),
-                Err(err) if attempt < 2 => {
-                    last_err = Some(err);
-                    tokio::time::sleep(retry_delay(attempt)).await;
-                }
-                Err(err) => return Err(err).context("HTTP DELETE ?�패"),
-            }
-        }
-        Err(last_err.expect("retry error")).context("HTTP DELETE ?�패")
     }
 
     // ?�?� Public Operations ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
@@ -393,13 +232,13 @@ impl S3Adapter {
     }
 
     async fn test_get_bucket_location(&self) -> Result<()> {
-        let url = Url::parse(&format!("{}/?location", self.bucket_url()))
-            .context("GetBucketLocation URL ?�성 ?�패")?;
-        let resp = self.signed_get(&url).await.context(format!(
-            "S3 GetBucketLocation ?�패: bucket={}, region={}",
-            self.bucket, self.region
-        ))?;
-        self.ensure_success("S3 GetBucketLocation", None, resp).await
+        self.sdk_client
+            .get_bucket_location()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("GetBucketLocation", None, &err))?;
+        Ok(())
     }
 
     async fn test_list_objects_v2(&self, prefix: &str) -> Result<()> {
@@ -470,18 +309,6 @@ impl S3Adapter {
             return self.endpoint.clone();
         }
         format!("https://sts.{}.amazonaws.com", self.region)
-    }
-
-    #[allow(dead_code)]
-    async fn verify_list_access(&self) -> Result<()> {
-        let url =
-            Url::parse(&format!("{}/?list-type=2&max-keys=1", self.bucket_url()))
-                .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_get(&url).await?;
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("버킷 ?�근 ?�패: HTTP {}", resp.status()));
-        }
-        Ok(())
     }
 
     /// ?�일 ?�이지 목록 조회 (?��???
@@ -574,115 +401,144 @@ impl S3Adapter {
         self.list_objects_all(prefix).await
     }
 
-    /// ETag�?반환 (sync ?�랜 비교??
+    /// ETag만 반환 (sync 플랜 비교용)
     #[allow(dead_code)]
     pub async fn head_object_etag(&self, key: &str) -> Result<Option<String>> {
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_head(&url).await?;
-
-        if resp.status().as_u16() == 404 {
-            return Ok(None);
-        }
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
-        }
-
-        let etag = resp
-            .headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned());
-
-        Ok(etag)
+        Ok(self.head_object_meta(key).await?.and_then(|meta| meta.etag))
     }
 
     pub async fn head_object_meta(&self, key: &str) -> Result<Option<ObjectMeta>> {
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_head(&url).await?;
-
-        if resp.status().as_u16() == 404 {
-            return Ok(None);
+        match self
+            .sdk_client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(resp) => Ok(Some(ObjectMeta {
+                key: key.to_owned(),
+                size: resp.content_length().unwrap_or(0).max(0) as u64,
+                etag: resp.e_tag().map(|value| value.trim_matches('"').to_owned()),
+                last_modified: resp
+                    .last_modified()
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+                content_type: resp.content_type().map(|value| value.to_owned()),
+            })),
+            Err(err) => {
+                if err
+                    .as_service_error()
+                    .map(|e| e.is_not_found())
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                }
+                Err(self.sdk_failure("HeadObject", Some(key), &err))
+            }
         }
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
+    }
+
+    /// 속성(우클릭) 다이얼로그의 "S3 상세 헤더" 표시용 — HeadObject 응답의 전 필드를 그대로 반환.
+    /// 크롬 개발자모드 Network 탭에서 보는 응답 헤더 수준의 상세 정보를 제공한다.
+    pub async fn head_object_full(&self, key: &str) -> Result<Option<S3ObjectDetail>> {
+        match self
+            .sdk_client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(resp) => Ok(Some(S3ObjectDetail {
+                key: key.to_owned(),
+                etag: resp.e_tag().map(|v| v.trim_matches('"').to_owned()),
+                content_length: resp.content_length(),
+                content_type: resp.content_type().map(ToOwned::to_owned),
+                content_encoding: resp.content_encoding().map(ToOwned::to_owned),
+                content_disposition: resp.content_disposition().map(ToOwned::to_owned),
+                content_language: resp.content_language().map(ToOwned::to_owned),
+                cache_control: resp.cache_control().map(ToOwned::to_owned),
+                last_modified: resp.last_modified().map(|v| v.to_string()),
+                storage_class: resp.storage_class().map(|v| v.as_str().to_owned()),
+                server_side_encryption: resp.server_side_encryption().map(|v| v.as_str().to_owned()),
+                sse_kms_key_id: resp.ssekms_key_id().map(ToOwned::to_owned),
+                version_id: resp.version_id().map(ToOwned::to_owned),
+                replication_status: resp.replication_status().map(|v| v.as_str().to_owned()),
+                accept_ranges: resp.accept_ranges().map(ToOwned::to_owned),
+                checksum_crc32: resp.checksum_crc32().map(ToOwned::to_owned),
+                checksum_sha256: resp.checksum_sha256().map(ToOwned::to_owned),
+                metadata: resp.metadata().cloned().unwrap_or_default(),
+            })),
+            Err(err) => {
+                if err
+                    .as_service_error()
+                    .map(|e| e.is_not_found())
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                }
+                Err(self.sdk_failure("HeadObject", Some(key), &err))
+            }
         }
+    }
 
-        let headers = resp.headers();
-        let etag = headers
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned());
-        let size = headers
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let last_modified = headers
-            .get("last-modified")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
-        let content_type = headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(|v| v.to_owned());
-
-        Ok(Some(ObjectMeta {
-            key: key.to_owned(),
-            size,
-            etag,
-            last_modified,
-            content_type,
-        }))
+    /// List every object key under the prefix (no delimiter) — used for folder deletion/download.
+    pub async fn list_keys_recursive(&self, prefix: &str) -> Result<Vec<String>> {
+        let mut keys = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let mut request = self
+                .sdk_client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix)
+                .max_keys(1000);
+            if let Some(t) = &token {
+                request = request.continuation_token(t);
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|err| self.sdk_failure("ListObjectsV2", Some(prefix), &err))?;
+            for object in response.contents() {
+                if let Some(key) = object.key() {
+                    keys.push(key.to_owned());
+                }
+            }
+            token = response.next_continuation_token().map(ToOwned::to_owned);
+            if !response.is_truncated().unwrap_or(false) || token.is_none() {
+                break;
+            }
+        }
+        Ok(keys)
     }
 
     pub async fn delete_objects(&self, keys: &[String]) -> Result<Vec<String>> {
         if keys.is_empty() {
             return Ok(vec![]);
         }
-        
-        let mut keys_to_delete = Vec::new();
+        // A key ending with "/" is a folder: expand to every object under the prefix,
+        // including the "dir/" placeholder itself when it exists as a real object.
+        let mut expanded: Vec<String> = Vec::with_capacity(keys.len());
+        let mut seen = std::collections::HashSet::new();
         for key in keys {
             if key.ends_with('/') {
-                // 이 키는 디렉터리이므로 모든 하위 객체를 재귀적으로 조회하여 삭제 목록에 추가
-                let mut token: Option<String> = None;
-                loop {
-                    let mut request = self.sdk_client
-                        .list_objects_v2()
-                        .bucket(&self.bucket)
-                        .prefix(key); // delimiter("/")를 지정하지 않아 하위 모든 경로 파일 탐색
-                    if let Some(t) = &token {
-                        request = request.continuation_token(t);
+                for child in self.list_keys_recursive(key).await? {
+                    if seen.insert(child.clone()) {
+                        expanded.push(child);
                     }
-                    let response = request
-                        .send()
-                        .await
-                        .map_err(|err| self.sdk_failure("ListObjectsV2ForDelete", Some(key), &err))?;
-                    
-                    for object in response.contents() {
-                        if let Some(k) = object.key() {
-                            keys_to_delete.push(k.to_owned());
-                        }
-                    }
-                    if !response.is_truncated().unwrap_or(false) || response.next_continuation_token().is_none() {
-                        break;
-                    }
-                    token = response.next_continuation_token().map(|s| s.to_owned());
                 }
-                // 빈 폴더 객체 자체도 삭제하도록 추가
-                keys_to_delete.push(key.clone());
-            } else {
-                keys_to_delete.push(key.clone());
+                if seen.insert(key.clone()) {
+                    expanded.push(key.clone());
+                }
+            } else if seen.insert(key.clone()) {
+                expanded.push(key.clone());
             }
         }
 
-        // 중복 제거
-        keys_to_delete.sort();
-        keys_to_delete.dedup();
-
-        for key in &keys_to_delete {
+        let mut deleted = Vec::with_capacity(expanded.len());
+        for key in &expanded {
             self.sdk_client
                 .delete_object()
                 .bucket(&self.bucket)
@@ -690,9 +546,9 @@ impl S3Adapter {
                 .send()
                 .await
                 .map_err(|err| self.sdk_failure("DeleteObject", Some(key), &err))?;
+            deleted.push(key.clone());
         }
-        
-        Ok(keys.to_vec())
+        return Ok(deleted);
     }
 
     pub async fn put_object(&self, key: &str, data: Vec<u8>, content_type: &str) -> Result<()> {
@@ -765,7 +621,7 @@ impl S3Adapter {
         }
     }
 
-    /// ?�트리밍 ?�운로드
+    /// 스트리밍 다운로드 (진행률 콜백만 필요한 호출부용 — 취소 불가)
     pub async fn download_with_progress(
         &self,
         remote_key: &str,
@@ -776,6 +632,10 @@ impl S3Adapter {
             .await
     }
 
+    /// 다운로드 실행 — 객체 크기가 MULTIPART_THRESHOLD 이상이면 Range 요청으로 파트를
+    /// 병렬 다운로드하고, 미만이면 단일 스트리밍 GET으로 처리한다.
+    /// 실패/취소 시 로컬에 남은 불완전한 파일을 삭제한다 — 부분 다운로드가 완료본으로
+    /// 오인되어 CDN에 잘못 업로드되거나 그대로 사용되는 사고를 방지하기 위함.
     pub async fn download_with_cancel(
         &self,
         remote_key: &str,
@@ -783,191 +643,208 @@ impl S3Adapter {
         is_cancelled: impl Fn() -> bool,
         on_progress: impl Fn(u64, u64),
     ) -> Result<()> {
-        use futures::StreamExt;
-        use tokio::io::AsyncWriteExt;
-
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(remote_key)))
-            .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_get(&url).await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            let brief = compact_error_body(&body);
-            return Err(anyhow::anyhow!(
-                "GetObject 실패: HTTP {} | key={} | {}",
-                status, remote_key, brief
-            ));
-        }
-
-        let total = resp
-            .headers()
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0u64);
-
         if let Some(parent) = Path::new(local_path).parent() {
             fs::create_dir_all(parent)
                 .await
-                .with_context(|| format!("디렉터리 생성 실패: {}", parent.display()))?;
+                .context("디렉터리 생성 실패")?;
         }
+
+        let meta = self
+            .head_object_meta(remote_key)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("원격 객체를 찾을 수 없습니다: {}", remote_key))?;
+        let total = meta.size;
+
+        let result = if total >= MULTIPART_THRESHOLD {
+            self.download_multipart(remote_key, local_path, total, &is_cancelled, &on_progress)
+                .await
+        } else {
+            self.download_single(remote_key, local_path, total, &is_cancelled, &on_progress)
+                .await
+        };
+
+        if result.is_err() {
+            let _ = fs::remove_file(local_path).await;
+        }
+        result
+    }
+
+    /// 단일 스트리밍 GET (MULTIPART_THRESHOLD 미만 파일)
+    async fn download_single(
+        &self,
+        remote_key: &str,
+        local_path: &str,
+        total: u64,
+        is_cancelled: &impl Fn() -> bool,
+        on_progress: &impl Fn(u64, u64),
+    ) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let resp = self
+            .sdk_client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(remote_key)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("GetObject", Some(remote_key), &err))?;
 
         let mut file = fs::File::create(local_path)
             .await
-            .with_context(|| format!("파일 생성 실패: {}", local_path))?;
-        let mut stream = resp.bytes_stream();
+            .context("파일 생성 실패")?;
+        let mut body = resp.body;
         let mut received: u64 = 0;
 
-        while let Some(chunk) = stream.next().await {
+        while let Some(chunk) = body
+            .try_next()
+            .await
+            .context("다운로드 스트림 오류")?
+        {
             if is_cancelled() {
                 return Err(anyhow::anyhow!("Operation cancelled"));
             }
-            let chunk = chunk.context("?�운로드 ?�트�??�류")?;
-            file.write_all(&chunk).await.context("?�일 ?�기 ?�패")?;
+            file.write_all(&chunk).await.context("파일 쓰기 실패")?;
             received += chunk.len() as u64;
             on_progress(received, total);
         }
 
-        file.flush().await.context("?�일 flush ?�패")?;
+        file.flush().await.context("파일 flush 실패")?;
         Ok(())
     }
 
-    /// S3 ?�브?�트 ?�름 변�?(CopyObject ??DeleteObject)
+    /// Range GET 기반 파트 병렬 다운로드 (MULTIPART_THRESHOLD 이상 파일).
+    /// upload_multipart와 동일한 구조: 네트워크 요청(Range GET)만 JoinSet으로 병렬 처리하고,
+    /// 로컬 파일 쓰기·진행률/취소 콜백 호출은 outer 태스크에서만 순차 수행한다 —
+    /// 이 덕분에 is_cancelled/on_progress 클로저에 Send 제약이 없어도 된다.
+    /// 최대 메모리 사용량 = MAX_CONCURRENT_PARTS × PART_SIZE = 40 MB
+    async fn download_multipart(
+        &self,
+        remote_key: &str,
+        local_path: &str,
+        total: u64,
+        is_cancelled: &impl Fn() -> bool,
+        on_progress: &impl Fn(u64, u64),
+    ) -> Result<()> {
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+
+        if is_cancelled() {
+            return Err(anyhow::anyhow!("Operation cancelled"));
+        }
+
+        let mut file = fs::File::create(local_path)
+            .await
+            .context("파일 생성 실패")?;
+        file.set_len(total)
+            .await
+            .context("파일 크기 사전 할당 실패")?;
+
+        // (start, end) 바이트 범위(inclusive) 목록 생성
+        let mut ranges: Vec<(u64, u64)> = Vec::new();
+        let mut offset = 0u64;
+        while offset < total {
+            let end = (offset + PART_SIZE as u64 - 1).min(total - 1);
+            ranges.push((offset, end));
+            offset = end + 1;
+        }
+
+        let mut transferred: u64 = 0;
+        let mut idx = 0usize;
+        while idx < ranges.len() {
+            if is_cancelled() {
+                return Err(anyhow::anyhow!("Operation cancelled"));
+            }
+            let batch_end = (idx + MAX_CONCURRENT_PARTS).min(ranges.len());
+            let mut tasks: JoinSet<Result<(u64, Vec<u8>)>> = JoinSet::new();
+            for &(start, end) in &ranges[idx..batch_end] {
+                let adapter = self.clone();
+                let key = remote_key.to_owned();
+                tasks.spawn(async move {
+                    let resp = adapter
+                        .sdk_client
+                        .get_object()
+                        .bucket(&adapter.bucket)
+                        .key(&key)
+                        .range(format!("bytes={}-{}", start, end))
+                        .send()
+                        .await
+                        .map_err(|err| adapter.sdk_failure("GetObject(Range)", Some(&key), &err))?;
+
+                    let mut body = resp.body;
+                    let mut buf: Vec<u8> = Vec::with_capacity((end - start + 1) as usize);
+                    while let Some(chunk) = body
+                        .try_next()
+                        .await
+                        .context("다운로드 파트 스트림 오류")?
+                    {
+                        buf.extend_from_slice(&chunk);
+                    }
+                    Ok((start, buf))
+                });
+            }
+
+            // 파트 완료 순서는 뒤섞일 수 있으므로 시작 오프셋 기준 정렬 후 파일에 기록
+            let mut parts: Vec<(u64, Vec<u8>)> = Vec::new();
+            while let Some(result) = tasks.join_next().await {
+                match result {
+                    Ok(Ok(part)) => parts.push(part),
+                    Ok(Err(e)) => return Err(e.context("다운로드 파트 실패")),
+                    Err(join_err) => {
+                        return Err(anyhow::anyhow!("다운로드 파트 태스크 패닉: {}", join_err))
+                    }
+                }
+            }
+            parts.sort_by_key(|(start, _)| *start);
+
+            for (start, bytes) in parts {
+                file.seek(std::io::SeekFrom::Start(start))
+                    .await
+                    .context("파일 seek 실패")?;
+                file.write_all(&bytes).await.context("파일 쓰기 실패")?;
+                transferred += bytes.len() as u64;
+            }
+            on_progress(transferred, total);
+
+            idx = batch_end;
+        }
+
+        file.flush().await.context("파일 flush 실패")?;
+        Ok(())
+    }
+
+    /// S3 오브젝트 이름 변경 (CopyObject 후 DeleteObject)
     pub async fn rename_object(&self, src_key: &str, dst_key: &str) -> Result<()> {
-        let copy_source = format!("/{}/{}", self.bucket, encode_key(src_key));
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(dst_key)))
-            .context("URL ?�싱 ?�패")?;
-
-        let headers = self.signer().sign_headers(
-            "PUT",
-            &url,
-            &[
-                ("x-amz-copy-source", &copy_source),
-                ("content-length", "0"),
-            ],
-            b"",
-        );
-
-        let mut req = self
-            .client
-            .put(url.as_str())
-            .header("x-amz-copy-source", &copy_source)
-            .header("content-length", "0");
-        for (k, v) in &headers {
-            req = req.header(k.as_str(), v.as_str());
-        }
-
-        let resp = req.send().await.context("CopyObject HTTP PUT ?�패")?;
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("CopyObject ?�패: {}", body));
-        }
+        let copy_source = format!("{}/{}", self.bucket, encode_key(src_key));
+        self.sdk_client
+            .copy_object()
+            .bucket(&self.bucket)
+            .copy_source(copy_source)
+            .key(dst_key)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("CopyObject", Some(src_key), &err))?;
 
         self.delete_objects(&[src_key.to_owned()])
             .await
-            .context("?�본 ?�브?�트 ??�� ?�패")?;
+            .context("원본 오브젝트 삭제 실패")?;
         Ok(())
     }
 
     pub async fn presign_get(&self, key: &str, expires_in_seconds: u64) -> Result<String> {
-        let now = chrono::Utc::now();
-        let datetime = now.format("%Y%m%dT%H%M%SZ").to_string();
-        let date = now.format("%Y%m%d").to_string();
-        let host = self
-            .bucket_url()
-            .trim_start_matches("https://")
-            .split('/')
-            .next()
-            .unwrap_or("")
-            .to_owned();
+        let config = aws_sdk_s3::presigning::PresigningConfig::expires_in(
+            std::time::Duration::from_secs(expires_in_seconds),
+        )
+        .context("Presign 만료 시간 설정 실패")?;
 
-        let credential_scope = format!("{}/{}/s3/aws4_request", date, self.region);
-        let credential = format!("{}/{}", self.creds.access_key_id, credential_scope);
+        let presigned = self
+            .sdk_client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .presigned(config)
+            .await
+            .map_err(|err| self.sdk_failure("GetObject(Presign)", Some(key), &err))?;
 
-        let raw = format!(
-            "{}/{}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential={}&X-Amz-Date={}&X-Amz-Expires={}&X-Amz-SignedHeaders=host",
-            self.bucket_url(),
-            encode_key(key),
-            percent_encoding::utf8_percent_encode(&credential, percent_encoding::NON_ALPHANUMERIC),
-            datetime,
-            expires_in_seconds
-        );
-
-        let url = Url::parse(&raw).context("Presign URL ?�싱 ?�패")?;
-        let canonical_query = {
-            let mut pairs: Vec<(String, String)> = url
-                .query_pairs()
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
-            pairs.sort_by_key(|(k, _)| k.clone());
-            pairs
-                .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{}={}",
-                        percent_encoding::utf8_percent_encode(
-                            k,
-                            percent_encoding::NON_ALPHANUMERIC
-                        ),
-                        percent_encoding::utf8_percent_encode(
-                            v,
-                            percent_encoding::NON_ALPHANUMERIC
-                        )
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("&")
-        };
-
-        let canonical_request = format!(
-            "GET\n/{}\n{}\nhost:{}\n\nhost\nUNSIGNED-PAYLOAD",
-            encode_key(key),
-            canonical_query,
-            host
-        );
-
-        let string_to_sign = format!(
-            "AWS4-HMAC-SHA256\n{}\n{}\n{}",
-            datetime,
-            credential_scope,
-            crate::utils::sigv4::sha256_hex(canonical_request.as_bytes())
-        );
-
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-        type HmacSha256 = Hmac<Sha256>;
-
-        let k_date = {
-            let mut m = HmacSha256::new_from_slice(
-                format!("AWS4{}", self.creds.secret_access_key).as_bytes(),
-            )
-            .unwrap();
-            m.update(date.as_bytes());
-            m.finalize().into_bytes().to_vec()
-        };
-        let k_region = {
-            let mut m = HmacSha256::new_from_slice(&k_date).unwrap();
-            m.update(self.region.as_bytes());
-            m.finalize().into_bytes().to_vec()
-        };
-        let k_service = {
-            let mut m = HmacSha256::new_from_slice(&k_region).unwrap();
-            m.update(b"s3");
-            m.finalize().into_bytes().to_vec()
-        };
-        let k_signing = {
-            let mut m = HmacSha256::new_from_slice(&k_service).unwrap();
-            m.update(b"aws4_request");
-            m.finalize().into_bytes().to_vec()
-        };
-        let signature = {
-            let mut m = HmacSha256::new_from_slice(&k_signing).unwrap();
-            m.update(string_to_sign.as_bytes());
-            hex::encode(m.finalize().into_bytes())
-        };
-
-        Ok(format!("{}&X-Amz-Signature={}", raw, signature))
+        Ok(presigned.uri().to_string())
     }
 
     // ?�?� Multipart Upload Internals ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
@@ -1142,19 +1019,23 @@ impl S3Adapter {
         content_type: &str,
         cache_control: Option<&str>,
     ) -> Result<String> {
-        let raw = format!("{}/{}?uploads", self.bucket_url(), encode_key(key));
-        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
-        let resp = self
-            .signed_post(&url, vec![], content_type, cache_control)
-            .await?;
-
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("InitiateMultipartUpload ?�패: {}", body));
+        let mut request = self
+            .sdk_client
+            .create_multipart_upload()
+            .bucket(&self.bucket)
+            .key(key)
+            .content_type(content_type);
+        if let Some(value) = cache_control {
+            request = request.cache_control(value);
         }
-
-        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
-        xml_extract(&text, "UploadId").context("UploadId ?�싱 ?�패")
+        let response = request
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("CreateMultipartUpload", Some(key), &err))?;
+        response
+            .upload_id()
+            .map(ToOwned::to_owned)
+            .context("UploadId 없음")
     }
 
     async fn upload_part(
@@ -1164,54 +1045,21 @@ impl S3Adapter {
         part_number: u32,
         data: Vec<u8>,
     ) -> Result<String> {
-        let raw = format!(
-            "{}/{}?partNumber={}&uploadId={}",
-            self.bucket_url(),
-            encode_key(key),
-            part_number,
-            upload_id
-        );
-        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
-
-        // M-5: 지??백오???�시??(최�? 3??
-        let mut delay_ms = 500u64;
-        for attempt in 0u32..3 {
-            let headers = self.signer().sign_headers("PUT", &url, &[], &data);
-            let mut req = self.client.put(url.as_str()).body(data.clone());
-            for (k, v) in &headers {
-                req = req.header(k.as_str(), v.as_str());
-            }
-            match req.send().await {
-                Err(e) if attempt < 2 => {
-                    tracing::warn!("?�트 ?�로???�트?�크 ?�류 ?�시??{}/3 (part {}): {}", attempt + 1, part_number, e);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                    delay_ms *= 2;
-                    continue;
-                }
-                Err(e) => return Err(anyhow::anyhow!("HTTP PUT(part) ?�패: {}", e)),
-                Ok(resp) => {
-                    let status = resp.status();
-                    if status.is_success() {
-                        return resp
-                            .headers()
-                            .get("etag")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|e| e.trim_matches('"').to_owned())
-                            .context("UploadPart ETag ?�더 ?�음");
-                    }
-                    let code = status.as_u16();
-                    if attempt < 2 && is_retryable_status(code) {
-                        tracing::warn!("?�트 ?�로???�시??{}/3 (part {}): HTTP {}", attempt + 1, part_number, code);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                        delay_ms *= 2;
-                        continue;
-                    }
-                    let body = resp.text().await.unwrap_or_default();
-                    return Err(anyhow::anyhow!("UploadPart ?�패 (part {}): {}", part_number, body));
-                }
-            }
-        }
-        unreachable!()
+        let response = self
+            .sdk_client
+            .upload_part()
+            .bucket(&self.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .part_number(part_number as i32)
+            .body(ByteStream::from(data))
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("UploadPart", Some(key), &err))?;
+        response
+            .e_tag()
+            .map(|value| value.trim_matches('"').to_owned())
+            .context("UploadPart ETag 없음")
     }
 
     async fn upload_part_retry(
@@ -1244,62 +1092,45 @@ impl S3Adapter {
         upload_id: &str,
         parts: &[(u32, String)],
     ) -> Result<String> {
-        let part_xml: String = parts
+        let completed_parts: Vec<aws_sdk_s3::types::CompletedPart> = parts
             .iter()
             .map(|(n, etag)| {
-                format!(
-                    "<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>",
-                    n, etag
-                )
+                aws_sdk_s3::types::CompletedPart::builder()
+                    .part_number(*n as i32)
+                    .e_tag(etag)
+                    .build()
             })
             .collect();
+        let multipart = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
 
-        let body = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
-             <CompleteMultipartUpload>{}</CompleteMultipartUpload>",
-            part_xml
-        )
-        .into_bytes();
+        let response = self
+            .sdk_client
+            .complete_multipart_upload()
+            .bucket(&self.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .multipart_upload(multipart)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("CompleteMultipartUpload", Some(key), &err))?;
 
-        let raw = format!(
-            "{}/{}?uploadId={}",
-            self.bucket_url(),
-            encode_key(key),
-            upload_id
-        );
-        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
-        let resp = self
-            .signed_post(&url, body, "application/xml", None)
-            .await?;
-
-        if !resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("CompleteMultipartUpload ?�패: {}", body));
-        }
-
-        let text = resp.text().await.context("?�답 ?�기 ?�패")?;
-        xml_extract(&text, "ETag")
-            .map(|e| e.trim_matches('"').to_owned())
-            .context("CompleteMultipartUpload ETag ?�싱 ?�패")
+        response
+            .e_tag()
+            .map(|value| value.trim_matches('"').to_owned())
+            .context("CompleteMultipartUpload ETag 없음")
     }
 
     async fn abort_multipart_upload(&self, key: &str, upload_id: &str) -> Result<()> {
-        let raw = format!(
-            "{}/{}?uploadId={}",
-            self.bucket_url(),
-            encode_key(key),
-            upload_id
-        );
-        let url = Url::parse(&raw).context("URL ?�싱 ?�패")?;
-        let resp = self.signed_delete(&url).await?;
-
-        // 404???��? ?�료 ?�는 존재?��? ?�음 ??무시
-        if !resp.status().is_success() && resp.status().as_u16() != 404 {
-            return Err(anyhow::anyhow!(
-                "AbortMultipartUpload ?�패: {}",
-                resp.status()
-            ));
-        }
+        self.sdk_client
+            .abort_multipart_upload()
+            .bucket(&self.bucket)
+            .key(key)
+            .upload_id(upload_id)
+            .send()
+            .await
+            .map_err(|err| self.sdk_failure("AbortMultipartUpload", Some(key), &err))?;
         Ok(())
     }
 }
@@ -1360,44 +1191,9 @@ impl StorageAdapter for S3Adapter {
     }
 
     async fn head_object(&self, key: &str) -> Result<ObjectMeta> {
-        let url = Url::parse(&format!("{}/{}", self.bucket_url(), encode_key(key)))
-            .context("URL ?�싱 ?�패")?;
-        let resp = self.signed_head(&url).await?;
-
-        if resp.status().as_u16() == 404 {
-            return Err(anyhow::anyhow!("?�브?�트 ?�음: {}", key));
-        }
-        if !resp.status().is_success() {
-            return Err(anyhow::anyhow!("HeadObject ?�패: HTTP {}", resp.status()));
-        }
-
-        let headers = resp.headers();
-        let etag = headers
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .map(|e| e.trim_matches('"').to_owned());
-        let size = headers
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
-        let last_modified = headers
-            .get("last-modified")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
-        let content_type = headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .map(|v| v.to_owned());
-
-        Ok(ObjectMeta {
-            key: key.to_owned(),
-            size,
-            etag,
-            last_modified,
-            content_type,
-        })
+        self.head_object_meta(key)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("오브젝트 없음: {}", key))
     }
 }
 
@@ -1579,10 +1375,6 @@ fn aws_error_code(body: &str) -> Option<String> {
 
 fn compact_error_body(body: &str) -> String {
     body.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn should_retry_status(status: reqwest::StatusCode) -> bool {
-    status.as_u16() == 408 || status.as_u16() == 429 || status.is_server_error()
 }
 
 fn retry_delay(attempt: usize) -> Duration {

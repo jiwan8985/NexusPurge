@@ -34,34 +34,47 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-md);
-  background: var(--gradient-brand);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 800;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border-strong);
   position: relative;
   overflow: hidden;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
-  letter-spacing: -0.02em;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+  transition: all var(--transition-base);
 }
 
-.brandMark::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: linear-gradient(45deg, transparent 45%, rgba(255, 255, 255, 0.3) 50%, transparent 55%);
-  animation: logoShine 4s infinite linear;
+.brandMark:hover {
+  transform: scale(1.06) rotate(3deg);
+  border-color: var(--color-accent);
+  background: rgba(99, 102, 241, 0.06);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.25);
 }
 
-@keyframes logoShine {
-  0% { transform: translate(-30%, -30%); }
-  100% { transform: translate(30%, 30%); }
+.brandLogo {
+  display: block;
+}
+
+/* 외곽 링 회전 - 평상시 천천히 돌고 호버 시 가속 */
+.logoRing {
+  transform-origin: center;
+  animation: logoRotateSlow 16s linear infinite;
+}
+
+.brandMark:hover .logoRing {
+  animation: logoRotateFast 2.5s linear infinite;
+}
+
+@keyframes logoRotateSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes logoRotateFast {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .brandText {

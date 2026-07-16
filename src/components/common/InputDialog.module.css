@@ -26,3 +26,33 @@
   background: var(--color-bg-base);
   box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
 }
+
+.textarea {
+  width: 100%;
+  height: 120px;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--color-border-strong);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-mono);
+  transition: all var(--transition-base);
+  user-select: text;
+  font-weight: 600;
+  resize: vertical;
+}
+
+.textarea:focus {
+  border-color: var(--color-accent);
+  background: var(--color-bg-base);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.error {
+  margin-top: var(--spacing-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-error, #ef4444);
+  font-weight: 600;
+  word-break: break-all;
+}

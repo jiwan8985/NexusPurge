@@ -4,11 +4,16 @@ import ConfirmDialog from "../common/ConfirmDialog";
 import InputDialog from "../common/InputDialog";
 import { useS3 } from "../../hooks/useS3";
 import { useTransfer } from "../../hooks/useTransfer";
+import { usePanelDrag } from "../../hooks/usePanelDrag";
+import { usePurge } from "../../hooks/usePurge";
 import { useVirtualList, ITEM_H } from "../../hooks/useVirtualList";
-import { runtime } from "../../services/runtime";
 import { useAppStore } from "../../store/appStore";
-import { buildCdnUrl } from "../../utils/cdn";
-import type { CdnUrlCheck, FileItem } from "../../types";
+import PurgeDialog from "../modals/PurgeDialog";
+import PurgeResultDialog from "../modals/PurgeResultDialog";
+import PropertiesDialog from "../modals/PropertiesDialog";
+import { CDN_LABELS } from "../../utils/cdn";
+import { validateS3KeySegment } from "../../utils/s3-key";
+import type { FileItem, PurgeExecutionResult } from "../../types";
 import styles from "./Panel.module.css";
 
 function fmtSize(bytes: number) {
@@ -35,9 +40,9 @@ export default function RemotePanel() {
     remote,
     isConnected,
     activeProfile,
+    activeCdns,
     toggleRemoteSelection,
     clearRemoteSelection,
-    addLog,
     setFocusedSide,
     remoteRefreshKey,
     focusedSide,
@@ -45,21 +50,26 @@ export default function RemotePanel() {
     remote:               s.remote,
     isConnected:          s.isConnected,
     activeProfile:        s.activeProfile,
+    activeCdns:           s.activeCdns,
     toggleRemoteSelection: s.toggleRemoteSelection,
     clearRemoteSelection: s.clearRemoteSelection,
-    addLog:               s.addLog,
     setFocusedSide:       s.setFocusedSide,
     remoteRefreshKey:     s.remoteRefreshKey,
     focusedSide:          s.focusedSide,
   }));
 
-  const { listObjects, deleteObjects, getPresignedUrl, renameObject } = useS3();
-  const { startUpload } = useTransfer();
+  const { listObjects, deleteObjects, renameObject } = useS3();
+  const { startDownload } = useTransfer();
+  const startDownloadRef = useRef(startDownload);
+  startDownloadRef.current = startDownload;
+  const { executePurge, isPurging } = usePurge();
   const [pathInput, setPathInput] = useState(remote.path);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; file: FileItem } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileItem | null>(null);
   const [renameDialog, setRenameDialog] = useState<FileItem | null>(null);
+  const [purgeDialog, setPurgeDialog] = useState<{ paths: string[] } | null>(null);
+  const [purgeResult, setPurgeResult] = useState<PurgeExecutionResult[] | null>(null);
+  const [propertiesFile, setPropertiesFile] = useState<FileItem | null>(null);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setPathInput(remote.path), [remote.path]);
@@ -91,42 +101,6 @@ export default function RemotePanel() {
     pathInputRef.current?.blur();
   };
 
-  const copyCdnUrl = async (file: FileItem) => {
-    const url = buildCdnUrl(activeProfile?.cdnDomain, file.path);
-    if (!url) {
-      addLog("warn", "CDN 도메인이 설정되지 않았습니다.", "cdn");
-      return;
-    }
-    await navigator.clipboard.writeText(url);
-    addLog("success", `CDN URL 복사 완료: ${file.name}`, "cdn");
-  };
-
-  const openCdnUrl = (file: FileItem) => {
-    const url = buildCdnUrl(activeProfile?.cdnDomain, file.path);
-    if (!url) {
-      addLog("warn", "CDN 도메인이 설정되지 않았습니다.", "cdn");
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
-  const verifyCdnUrl = async (file: FileItem) => {
-    if (!activeProfile) return;
-    try {
-      const [check] = await runtime.invoke<CdnUrlCheck[]>("verify_cdn_urls", {
-        profileId: activeProfile.id,
-        paths: [file.path],
-      });
-      if (check?.ok) {
-        addLog("success", `CDN 확인 성공: ${file.name} (${check.statusCode})`, "cdn");
-      } else {
-        addLog("warn", `CDN 확인 실패: ${file.name} (${check?.error ?? check?.statusCode ?? "응답 없음"})`, "cdn");
-      }
-    } catch (err) {
-      addLog("error", `CDN 확인 오류: ${err}`, "cdn");
-    }
-  };
-
   const renameRemoteFile = (file: FileItem) => {
     setCtxMenu(null);
     setRenameDialog(file);
@@ -141,40 +115,30 @@ export default function RemotePanel() {
   };
 
   const buildMenuItems = (file: FileItem): MenuEntry[] => {
-    const copyPresigned = async (seconds: number, label: string) => {
-      try {
-        const url = await getPresignedUrl(file.path, seconds);
-        await navigator.clipboard.writeText(url);
-        addLog("success", `Presigned URL 복사 완료 (${label}): ${file.name}`, "system");
-      } catch (err) {
-        addLog("error", `Presigned URL 생성 실패: ${err}`, "system");
-      }
-    };
-    const urlDisabled = !isConnected || file.isDirectory;
     return [
+      ...(file.isDirectory
+        ? [{ label: "폴더 열기", action: () => void loadPrefix(file.path), disabled: !isConnected }]
+        : []),
       {
-        label: file.isDirectory ? "폴더 열기" : "다운로드 선택",
-        action: () => (file.isDirectory ? loadPrefix(file.path) : toggleRemoteSelection(file.path)),
+        label: file.isDirectory ? "폴더 다운로드" : "다운로드",
+        action: () => void startDownload([file.path]),
         disabled: !isConnected,
       },
       { divider: true },
-      { label: "URL 복사 (15분)", action: () => copyPresigned(900, "15분"), disabled: urlDisabled },
-      { label: "URL 복사 (1시간)", action: () => copyPresigned(3600, "1시간"), disabled: urlDisabled },
-      { label: "URL 복사 (24시간)", action: () => copyPresigned(86400, "24시간"), disabled: urlDisabled },
       {
-        label: "CDN URL 복사",
-        action: () => copyCdnUrl(file),
-        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
+        // 폴더는 하위 전체를 커버하도록 와일드카드로 Purge
+        label: file.isDirectory
+          ? `Purge (폴더 전체)${activeCdns.length > 1 ? ` — ${activeCdns.length}개 CDN` : ""}`
+          : `Purge${activeCdns.length > 1 ? ` — ${activeCdns.length}개 CDN` : ""}`,
+        action: () =>
+          setPurgeDialog({ paths: [file.isDirectory ? `${file.path}*` : file.path] }),
+        disabled: !isConnected || activeCdns.length === 0 || isPurging,
       },
+      { divider: true },
       {
-        label: "CDN URL 열기",
-        action: () => openCdnUrl(file),
-        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
-      },
-      {
-        label: "CDN 반영 확인",
-        action: () => verifyCdnUrl(file),
-        disabled: !isConnected || file.isDirectory || !activeProfile?.cdnDomain,
+        label: "속성",
+        action: () => setPropertiesFile(file),
+        disabled: !isConnected || !activeProfile,
       },
       { divider: true },
       {
@@ -194,6 +158,32 @@ export default function RemotePanel() {
     ];
   };
 
+  const ensureRemoteSelected = useCallback((path: string) => {
+    const s = useAppStore.getState();
+    if (!s.remote.selectedPaths.has(path)) {
+      s.clearRemoteSelection();
+      s.toggleRemoteSelection(path);
+    }
+  }, []);
+
+  // S3 → 로컬: 드래그한 선택 항목을 다운로드 (폴더 확장은 startDownload 내부 처리, 미연결 시 무시)
+  const onDropToOpposite = useCallback(() => {
+    if (!useAppStore.getState().isConnected) return;
+    return startDownloadRef.current(Array.from(useAppStore.getState().remote.selectedPaths));
+  }, []);
+
+  const ghostLabel = useCallback(
+    () => `${useAppStore.getState().remote.selectedPaths.size}개 항목`,
+    []
+  );
+
+  const { onRowPointerDown, isDropTarget } = usePanelDrag({
+    side: "remote",
+    ensureSelected: ensureRemoteSelected,
+    onDropToOpposite,
+    ghostLabel,
+  });
+
   const { containerRef, onScroll, visibleItems, startIndex, totalHeight, offsetTop } =
     useVirtualList(remote.files);
 
@@ -207,21 +197,10 @@ export default function RemotePanel() {
 
   return (
     <div
-      className={`${styles.panel} ${isDragOver ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
+      data-panel="remote"
+      className={`${styles.panel} ${isDropTarget && isConnected ? styles.dragOver : ""} ${focusedSide === "remote" ? styles.focused : ""}`}
       onClick={() => setFocusedSide("remote")}
-      onDragOver={(event) => {
-        if (!isConnected) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => setIsDragOver(false)}
-      onDrop={async (event) => {
-        event.preventDefault();
-        setIsDragOver(false);
-        if (!isConnected || event.dataTransfer.getData("text/plain") !== "local-files") return;
-        await startUpload();
-      }}
+      onContextMenu={(event) => event.preventDefault()}
     >
       <div className={styles.header}>
         <span className={styles.headerTitle}>
@@ -275,7 +254,7 @@ export default function RemotePanel() {
           <div className={styles.placeholder}>S3 객체를 불러오는 중입니다.</div>
         ) : remote.files.length === 0 ? (
           <div className={styles.placeholder}>
-            {activeProfile?.cdnProvider
+            {activeCdns.length > 0
               ? "현재 S3 경로가 비어 있습니다. CDN은 업로드 대상이 아니며, 업로드된 S3 객체가 CDN origin으로 제공됩니다."
               : "현재 S3 경로가 비어 있습니다. CDN을 설정하면 업로드/삭제 후 Purge와 CDN URL 확인을 사용할 수 있습니다."}
           </div>
@@ -291,16 +270,16 @@ export default function RemotePanel() {
                     style={{ height: ITEM_H }}
                     data-index={startIndex + index}
                     onClick={(event) => {
+                      // 클릭 = 선택 (폴더 포함 — 폴더째 다운로드/Purge 가능), 더블클릭 = 폴더 열기
                       if (event.ctrlKey || event.metaKey) {
                         toggleRemoteSelection(file.path);
-                      } else if (file.isDirectory) {
-                        loadPrefix(file.path);
                       } else {
                         clearRemoteSelection();
                         toggleRemoteSelection(file.path);
                       }
                     }}
                     onDoubleClick={() => file.isDirectory && loadPrefix(file.path)}
+                    onPointerDown={(event) => onRowPointerDown(event, file.path)}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setCtxMenu({ x: event.clientX, y: event.clientY, file });
@@ -342,7 +321,7 @@ export default function RemotePanel() {
 
       <div className={styles.footer}>
         {isConnected ? footerText : bucketLabel}
-        {isDragOver && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
+        {isDropTarget && isConnected && <span className={styles.dropHint}>여기에 놓으면 업로드됩니다.</span>}
       </div>
 
       {ctxMenu && (
@@ -363,8 +342,11 @@ export default function RemotePanel() {
                 <strong>{deleteConfirm.name}</strong>을(를) 삭제합니다.
               </p>
               <p>S3에서 삭제된 파일은 복구할 수 없습니다.</p>
-              {activeProfile?.cdnProvider && (
-                <p>삭제에 성공한 S3 객체만 CDN Purge 대상으로 전송됩니다.</p>
+              {activeCdns.length > 0 && (
+                <p>
+                  삭제에 성공한 S3 객체만 CDN Purge 대상으로 전송됩니다.
+                  {activeCdns.length > 1 && ` (대상 CDN: ${activeCdns.map((c) => CDN_LABELS[c]).join(", ")})`}
+                </p>
               )}
             </>
           }
@@ -392,12 +374,38 @@ export default function RemotePanel() {
           initialValue={renameDialog.name}
           placeholder="새 이름"
           confirmLabel="변경"
+          validate={validateS3KeySegment}
           onConfirm={(newName) => {
             const file = renameDialog;
             setRenameDialog(null);
             void doRenameRemoteFile(file, newName);
           }}
           onCancel={() => setRenameDialog(null)}
+        />
+      )}
+
+      {purgeDialog && (
+        <PurgeDialog
+          paths={purgeDialog.paths}
+          mode="selected"
+          cdnLabels={activeCdns.map((c) => CDN_LABELS[c])}
+          onConfirm={async () => {
+            const paths = purgeDialog.paths;
+            setPurgeDialog(null);
+            const result = await executePurge(paths);
+            if (result) setPurgeResult(result);
+          }}
+          onCancel={() => setPurgeDialog(null)}
+        />
+      )}
+      {purgeResult && (
+        <PurgeResultDialog results={purgeResult} onClose={() => setPurgeResult(null)} />
+      )}
+      {propertiesFile && activeProfile && (
+        <PropertiesDialog
+          file={propertiesFile}
+          profile={activeProfile}
+          onClose={() => setPropertiesFile(null)}
         />
       )}
     </div>

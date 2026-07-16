@@ -7,9 +7,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 
-// H-2: 동시 파일 전송 상한
-const MAX_CONCURRENT_FILES: usize = 4;
+// H-2: 동시 파일 전송 상한 (네트워크 대역폭 기준 — 실제 바이트 전송용)
+const MAX_CONCURRENT_FILES: usize = 8;
 const MAX_CDN_PURGE_PATHS_PER_REQUEST: usize = 1000;
+
+/// build_sync_plan의 동시 해시/HEAD 작업 상한.
+/// 세마포어 없이 전체 파일을 한 번에 spawn하면(수천 개 폴더 업로드 시)
+/// 파일당 최대 PART_SIZE(10MB) 버퍼가 동시에 잡혀 메모리·디스크 I/O가 폭주해 오히려 느려진다.
+/// CPU 코어 수 기반으로 상한을 두어 처리량은 유지하면서 자원 폭주를 막는다.
+fn max_concurrent_hash_tasks() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get() * 4)
+        .unwrap_or(8)
+        .clamp(8, 64)
+}
 
 use crate::adapters::storage::s3::{S3Adapter, MULTIPART_THRESHOLD, PART_SIZE};
 use crate::commands::s3::FileItem;
@@ -213,11 +224,16 @@ pub async fn build_sync_plan(
         Option<(String, String, String, u64, String, String, Option<(u64, Option<String>)>)>,
     > = JoinSet::new();
 
+    // 동시 해시/HEAD 작업 상한 — 대량 파일(수백~수천 개)에서 메모리·I/O 폭주 방지
+    let hash_semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent_hash_tasks()));
+
     for (local_path, rel_path) in expanded {
         let adapter = adapter.clone();
         let prefix  = remote_prefix.clone();
+        let permit  = hash_semaphore.clone().acquire_owned().await.expect("Semaphore 오류");
 
         tasks.spawn(async move {
+            let _permit = permit;
             let p = Path::new(&local_path);
             let remote_key = format!("{}{}", prefix, rel_path);
 
@@ -253,16 +269,22 @@ pub async fn build_sync_plan(
         });
     }
 
-    while let Some(Ok(Some((
-        local_path,
-        rel_path,
-        remote_key,
-        size,
-        last_modified,
-        local_etag,
-        remote_meta,
-    )))) = tasks.join_next().await
-    {
+    // 주의: 개별 태스크 실패(None)가 나와도 나머지 파일은 계속 수집해야 한다.
+    // (while let Some(Ok(Some(..))) 패턴은 첫 실패에서 루프가 끊겨 이후 파일이 전부 유실됨)
+    while let Some(joined) = tasks.join_next().await {
+        let Ok(Some((
+            local_path,
+            rel_path,
+            remote_key,
+            size,
+            last_modified,
+            local_etag,
+            remote_meta,
+        ))) = joined
+        else {
+            tracing::warn!("sync plan: 파일 처리 실패 항목 건너뜀");
+            continue;
+        };
         let item = FileItem {
             name:          rel_path,   // 폴더 포함 상대 경로 ("folder/sub/file.txt")
             path:          local_path,
@@ -426,8 +448,8 @@ pub async fn start_uploads(
     app:                    AppHandle,
     profile_id:             String,
     items:                  Vec<UploadItem>,
-    _cdn_distribution_id:   Option<String>,
-    _cdn_provider:          Option<String>,
+    cdn_distribution_id:    Option<String>,
+    cdn_provider:           Option<String>,
     max_concurrent_files:   Option<usize>,
     store: State<'_, ProfileStore>,
     cache: State<'_, AdapterCache>,
@@ -437,6 +459,12 @@ pub async fn start_uploads(
         .await
         .map_err(|e| e.to_string())?;
 
+    let profile = store
+        .get_profile(&profile_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let cdn_base_path = profile.cdn_base_path;
+
     let adapter = cache
         .get_or_create(&profile_id, || async {
             S3Adapter::new(&region, &bucket, &creds, endpoint.as_deref())
@@ -445,24 +473,17 @@ pub async fn start_uploads(
         .await
         .map_err(|e| e.to_string())?;
 
-    // CDN 자격증명 사전 조회 (다중 CDN 지원)
-    let mut cdns = Vec::new();
-    if let Ok(profile) = store.get_profile(&profile_id).await {
-        if profile.cdn_provider.as_deref() == Some("multiple") {
-            for c in &profile.cdn_providers {
-                if c.enabled {
-                    if let Ok(creds) = store.get_cdn_credentials(&profile_id, &c.provider).await {
-                        cdns.push((c.provider.clone(), c.distribution_id.clone().unwrap_or_default(), creds));
-                    }
-                }
-            }
-        } else if let Some(prov) = &profile.cdn_provider {
-            if let Ok(creds) = store.get_cdn_credentials(&profile_id, prov).await {
-                cdns.push((prov.clone(), profile.cdn_distribution_id.clone().unwrap_or_default(), creds));
-            }
-        }
-    }
-    let cdns = Arc::new(cdns);
+    // H-6: CDN 자격증명 사전 조회
+    let cdn_info: Option<(String, crate::utils::config::CdnCredentials)> =
+        match &cdn_provider {
+            Some(prov) => store
+                .get_cdn_credentials(&profile_id, prov)
+                .await
+                .ok()
+                .map(|c| (cdn_distribution_id.clone().unwrap_or_default(), c)),
+            None => None,
+        };
+    let cdn_info = Arc::new(cdn_info);
 
     let concurrent = max_concurrent_files.unwrap_or(MAX_CONCURRENT_FILES).clamp(1, 32);
     let semaphore = Arc::new(Semaphore::new(concurrent));
@@ -470,6 +491,22 @@ pub async fn start_uploads(
     let mut tasks: JoinSet<()> = JoinSet::new();
 
     for item in items {
+        // S3 키 문자 검증 실패 시 해당 파일만 오류 처리 (배치 전체 중단 없음)
+        if let Err(msg) = crate::utils::validate::validate_s3_key(&item.remote_path) {
+            let _ = app.emit(
+                "transfer:complete",
+                TransferCompletePayload {
+                    id: item.id.clone(),
+                    status: "error".to_string(),
+                    cdn_purged: false,
+                    cdn_purge_error: None,
+                    cdn_invalidation_id: None,
+                    error: Some(msg),
+                },
+            );
+            continue;
+        }
+
         let adapter  = adapter.clone();
         let app      = app.clone();
         let successful_purge_targets = successful_purge_targets.clone();
@@ -555,36 +592,53 @@ pub async fn start_uploads(
     while tasks.join_next().await.is_some() {}
 
     let targets = successful_purge_targets.lock().await.clone();
-    if !cdns.is_empty() && !targets.is_empty() {
-        for (provider, distribution_id, cdn_creds) in cdns.iter() {
-            for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
-                let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
-                let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
-                let purge_result = crate::adapters::cdn::purge_with_credentials(
-                    distribution_id,
-                    &paths,
-                    cdn_creds.clone(),
-                )
-                .await;
-                
-                let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = match purge_result {
-                    Ok(id) => (true, None, id),
-                    Err(err) => (false, Some(err.to_string()), None),
-                };
+    if let Some((distribution_id, cdn_creds)) = cdn_info.as_ref() {
+        for batch in targets.chunks(MAX_CDN_PURGE_PATHS_PER_REQUEST) {
+            let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
+            let paths: Vec<String> = batch.iter().map(|(_, path)| path.clone()).collect();
 
-                for id in ids {
-                    let _ = app.emit(
-                        "transfer:complete",
-                        TransferCompletePayload {
-                            id,
-                            status: "complete".to_string(),
-                            cdn_purged,
-                            cdn_purge_error: cdn_purge_error.clone().map(|e| format!("{}: {}", provider, e)),
-                            cdn_invalidation_id: cdn_invalidation_id.clone().map(|i| format!("{}: {}", provider, i)),
-                            error: None,
-                        },
-                    );
-                }
+            // cdn_base_path 제거하여 실제 CDN 경로 구성 (예: "contents/file.txt" + base "contents/" -> "file.txt")
+            let normalized_paths = if let Some(base) = cdn_base_path.as_deref().filter(|b| !b.trim().is_empty()) {
+                let base_stripped = base.trim_start_matches('/').trim_end_matches('/');
+                let prefix = format!("{}/", base_stripped);
+                paths
+                    .iter()
+                    .map(|p| {
+                        let key_stripped = p.trim_start_matches('/');
+                        if key_stripped.starts_with(&prefix) {
+                            key_stripped[prefix.len()..].to_owned()
+                        } else {
+                            key_stripped.to_owned()
+                        }
+                    })
+                    .collect()
+            } else {
+                paths
+            };
+
+            let purge_result = crate::adapters::cdn::purge_with_credentials(
+                distribution_id,
+                &normalized_paths,
+                cdn_creds.clone(),
+            )
+            .await;
+            let (cdn_purged, cdn_purge_error, cdn_invalidation_id) = match purge_result {
+                Ok(id) => (true, None, id),
+                Err(err) => (false, Some(err.to_string()), None),
+            };
+
+            for id in ids {
+                let _ = app.emit(
+                    "transfer:complete",
+                    TransferCompletePayload {
+                        id,
+                        status: "complete".to_string(),
+                        cdn_purged,
+                        cdn_purge_error: cdn_purge_error.clone(),
+                        cdn_invalidation_id: cdn_invalidation_id.clone(),
+                        error: None,
+                    },
+                );
             }
         }
     }

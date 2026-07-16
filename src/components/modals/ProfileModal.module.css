@@ -289,7 +289,8 @@
 .formScroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: scroll; /* 항상 스크롤바 표시 — 폼이 길어도 스크롤 가능함을 인지시킴 */
+  scrollbar-gutter: stable;
   padding: var(--spacing-6);
   display: flex;
   flex-direction: column;
@@ -311,6 +312,13 @@
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.01);
   overflow: hidden;
+}
+
+/* 열린 섹션(S3 설정, CDN 설정)은 패널 내부에서 스크롤 */
+.sectionDetails > .fieldset {
+  max-height: min(420px, 48vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .sectionDetails summary {
@@ -550,4 +558,36 @@
     border-right: 0;
     border-bottom: var(--border-width) solid var(--color-border);
   }
+}
+
+/* ── 목록 행 [테스트] 결과 (S3/CDN별 ✓/✗ — 설정값 비노출) ─────────────────────── */
+.profileItem {
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.testResultLines {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 2px 2px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.testResultLines .testFail {
+  white-space: normal;
+}
+
+/* ── 파일 가져오기 전용 모드: 편집 폼 제거 후 목록이 모달 전체를 사용 ───────────── */
+.modalCompact {
+  width: 560px;
+  height: min(640px, 100%);
+}
+
+.profileListFull {
+  flex: 1;
+  width: auto;
+  border-right: none;
 }

@@ -72,6 +72,7 @@ dirs      = "5"
 mime_guess = "2"
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender   = "0.2"   # 날짜별 audit 로그 파일 (logs/audit.YYYY-MM-DD.log)
 
 [profile.dev]
 incremental = true
@@ -80,5 +81,6 @@ incremental = true
 panic         = "abort"
 codegen-units = 1
 lto           = true
-opt-level     = "s"
+# 고객사 요청: 속도 우선 (기존 "s"는 바이너리 크기 최적화 — 해시/전송/Purge 처리량이 우선순위이므로 3으로 전환)
+opt-level     = 3
 strip         = true

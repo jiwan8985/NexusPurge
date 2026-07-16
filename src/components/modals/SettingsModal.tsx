@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { runtime } from "../../services/runtime";
+import { useState } from "react";
 import { useAppStore } from "../../store/appStore";
 import { readBatchSettings, writeBatchSetting, BATCH_DEFAULTS } from "../../utils/batch-settings";
 import styles from "./SettingsModal.module.css";
@@ -32,11 +31,6 @@ export default function SettingsModal() {
     addLog: s.addLog,
   }));
 
-  const [appVersion, setAppVersion] = useState<string>("0.1.0");
-  useEffect(() => {
-    runtime.getVersion().then(setAppVersion).catch(() => {});
-  }, []);
-
   const [batch, setBatch] = useState(() => readBatchSettings());
 
   const updateBatch = <K extends keyof typeof batch>(key: K, value: number) => {
@@ -58,9 +52,6 @@ export default function SettingsModal() {
   const [showLogOnStartup, setShowLogOnStartup] = useState(() =>
     readPref("nexuspurge.showLogOnStartup", true)
   );
-  const [confirmExternalRequests, setConfirmExternalRequests] = useState(() =>
-    readPref("nexuspurge.confirmExternalRequests", true)
-  );
 
   const updateRestoreLastProfile = (checked: boolean) => {
     setRestoreLastProfile(checked);
@@ -70,11 +61,6 @@ export default function SettingsModal() {
   const updateShowLogOnStartup = (checked: boolean) => {
     setShowLogOnStartup(checked);
     writePref("nexuspurge.showLogOnStartup", checked);
-  };
-
-  const updateConfirmExternalRequests = (checked: boolean) => {
-    setConfirmExternalRequests(checked);
-    writePref("nexuspurge.confirmExternalRequests", checked);
   };
 
   const handleOpenProfiles = () => {
@@ -130,21 +116,6 @@ export default function SettingsModal() {
           </section>
 
           <section className={styles.section}>
-            <div className={styles.sectionTitle}>안전 확인</div>
-            <label className={styles.toggleRow}>
-              <span>
-                <strong>실제 Provider 테스트 전 확인</strong>
-                <small>AWS, S3-compatible, CDN API 테스트 전에 확인 창을 표시합니다.</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={confirmExternalRequests}
-                onChange={(e) => updateConfirmExternalRequests(e.target.checked)}
-              />
-            </label>
-          </section>
-
-          <section className={styles.section}>
             <div className={styles.sectionTitle}>
               전송 성능
               <button type="button" className={styles.resetBtn} onClick={resetBatch}>기본값으로</button>
@@ -160,72 +131,6 @@ export default function SettingsModal() {
                   className={styles.numberInput}
                   value={batch.maxConcurrentTransfers}
                   onChange={(e) => updateBatch("maxConcurrentTransfers", parseInt(e.target.value) || BATCH_DEFAULTS.maxConcurrentTransfers)}
-                />
-              </label>
-              <label className={styles.numberRow}>
-                <span>
-                  <strong>파일 수 경고 기준</strong>
-                  <small>이 개수 이상 선택 시 주의 확인 창 표시</small>
-                </span>
-                <input
-                  type="number" min={100}
-                  className={styles.numberInput}
-                  value={batch.fileCountWarn}
-                  onChange={(e) => updateBatch("fileCountWarn", parseInt(e.target.value) || BATCH_DEFAULTS.fileCountWarn)}
-                />
-              </label>
-              <label className={styles.numberRow}>
-                <span>
-                  <strong>파일 수 제한 기준</strong>
-                  <small>이 개수 이상 선택 시 강한 경고 표시</small>
-                </span>
-                <input
-                  type="number" min={100}
-                  className={styles.numberInput}
-                  value={batch.fileCountLimit}
-                  onChange={(e) => updateBatch("fileCountLimit", parseInt(e.target.value) || BATCH_DEFAULTS.fileCountLimit)}
-                />
-              </label>
-              <label className={styles.numberRow}>
-                <span>
-                  <strong>대용량 파일 확인 기준 (MB)</strong>
-                  <small>이 크기 이상 업로드 시 확인 창 표시</small>
-                </span>
-                <input
-                  type="number" min={1}
-                  className={styles.numberInput}
-                  value={batch.largeSizeMb}
-                  onChange={(e) => updateBatch("largeSizeMb", parseInt(e.target.value) || BATCH_DEFAULTS.largeSizeMb)}
-                />
-              </label>
-            </div>
-
-            <div className={styles.sectionTitle} style={{ marginTop: 12 }}>
-              Purge 정책
-            </div>
-            <div className={styles.numberGrid}>
-              <label className={styles.numberRow}>
-                <span>
-                  <strong>Purge 경고 기준</strong>
-                  <small>이 경로 수 이상 Purge 시 주의 표시</small>
-                </span>
-                <input
-                  type="number" min={1}
-                  className={styles.numberInput}
-                  value={batch.purgeWarnThreshold}
-                  onChange={(e) => updateBatch("purgeWarnThreshold", parseInt(e.target.value) || BATCH_DEFAULTS.purgeWarnThreshold)}
-                />
-              </label>
-              <label className={styles.numberRow}>
-                <span>
-                  <strong>Purge 배치 크기</strong>
-                  <small>한 번의 API 호출에 포함할 최대 경로 수</small>
-                </span>
-                <input
-                  type="number" min={1} max={3000}
-                  className={styles.numberInput}
-                  value={batch.purgeBatchSize}
-                  onChange={(e) => updateBatch("purgeBatchSize", parseInt(e.target.value) || BATCH_DEFAULTS.purgeBatchSize)}
                 />
               </label>
             </div>
@@ -257,34 +162,6 @@ export default function SettingsModal() {
             </div>
           </section>
 
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>단축키</div>
-            <div className={styles.shortcutGrid}>
-              {[
-                ["Ctrl+P", "프로필 관리"],
-                ["Ctrl+R", "패널 새로고침"],
-                ["Ctrl+D", "Dry-run 미리보기"],
-                ["F2", "이름 변경"],
-                ["Del", "삭제"],
-                ["Space", "파일 선택 토글"],
-                ["Enter", "폴더 열기 / 선택"],
-              ].map(([key, desc]) => (
-                <div key={key} className={styles.shortcutRow}>
-                  <kbd className={styles.kbd}>{key}</kbd>
-                  <span>{desc}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className={styles.section}>
-            <div className={styles.sectionTitle}>앱 정보</div>
-            <div className={styles.appInfo}>
-              <span className={styles.appName}>NexusPurge</span>
-              <span className={styles.appVer}>v{appVersion}</span>
-            </div>
-            <p className={styles.appDesc}>S3 듀얼 패널 파일 관리 + CDN 자동 Purge 도구</p>
-          </section>
         </div>
 
         <div className={styles.footer}>

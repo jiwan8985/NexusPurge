@@ -1,20 +1,24 @@
 import { useCallback } from "react";
 import { saveOperationLog } from "../services/operation-log/operation-log-service";
+import { CDN_LABELS, cdnDistributionIdFor } from "../utils/cdn";
+import { fmtClockTime } from "../utils/format-time";
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import type {
+  CdnProvider,
   CdnPurgeResult,
+  CdnRequestStep,
   OperationLog,
   OperationStatus,
   OperationType,
   S3ListResponse,
-  CdnProvider,
 } from "../types";
 
 export function useS3() {
-  const { activeProfile, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
+  const { activeProfile, activeCdns, setRemoteFiles, setRemoteLoading, setRemotePath, addLog } =
     useAppStore((s) => ({
       activeProfile: s.activeProfile,
+      activeCdns: s.activeCdns,
       setRemoteFiles: s.setRemoteFiles,
       setRemoteLoading: s.setRemoteLoading,
       setRemotePath: s.setRemotePath,
@@ -46,8 +50,18 @@ export function useS3() {
     async (keys: string[]) => {
       if (!activeProfile) return;
       const startedAt = new Date().toISOString();
-      let purgeResult: CdnPurgeResult | undefined;
-      let purgeError: string | undefined;
+      const purgeEntries: {
+        provider: CdnProvider;
+        paths: string[];
+        success: boolean;
+        invalidationId?: string;
+        error?: string;
+        requestEndpoint?: string;
+        durationMs?: number;
+        requestSteps?: CdnRequestStep[];
+        startedAt?: string;
+        finishedAt?: string;
+      }[] = [];
 
       try {
         const deletedKeys = await runtime.invoke<string[]>("delete_s3_objects", {
@@ -56,50 +70,59 @@ export function useS3() {
         });
         addLog("success", `S3 delete completed: ${deletedKeys.length}`, "transfer");
 
-        if (activeProfile.cdnProvider && deletedKeys.length > 0) {
-          const providersToPurge: { provider: CdnProvider; distributionId?: string }[] = [];
-          if ((activeProfile.cdnProvider as string) === "multiple" && activeProfile.cdnProviders) {
-            activeProfile.cdnProviders.forEach((c) => {
-              if (c.enabled) {
-                providersToPurge.push({ provider: c.provider, distributionId: c.distributionId });
-              }
-            });
-          } else {
-            providersToPurge.push({ provider: activeProfile.cdnProvider, distributionId: activeProfile.cdnDistributionId });
-          }
+        const providers = activeCdns.length > 0
+          ? activeCdns
+          : activeProfile.cdnProvider ? [activeProfile.cdnProvider] : [];
+        if (providers.length > 0 && deletedKeys.length > 0) {
+          // 폴더 삭제는 하위 키를 개별 나열하는 대신 "폴더/*" 와일드카드 1건으로 Purge
+          const purgePaths = keys.map((k) => (k.endsWith("/") ? `${k}*` : k));
 
-          for (const p of providersToPurge) {
+          // 선택된 모든 CDN에 동시(병렬) Purge — 고객사 요청: 여러 CDN 한 번에 Purge
+          await Promise.all(providers.map(async (provider) => {
+            const label = CDN_LABELS[provider];
+            const batchStartedAt = new Date().toISOString();
             try {
-              purgeResult = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
+              const result = await runtime.invoke<CdnPurgeResult>("purge_cdn", {
                 profileId: activeProfile.id,
-                provider: p.provider,
-                distributionId: p.distributionId ?? "",
-                paths: deletedKeys,
+                provider,
+                distributionId: cdnDistributionIdFor(activeProfile, provider) ?? "",
+                paths: purgePaths,
               });
-
-              if (purgeResult.success) {
-                const id = purgeResult.invalidationId ? ` (${purgeResult.invalidationId})` : "";
-                addLog("success", `Delete CDN purge completed (${p.provider}): ${deletedKeys.length}${id}`, "cdn");
+              const finishedAtIso = new Date().toISOString();
+              purgeEntries.push({
+                provider, paths: purgePaths,
+                success: result.success, invalidationId: result.invalidationId ?? undefined, error: result.error ?? undefined,
+                requestEndpoint: result.requestEndpoint, durationMs: result.durationMs, requestSteps: result.requestSteps,
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
+              });
+              const timeRange = ` (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`;
+              if (result.success) {
+                const id = result.invalidationId ? ` (${result.invalidationId})` : "";
+                const dur = result.durationMs !== undefined ? ` [${result.durationMs}ms]` : "";
+                addLog("success", `[${label}] Delete CDN purge completed: ${purgePaths.length}${id}${dur}${timeRange}`, "cdn");
               } else {
-                addLog("error", `Delete CDN purge failed (${p.provider}): ${purgeResult.error}`, "cdn");
+                addLog("error", `[${label}] Delete CDN purge failed: ${result.error}${timeRange}`, "cdn");
               }
             } catch (err) {
-              purgeError = String(err);
-              addLog("error", `Delete CDN purge failed (${p.provider}): ${purgeError}`, "cdn");
+              const finishedAtIso = new Date().toISOString();
+              purgeEntries.push({
+                provider, paths: purgePaths, success: false, error: String(err),
+                startedAt: batchStartedAt, finishedAt: finishedAtIso,
+              });
+              addLog("error", `[${label}] Delete CDN purge failed: ${err} (시작 ${fmtClockTime(batchStartedAt)} · 종료 ${fmtClockTime(finishedAtIso)})`, "cdn");
             }
-          }
+          }));
         }
 
+        const anyPurgeFailed = purgeEntries.some((p) => !p.success);
         void saveOperationLog(buildOperationLog({
           profileId: activeProfile.id,
           operation: "delete",
-          status: purgeResult?.success === false || purgeError ? "partial" : "success",
+          status: anyPurgeFailed ? "partial" : "success",
           bucket: activeProfile.bucket,
           paths: deletedKeys,
           startedAt,
-          purgeResult,
-          purgeError,
-          purgeProvider: activeProfile.cdnProvider,
+          purgeEntries,
         }));
       } catch (err) {
         addLog("error", `S3 delete failed: ${err}`, "transfer");
@@ -115,7 +138,7 @@ export function useS3() {
         throw err;
       }
     },
-    [activeProfile, addLog]
+    [activeProfile, activeCdns, addLog]
   );
 
   const createDirectory = useCallback(
@@ -216,9 +239,18 @@ function buildOperationLog(params: {
   paths: string[];
   startedAt: string;
   error?: string;
-  purgeResult?: CdnPurgeResult;
-  purgeError?: string;
-  purgeProvider?: CdnPurgeResult["provider"];
+  purgeEntries?: {
+    provider: CdnProvider;
+    paths: string[];
+    success: boolean;
+    invalidationId?: string;
+    error?: string;
+    requestEndpoint?: string;
+    durationMs?: number;
+    requestSteps?: CdnRequestStep[];
+    startedAt?: string;
+    finishedAt?: string;
+  }[];
 }): OperationLog {
   const finishedAt = new Date().toISOString();
   return {
@@ -236,26 +268,19 @@ function buildOperationLog(params: {
       startedAt: params.startedAt,
       finishedAt,
     })),
-    purgeResults: params.purgeResult
-      ? [{
-          provider: params.purgeResult.provider,
-          urls: params.purgeResult.paths,
-          status: params.purgeResult.success ? "success" : "failed",
-          requestId: params.purgeResult.invalidationId,
-          error: params.purgeResult.error,
-          startedAt: params.startedAt,
-          finishedAt,
-        }]
-      : params.purgeError && params.purgeProvider
-        ? [{
-            provider: params.purgeProvider,
-            urls: params.paths,
-            status: "failed",
-            error: params.purgeError,
-            startedAt: params.startedAt,
-            finishedAt,
-          }]
-        : [],
+    purgeResults: (params.purgeEntries ?? []).map((p) => ({
+      provider: p.provider,
+      urls: p.paths,
+      status: p.success ? "success" as const : "failed" as const,
+      requestId: p.invalidationId,
+      error: p.error,
+      requestEndpoint: p.requestEndpoint,
+      durationMs: p.durationMs,
+      requestSteps: p.requestSteps,
+      // 감사 로그에는 실제 Purge 호출 시각 우선 기록 (없으면 작업 시작 시각)
+      startedAt: p.startedAt ?? params.startedAt,
+      finishedAt: p.finishedAt ?? finishedAt,
+    })),
     startedAt: params.startedAt,
     finishedAt,
   };

@@ -9,7 +9,7 @@ import type {
   LogCategory,
   PanelState,
   SyncPlan,
-  SyncPreviewResult,
+  CdnProvider,
 } from "../types";
 
 // C-2: 프로필 목록을 전역 상태로 관리 — 훅 인스턴스별 분리 방지
@@ -21,6 +21,9 @@ interface AppState {
   activeProfile: S3Profile | null;
   isConnected: boolean;
   isConnecting: boolean;
+
+  // 멀티 CDN 프로필에서 현재 Purge 대상 CDN 목록 (툴바에서 다중 선택 — 동시에 여러 CDN Purge 가능)
+  activeCdns: CdnProvider[];
 
   // Profiles (전역 공유 — C-2 fix)
   profiles: S3Profile[];
@@ -46,8 +49,6 @@ interface AppState {
 
   // Sync plan (업로드 전 ETag 비교 결과 — 상태 배지 표시용)
   syncPlan: SyncPlan | null;
-  syncPreview: SyncPreviewResult | null;
-  showSyncPreview: boolean;
 
   // Log
   logs: LogEntry[];
@@ -62,6 +63,10 @@ interface AppState {
 
   // Auto-Purge (세션 전역 토글 — 프로필 기본값 위에서 재정의 가능)
   autoPurgeEnabled: boolean;
+
+  // 패널 간 pointer 드래그 / OS 파일 드래그 상태 (over: 현재 커서가 올라간 패널)
+  panelDrag: { source: "local" | "remote" | "os"; over: "local" | "remote" | null } | null;
+  setPanelDrag: (drag: { source: "local" | "remote" | "os"; over: "local" | "remote" | null } | null) => void;
 
   // Actions — Profiles
   setProfiles: (profiles: S3Profile[]) => void;
@@ -78,6 +83,8 @@ interface AppState {
   setActiveProfile: (profile: S3Profile | null) => void;
   setConnected: (connected: boolean) => void;
   setConnecting: (connecting: boolean) => void;
+  setActiveCdns: (providers: CdnProvider[]) => void;
+  toggleActiveCdn: (provider: CdnProvider) => void;
 
   // Actions — Local panel
   setLocalPath: (path: string) => void;
@@ -97,11 +104,10 @@ interface AppState {
   addTransfer: (item: TransferItem) => void;
   updateTransfer: (id: string, patch: Partial<TransferItem>) => void;
   clearCompletedTransfers: () => void;
+  clearFinishedTransfers: () => void;
   setTransferring: (transferring: boolean) => void;
   setShowProgressDialog: (show: boolean) => void;
   setSyncPlan: (plan: SyncPlan | null) => void;
-  setSyncPreview: (preview: SyncPreviewResult | null) => void;
-  setShowSyncPreview: (show: boolean) => void;
 
   // Actions — Log
   addLog: (level: LogLevel, message: string, category?: LogCategory, metadata?: Record<string, unknown>) => void;
@@ -143,6 +149,7 @@ export const useAppStore = create<AppState>()(
     activeProfile: null,
     isConnected: false,
     isConnecting: false,
+    activeCdns: [],
 
     // ── Profiles ──────────────────────────────────────────────────────────────
     profiles: [],
@@ -164,8 +171,6 @@ export const useAppStore = create<AppState>()(
     isTransferring: false,
     showProgressDialog: false,
     syncPlan: null,
-    syncPreview: null,
-    showSyncPreview: false,
 
     // ── Log ───────────────────────────────────────────────────────────────────
     logs: [],
@@ -180,6 +185,9 @@ export const useAppStore = create<AppState>()(
 
     // ── Auto-Purge ────────────────────────────────────────────────────────────
     autoPurgeEnabled: window.localStorage.getItem("nexuspurge.autoPurgeEnabled") === "true",
+
+    // ── Panel Drag ────────────────────────────────────────────────────────────
+    panelDrag: null,
 
     // ── Profile Actions ───────────────────────────────────────────────────────
     setProfiles: (profiles) => set({ profiles }),
@@ -196,6 +204,18 @@ export const useAppStore = create<AppState>()(
     setActiveProfile: (profile) => set({ activeProfile: profile }),
     setConnected: (connected) => set({ isConnected: connected }),
     setConnecting: (connecting) => set({ isConnecting: connecting }),
+    setActiveCdns: (activeCdns) => set({ activeCdns }),
+    toggleActiveCdn: (provider) =>
+      set((s) => {
+        const has = s.activeCdns.includes(provider);
+        // 최소 1개는 선택 상태 유지 — 마지막 하나는 해제 불가(Purge 대상이 사라지는 것을 방지)
+        if (has && s.activeCdns.length === 1) return s;
+        return {
+          activeCdns: has
+            ? s.activeCdns.filter((c) => c !== provider)
+            : [...s.activeCdns, provider],
+        };
+      }),
 
     // ── Local Panel Actions ───────────────────────────────────────────────────
     setLocalPath: (path) =>
@@ -243,11 +263,19 @@ export const useAppStore = create<AppState>()(
             && t.status !== "canceled"
         ),
       })),
+    // 새 전송 배치 시작 시 호출 — 이전 배치(완료/스킵/취소/오류)를 비워 진행률이
+    // 배치 단위로 1부터 집계되게 한다 (진행 중인 항목만 유지)
+    clearFinishedTransfers: () =>
+      set((s) => ({
+        transfers: s.transfers.filter(
+          (t) => t.status === "pending" || t.status === "uploading"
+            || t.status === "downloading" || t.status === "hashing"
+            || t.status === "overwriting"
+        ),
+      })),
     setTransferring: (isTransferring) => set({ isTransferring }),
     setShowProgressDialog: (showProgressDialog) => set({ showProgressDialog }),
     setSyncPlan: (syncPlan) => set({ syncPlan }),
-    setSyncPreview: (syncPreview) => set({ syncPreview }),
-    setShowSyncPreview: (showSyncPreview) => set({ showSyncPreview }),
 
     // ── Log Actions ───────────────────────────────────────────────────────────
     addLog: (level, message, category, metadata) =>
@@ -289,6 +317,9 @@ export const useAppStore = create<AppState>()(
       window.localStorage.setItem("nexuspurge.autoPurgeEnabled", String(next));
       return { autoPurgeEnabled: next };
     }),
+
+    // ── Panel Drag Actions ────────────────────────────────────────────────────
+    setPanelDrag: (drag) => set({ panelDrag: drag }),
 
     // ── Modal Actions ─────────────────────────────────────────────────────────
     openProfileModal: () => set({ isProfileModalOpen: true }),

@@ -85,6 +85,7 @@ impl CloudFrontAdapter {
                 req = req.header(k.as_str(), v.as_str());
             }
 
+            let started = std::time::Instant::now();
             match req.send().await {
                 Err(e) if attempt < 2 => {
                     tracing::warn!("CloudFront Invalidation 네트워크 오류 재시도 {}/3: {}", attempt + 1, e);
@@ -96,6 +97,14 @@ impl CloudFrontAdapter {
                 Ok(resp) => {
                     let status = resp.status();
                     let text = resp.text().await.unwrap_or_default();
+                    crate::adapters::cdn::log_cdn_http(
+                        "CloudFront",
+                        "POST(Invalidation)",
+                        &raw_url,
+                        status,
+                        started.elapsed().as_millis(),
+                        &text,
+                    );
                     if status.is_success() {
                         let id = xml_extract(&text, "Id").unwrap_or(caller_ref);
                         tracing::info!("CloudFront Invalidation 생성: {} (dist={})", id, distribution_id);
