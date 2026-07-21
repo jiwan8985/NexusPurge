@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
 use url::Url;
 
 const KEYRING_SERVICE: &str = "cdn-upload-tool";
 const PROFILES_FILENAME: &str = "profiles.json";
 const SETTINGS_FILENAME: &str = "settings.json";
+const PROFILES_LOCK_FILENAME: &str = "profiles.json.lock";
 
 // ??? Profile Config ???????????????????????????????????????????????????????????
 
@@ -358,11 +359,42 @@ impl ProfileStore {
         })
     }
 
+    #[cfg(test)]
+    fn with_data_dir(data_dir: PathBuf) -> Self {
+        Self {
+            profiles: RwLock::new(vec![]),
+            data_dir,
+        }
+    }
+
     fn profiles_path(&self) -> PathBuf {
         self.data_dir.join(PROFILES_FILENAME)
     }
     fn settings_path(&self) -> PathBuf {
         self.data_dir.join(SETTINGS_FILENAME)
+    }
+    fn profiles_lock_path(&self) -> PathBuf {
+        self.data_dir.join(PROFILES_LOCK_FILENAME)
+    }
+
+    /// profiles.json에 대한 배타적 크로스 프로세스 잠금을 건 채로 `f`를 실행한다.
+    /// 여러 NexusPurge 인스턴스가 동시에 프로필을 저장/삭제해도 서로 덮어써서
+    /// 유실되지 않도록, f 안에서 직접 최신 파일을 다시 읽고 원자적으로 쓴다.
+    async fn with_profiles_lock<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let lock_path = self.profiles_lock_path();
+        tokio::task::spawn_blocking(move || {
+            let lock_file =
+                std::fs::File::create(&lock_path).context("프로필 잠금 파일 생성 실패")?;
+            fs4::fs_std::FileExt::lock_exclusive(&lock_file).context("프로필 파일 잠금 획득 실패")?;
+            f()
+            // lock_file drop 시 잠금 자동 해제
+        })
+        .await
+        .context("프로필 잠금 작업 실행 실패")?
     }
 
     pub async fn load_all(&self) -> Result<Vec<ProfileConfig>> {
@@ -389,10 +421,12 @@ impl ProfileStore {
             migrated |= migrate_legacy_auth_field(&id, "_kt_username", &mut profile.kt_username);
         }
         if migrated {
-            tokio::fs::write(
-                &path,
-                serde_json::to_string_pretty(&profiles).context("프로필 JSON 직렬화 실패")?,
-            )
+            let data_dir = self.data_dir.clone();
+            let profiles_path = path.clone();
+            let profiles_to_write = profiles.clone();
+            self.with_profiles_lock(move || {
+                atomic_write_json(&data_dir, &profiles_path, &profiles_to_write)
+            })
             .await
             .context("마이그레이션된 프로필 파일 저장 실패")?;
         }
@@ -492,17 +526,21 @@ impl ProfileStore {
             }
         }
 
-        let mut locked = self.profiles.write().await;
-        match locked.iter().position(|p| p.id == profile.id) {
-            Some(pos) => locked[pos] = profile,
-            None => locked.push(profile),
-        }
-        tokio::fs::write(
-            self.profiles_path(),
-            serde_json::to_string_pretty(&*locked).context("JSON 吏곷젹???ㅽ뙣")?,
-        )
-        .await
-        .context("?꾨줈?뚯씪 ?뚯씪 ????ㅽ뙣")
+        let profiles_path = self.profiles_path();
+        let data_dir = self.data_dir.clone();
+        let updated = self
+            .with_profiles_lock(move || {
+                let mut list = read_profiles_from_disk(&profiles_path)?;
+                match list.iter().position(|p| p.id == profile.id) {
+                    Some(pos) => list[pos] = profile,
+                    None => list.push(profile),
+                }
+                atomic_write_json(&data_dir, &profiles_path, &list)?;
+                Ok(list)
+            })
+            .await?;
+        *self.profiles.write().await = updated;
+        Ok(())
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
@@ -538,14 +576,19 @@ impl ProfileStore {
                 let _ = entry.delete_password();
             }
         }
-        let mut locked = self.profiles.write().await;
-        locked.retain(|p| p.id != id);
-        tokio::fs::write(
-            self.profiles_path(),
-            serde_json::to_string_pretty(&*locked).context("JSON 吏곷젹???ㅽ뙣")?,
-        )
-        .await
-        .context("?꾨줈?뚯씪 ?뚯씪 ????ㅽ뙣")
+        let profiles_path = self.profiles_path();
+        let data_dir = self.data_dir.clone();
+        let id_owned = id.to_owned();
+        let updated = self
+            .with_profiles_lock(move || {
+                let mut list = read_profiles_from_disk(&profiles_path)?;
+                list.retain(|p| p.id != id_owned);
+                atomic_write_json(&data_dir, &profiles_path, &list)?;
+                Ok(list)
+            })
+            .await?;
+        *self.profiles.write().await = updated;
+        Ok(())
     }
 
     pub async fn get_credentials(&self, profile_id: &str) -> Result<AwsCredentials> {
@@ -963,4 +1006,123 @@ fn migrate_legacy_auth_field(profile_id: &str, suffix: &str, field: &mut Option<
         let _ = entry.set_password(&value);
     }
     true
+}
+
+/// profiles.json을 디스크에서 동기적으로 읽는다. 파일이 없으면 빈 목록을 반환한다.
+/// `ProfileStore::with_profiles_lock`으로 잠근 구간 안에서, 다른 인스턴스가 그 사이에
+/// 저장한 최신 내용을 반영하기 위해 캐시(`self.profiles`) 대신 이 함수로 다시 읽는다.
+fn read_profiles_from_disk(path: &Path) -> Result<Vec<ProfileConfig>> {
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let content = std::fs::read_to_string(path).context("프로필 파일 읽기 실패")?;
+    serde_json::from_str(&content).context("프로필 JSON 파싱 실패")
+}
+
+/// 같은 디렉터리에 임시 파일로 쓴 뒤 rename으로 교체한다. 쓰기 도중 크래시하거나
+/// 다른 프로세스가 동시에 읽어도, rename은 원자적이므로 손상된 파일이 보이지 않는다.
+fn atomic_write_json<T: Serialize>(dir: &Path, path: &Path, value: &T) -> Result<()> {
+    let json = serde_json::to_string_pretty(value).context("JSON 직렬화 실패")?;
+    let tmp_path = dir.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(&tmp_path, json).context("임시 파일 쓰기 실패")?;
+    std::fs::rename(&tmp_path, path).context("프로필 파일 교체 실패")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod profile_store_lock_tests {
+    use super::*;
+
+    fn dummy_profile(id: &str) -> ProfileConfig {
+        ProfileConfig {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            scope: None,
+            permissions: None,
+            region: "us-east-1".to_owned(),
+            bucket: "test-bucket".to_owned(),
+            base_prefix: None,
+            access_key_id: None,
+            secret_access_key: None,
+            endpoint: None,
+            cdn_provider: None,
+            cdn_providers: vec![],
+            cdn_distribution_id: None,
+            cdn_domain: None,
+            cdn_base_path: None,
+            purge_on_new_upload: false,
+            purge_policy: None,
+            upload_policy: None,
+            metadata_policy: None,
+            log_shipping: None,
+            auth_binding: None,
+            default_cache_control: None,
+            content_type_override: None,
+            multipart_etag_fallback: false,
+            akamai_client_token: None,
+            akamai_client_secret: None,
+            akamai_access_token: None,
+            akamai_host: None,
+            akamai_cp_code: None,
+            lguplus_username: None,
+            lguplus_password: None,
+            lguplus_service_name: None,
+            lguplus_volume_name: None,
+            lguplus_endpoint: None,
+            lguplus_service_type: None,
+            kt_username: None,
+            kt_password: None,
+            kt_service_name: None,
+            kt_volume_name: None,
+            kt_endpoint: None,
+            kt_service_type: None,
+            hyosung_api_key: None,
+            hyosung_api_secret: None,
+            hyosung_endpoint: None,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+        }
+    }
+
+    /// 여러 "인스턴스"(별도 ProfileStore, 같은 data_dir)가 동시에 서로 다른 프로필을
+    /// upsert해도, 잠금 없이 캐시된 목록을 그대로 덮어쓰던 예전 방식과 달리 유실 없이
+    /// 전부 파일에 반영되어야 한다.
+    #[tokio::test]
+    async fn concurrent_saves_from_multiple_instances_do_not_lose_data() {
+        let data_dir = std::env::temp_dir().join(format!("nexuspurge-lock-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&data_dir).unwrap();
+
+        const WRITERS: usize = 20;
+        let mut handles = Vec::with_capacity(WRITERS);
+        for i in 0..WRITERS {
+            let dir = data_dir.clone();
+            handles.push(tokio::spawn(async move {
+                // 각 태스크가 별개의 ProfileStore(=별개의 NexusPurge 인스턴스)를 흉내낸다.
+                let store = ProfileStore::with_data_dir(dir);
+                let profile = dummy_profile(&format!("profile-{i}"));
+                let profiles_path = store.profiles_path();
+                let data_dir = store.data_dir.clone();
+                store
+                    .with_profiles_lock(move || {
+                        let mut list = read_profiles_from_disk(&profiles_path)?;
+                        match list.iter().position(|p| p.id == profile.id) {
+                            Some(pos) => list[pos] = profile,
+                            None => list.push(profile),
+                        }
+                        atomic_write_json(&data_dir, &profiles_path, &list)?;
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+            }));
+        }
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let final_list = read_profiles_from_disk(&data_dir.join(PROFILES_FILENAME)).unwrap();
+        assert_eq!(final_list.len(), WRITERS, "동시 저장 중 일부 프로필이 유실됨");
+
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
 }

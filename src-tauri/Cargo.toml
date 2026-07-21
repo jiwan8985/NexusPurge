@@ -52,6 +52,9 @@ url              = "2"
 # OS keyring
 keyring = "2"
 
+# 크로스 프로세스 파일 잠금 (profiles.json 동시 쓰기 충돌 방지)
+fs4 = { version = "0.9", features = ["sync"] }
+
 # MD5 (ETag 비교)
 md5 = "0.7"
 
