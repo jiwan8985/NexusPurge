@@ -3,7 +3,7 @@ import { saveOperationLog } from "../services/operation-log/operation-log-servic
 import { runtime } from "../services/runtime";
 import { useAppStore } from "../store/appStore";
 import { buildCdnUrl, CDN_LABELS, cdnDistributionIdFor, cdnDomainFor, defaultCacheControlFor } from "../utils/cdn";
-import type { CdnProvider, CdnPurgeResult, CdnRequestStep, TransferItem, SyncPlan } from "../types";
+import type { CdnProvider, CdnPurgeResult, CdnRequestStep, TransferItem, SyncPlan, NetworkStatsEvent } from "../types";
 import { readBatchSettings } from "../utils/batch-settings";
 import { fmtClockTime } from "../utils/format-time";
 
@@ -51,6 +51,7 @@ export function useTransfer() {
     setSyncPlan,
     autoPurgeEnabled,
     clearFinishedTransfers,
+    setNetworkStats,
   } = useAppStore((s) => ({
     activeProfile: s.activeProfile,
     activeCdns: s.activeCdns,
@@ -68,6 +69,7 @@ export function useTransfer() {
     setSyncPlan: s.setSyncPlan,
     autoPurgeEnabled: s.autoPurgeEnabled,
     clearFinishedTransfers: s.clearFinishedTransfers,
+    setNetworkStats: s.setNetworkStats,
   }));
 
   const unlistenRef = useRef<Array<() => void>>([]);
@@ -124,14 +126,19 @@ export function useTransfer() {
         }
       );
 
-      unlistenRef.current = [unlistenProgress, unlistenComplete];
+      const unlistenNetworkStats = await runtime.listen<NetworkStatsEvent>(
+        "network:stats",
+        (payload) => setNetworkStats(payload)
+      );
+
+      unlistenRef.current = [unlistenProgress, unlistenComplete, unlistenNetworkStats];
     };
 
     setupListeners().catch((err) =>
       console.error("[useTransfer] 이벤트 리스너 등록 실패:", err)
     );
     return () => unlistenRef.current.forEach((fn) => fn());
-  }, [updateTransfer, addLog]);
+  }, [updateTransfer, addLog, setNetworkStats]);
 
   // Smart Sync: MD5 비교 후 업로드 플랜 생성
   const buildSyncPlan = useCallback(

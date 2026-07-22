@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 
 use crate::adapters::storage::s3::S3Adapter;
 use crate::utils::adapter_cache::AdapterCache;
-use crate::utils::config::{AwsCredentials, ProfileConfig, ProfileStore};
+use crate::utils::config::{AppSettings, AwsCredentials, ProfileConfig, ProfileStore};
 use crate::utils::crypto;
 use crate::utils::transfer_control::TransferControl;
 
@@ -504,6 +504,26 @@ pub async fn get_last_profile_id(
     store: State<'_, ProfileStore>,
 ) -> Result<Option<String>, String> {
     store.get_last_profile_id().await.map_err(|e| e.to_string())
+}
+
+/// 앱 전역 설정 조회 (감사 로그 상세 레벨 등) — SettingsModal 마운트 시 1회 호출
+#[tauri::command]
+pub async fn get_app_settings(store: State<'_, ProfileStore>) -> Result<AppSettings, String> {
+    store.get_app_settings().await.map_err(|e| e.to_string())
+}
+
+/// CDN API 감사 로그 상세 레벨(응답 본문 포함 여부) 저장 — 즉시 audit_level 전역 상태에도 반영
+#[tauri::command]
+pub async fn save_detailed_audit_log(
+    enabled: bool,
+    store: State<'_, ProfileStore>,
+) -> Result<(), String> {
+    store
+        .save_detailed_audit_log(enabled)
+        .await
+        .map_err(|e| e.to_string())?;
+    crate::utils::audit_level::set(enabled);
+    Ok(())
 }
 
 // ─── Upload (H-2 Semaphore + H-6 CdnCredentials) ─────────────────────────────

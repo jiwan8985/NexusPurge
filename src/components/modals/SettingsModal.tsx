@@ -1,7 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../../store/appStore";
+import { runtime } from "../../services/runtime";
 import { readBatchSettings, writeBatchSetting, BATCH_DEFAULTS } from "../../utils/batch-settings";
 import styles from "./SettingsModal.module.css";
+
+interface AppSettings {
+  lastProfileId: string | null;
+  detailedAuditLog: boolean;
+}
 
 const readPref = (key: string, fallback: boolean) => {
   const value = window.localStorage.getItem(key);
@@ -61,6 +67,23 @@ export default function SettingsModal() {
   const updateShowLogOnStartup = (checked: boolean) => {
     setShowLogOnStartup(checked);
     writePref("nexuspurge.showLogOnStartup", checked);
+  };
+
+  // 감사 로그 상세 레벨 — Rust 로깅 레이어에 직접 반영되어야 하므로 localStorage가 아니라
+  // 백엔드 settings.json(get_app_settings/save_detailed_audit_log)과 왕복한다.
+  const [detailedAuditLog, setDetailedAuditLog] = useState(false);
+  useEffect(() => {
+    runtime
+      .invoke<AppSettings>("get_app_settings")
+      .then((settings) => setDetailedAuditLog(settings.detailedAuditLog))
+      .catch((err) => console.error("[SettingsModal] 설정 조회 실패:", err));
+  }, []);
+
+  const updateDetailedAuditLog = (checked: boolean) => {
+    setDetailedAuditLog(checked);
+    runtime
+      .invoke("save_detailed_audit_log", { enabled: checked })
+      .catch((err) => console.error("[SettingsModal] 감사 로그 레벨 저장 실패:", err));
   };
 
   const handleOpenProfiles = () => {
@@ -134,6 +157,21 @@ export default function SettingsModal() {
                 />
               </label>
             </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}>로그</div>
+            <label className={styles.toggleRow}>
+              <span>
+                <strong>CDN API 상세 로그 (응답 본문 포함)</strong>
+                <small>감사 로그(audit-*.log)에 CDN 응답 본문까지 기록합니다. 기본은 메서드·URL·상태코드·소요시간만 남기는 요약 모드입니다.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={detailedAuditLog}
+                onChange={(e) => updateDetailedAuditLog(e.target.checked)}
+              />
+            </label>
           </section>
 
           <section className={styles.section}>

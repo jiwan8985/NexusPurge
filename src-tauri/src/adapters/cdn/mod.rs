@@ -68,18 +68,31 @@ pub(crate) fn log_cdn_http(
     elapsed_ms: u128,
     body: &str,
 ) {
+    crate::utils::network_stats::NetworkStats::global().record_cdn(elapsed_ms as u64);
+
     const BODY_LIMIT: usize = 1000;
-    let (trimmed, truncated) = sanitize_body_preview(body, BODY_LIMIT);
-    tracing::info!(
-        "[{}] {} {} → HTTP {} ({}ms) 응답: {}{}",
-        provider,
-        method,
-        url,
-        status,
-        elapsed_ms,
-        if trimmed.trim().is_empty() { "(빈 응답)" } else { trimmed.as_str() },
-        if truncated { " …(이하 생략)" } else { "" },
-    );
+    if crate::utils::audit_level::enabled() {
+        let (trimmed, truncated) = sanitize_body_preview(body, BODY_LIMIT);
+        tracing::info!(
+            "[{}] {} {} → HTTP {} ({}ms) 응답: {}{}",
+            provider,
+            method,
+            url,
+            status,
+            elapsed_ms,
+            if trimmed.trim().is_empty() { "(빈 응답)" } else { trimmed.as_str() },
+            if truncated { " …(이하 생략)" } else { "" },
+        );
+    } else {
+        tracing::info!(
+            "[{}] {} {} → HTTP {} ({}ms) (요약 모드 — 설정에서 상세 로그를 켜면 응답 본문이 기록됩니다)",
+            provider,
+            method,
+            url,
+            status,
+            elapsed_ms,
+        );
+    }
 
     let _ = REQUEST_STEPS.try_with(|steps| {
         const STEP_SUMMARY_LIMIT: usize = 200;

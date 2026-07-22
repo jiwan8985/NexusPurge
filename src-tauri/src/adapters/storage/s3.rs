@@ -317,6 +317,7 @@ impl S3Adapter {
         prefix: &str,
         continuation_token: Option<&str>,
     ) -> Result<ListResult> {
+        let _rtt = crate::utils::network_stats::NetworkStats::global().begin_s3_call();
         let mut request = self
             .sdk_client
             .list_objects_v2()
@@ -408,6 +409,7 @@ impl S3Adapter {
     }
 
     pub async fn head_object_meta(&self, key: &str) -> Result<Option<ObjectMeta>> {
+        let _rtt = crate::utils::network_stats::NetworkStats::global().begin_s3_call();
         match self
             .sdk_client
             .head_object()

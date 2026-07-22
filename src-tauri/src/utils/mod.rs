@@ -1,7 +1,9 @@
 pub mod adapter_cache;
+pub mod audit_level;
 pub mod config;
 pub mod crypto;
 pub mod hash;
+pub mod network_stats;
 pub mod retry;
 pub mod sigv4;
 pub mod transfer_control;

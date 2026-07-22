@@ -8,6 +8,7 @@ use services::auth::ExternalAuthAdapter;
 use services::operation_log::OperationLogService;
 use utils::adapter_cache::AdapterCache;
 use utils::config::ProfileStore;
+use utils::network_stats::NetworkStats;
 use utils::transfer_control::TransferControl;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -58,6 +59,12 @@ pub fn run() {
         tracing::warn!("오래된 로그 파일 정리 실패: {}", err);
     }
 
+    // 감사 로그 상세 레벨을 저장된 설정값으로 초기화 (기본은 요약만)
+    match tauri::async_runtime::block_on(profile_store.get_app_settings()) {
+        Ok(settings) => utils::audit_level::set(settings.detailed_audit_log),
+        Err(err) => tracing::warn!("앱 설정 로드 실패, 감사 로그 요약 모드로 시작: {}", err),
+    }
+
     tauri::Builder::default()
         .manage(profile_store)
         .manage(adapter_cache)
@@ -66,6 +73,21 @@ pub fn run() {
         .manage(ExternalAuthAdapter)
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            use tauri::Emitter;
+            // 상태바 네트워크 위젯(업로드/다운로드 연결 수·평균 RTT)용 스냅샷을 2초 간격으로 push.
+            // NetworkStats는 프로세스 전역 싱글턴이라 별도 Tauri State 없이 바로 조회 가능.
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+                loop {
+                    interval.tick().await;
+                    let snapshot = NetworkStats::global().snapshot();
+                    let _ = app_handle.emit("network:stats", snapshot);
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Profile & Connection
             s3::load_profiles,
@@ -77,6 +99,8 @@ pub fn run() {
             // Settings (H-7)
             s3::save_last_profile_id,
             s3::get_last_profile_id,
+            s3::get_app_settings,
+            s3::save_detailed_audit_log,
             // Local FS (H-1)
             s3::get_home_dir,
             s3::list_local_dir,

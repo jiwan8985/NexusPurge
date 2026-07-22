@@ -55,6 +55,9 @@ keyring = "2"
 # 크로스 프로세스 파일 잠금 (profiles.json 동시 쓰기 충돌 방지)
 fs4 = { version = "0.9", features = ["sync"] }
 
+# 날짜별 텍스트 로그 압축 로테이션
+flate2 = "1"
+
 # MD5 (ETag 비교)
 md5 = "0.7"
 

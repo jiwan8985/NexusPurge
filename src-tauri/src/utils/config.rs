@@ -334,10 +334,13 @@ pub enum CdnCredentials {
 
 // ??? App Settings ?????????????????????????????????????????????????????????????
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct AppSettings {
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
     #[serde(rename = "lastProfileId")]
-    last_profile_id: Option<String>,
+    pub last_profile_id: Option<String>,
+    /// CDN API 감사 로그(audit-*.log)에 응답 본문까지 포함할지 여부 — 기본은 요약만(false)
+    #[serde(default, rename = "detailedAuditLog")]
+    pub detailed_audit_log: bool,
 }
 
 // ??? Profile Store ????????????????????????????????????????????????????????????
@@ -827,30 +830,49 @@ impl ProfileStore {
         }
     }
 
-    /// H-7: 留덉?留??곌껐 ?꾨줈?뚯씪 ID ???
-    pub async fn save_last_profile_id(&self, id: &str) -> Result<()> {
-        let settings = AppSettings {
-            last_profile_id: Some(id.to_owned()),
-        };
-        tokio::fs::write(
-            self.settings_path(),
-            serde_json::to_string_pretty(&settings).context("?ㅼ젙 吏곷젹???ㅽ뙣")?,
-        )
-        .await
-        .context("?ㅼ젙 ?뚯씪 ????ㅽ뙣")
-    }
-
-    /// H-7: 留덉?留??곌껐 ?꾨줈?뚯씪 ID 議고쉶
-    pub async fn get_last_profile_id(&self) -> Result<Option<String>> {
+    /// settings.json을 읽는다. 파일이 없거나 파싱에 실패하면 기본값을 반환한다.
+    async fn read_settings(&self) -> AppSettings {
         let path = self.settings_path();
         if !path.exists() {
-            return Ok(None);
+            return AppSettings::default();
         }
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .context("?ㅼ젙 ?뚯씪 ?쎄린 ?ㅽ뙣")?;
-        let settings: AppSettings = serde_json::from_str(&content).unwrap_or_default();
-        Ok(settings.last_profile_id)
+        match tokio::fs::read_to_string(&path).await {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Err(_) => AppSettings::default(),
+        }
+    }
+
+    async fn write_settings(&self, settings: &AppSettings) -> Result<()> {
+        tokio::fs::write(
+            self.settings_path(),
+            serde_json::to_string_pretty(settings).context("설정 직렬화 실패")?,
+        )
+        .await
+        .context("설정 파일 쓰기 실패")
+    }
+
+    /// H-7: 마지막 연결 프로필 ID 저장 — 다른 설정 필드를 덮어쓰지 않도록 read-modify-write
+    pub async fn save_last_profile_id(&self, id: &str) -> Result<()> {
+        let mut settings = self.read_settings().await;
+        settings.last_profile_id = Some(id.to_owned());
+        self.write_settings(&settings).await
+    }
+
+    /// H-7: 마지막 연결 프로필 ID 조회
+    pub async fn get_last_profile_id(&self) -> Result<Option<String>> {
+        Ok(self.read_settings().await.last_profile_id)
+    }
+
+    /// 앱 전역 설정 조회 (감사 로그 상세 레벨 등)
+    pub async fn get_app_settings(&self) -> Result<AppSettings> {
+        Ok(self.read_settings().await)
+    }
+
+    /// CDN API 감사 로그 상세 레벨(응답 본문 포함 여부) 저장
+    pub async fn save_detailed_audit_log(&self, enabled: bool) -> Result<()> {
+        let mut settings = self.read_settings().await;
+        settings.detailed_audit_log = enabled;
+        self.write_settings(&settings).await
     }
 }
 

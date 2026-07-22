@@ -10,6 +10,7 @@ import type {
   PanelState,
   SyncPlan,
   CdnProvider,
+  NetworkStatsEvent,
 } from "../types";
 
 // C-2: 프로필 목록을 전역 상태로 관리 — 훅 인스턴스별 분리 방지
@@ -49,6 +50,9 @@ interface AppState {
 
   // Sync plan (업로드 전 ETag 비교 결과 — 상태 배지 표시용)
   syncPlan: SyncPlan | null;
+
+  // Network stats (Rust network:stats 이벤트 — 상태바 표시용)
+  networkStats: NetworkStatsEvent;
 
   // Log
   logs: LogEntry[];
@@ -108,6 +112,7 @@ interface AppState {
   setTransferring: (transferring: boolean) => void;
   setShowProgressDialog: (show: boolean) => void;
   setSyncPlan: (plan: SyncPlan | null) => void;
+  setNetworkStats: (stats: NetworkStatsEvent) => void;
 
   // Actions — Log
   addLog: (level: LogLevel, message: string, category?: LogCategory, metadata?: Record<string, unknown>) => void;
@@ -171,6 +176,7 @@ export const useAppStore = create<AppState>()(
     isTransferring: false,
     showProgressDialog: false,
     syncPlan: null,
+    networkStats: { avgRttMs: null, activeS3Calls: 0 },
 
     // ── Log ───────────────────────────────────────────────────────────────────
     logs: [],
@@ -276,6 +282,7 @@ export const useAppStore = create<AppState>()(
     setTransferring: (isTransferring) => set({ isTransferring }),
     setShowProgressDialog: (showProgressDialog) => set({ showProgressDialog }),
     setSyncPlan: (syncPlan) => set({ syncPlan }),
+    setNetworkStats: (networkStats) => set({ networkStats }),
 
     // ── Log Actions ───────────────────────────────────────────────────────────
     addLog: (level, message, category, metadata) =>

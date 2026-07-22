@@ -1,5 +1,6 @@
 import { useAppStore } from "../../store/appStore";
 import { CDN_LABELS } from "../../utils/cdn";
+import { readBatchSettings } from "../../utils/batch-settings";
 import styles from "./StatusBar.module.css";
 
 function fmtSpeed(bytesPerSec: number) {
@@ -16,8 +17,9 @@ function fmtSize(bytes: number) {
 }
 
 export default function StatusBar() {
-  const { isConnected, activeProfile, activeCdns, transfers, isTransferring, toggleLogPanel, local, remote } =
-    useAppStore((s) => ({
+  const {
+    isConnected, activeProfile, activeCdns, transfers, isTransferring, toggleLogPanel, local, remote, networkStats,
+  } = useAppStore((s) => ({
       isConnected:     s.isConnected,
       activeProfile:   s.activeProfile,
       activeCdns:      s.activeCdns,
@@ -26,6 +28,7 @@ export default function StatusBar() {
       toggleLogPanel:  s.toggleLogPanel,
       local:           s.local,
       remote:          s.remote,
+      networkStats:    s.networkStats,
     }));
 
   const activeTransfers = transfers.filter(
@@ -33,7 +36,13 @@ export default function StatusBar() {
   );
   const completedCount = transfers.filter((t) => t.status === "complete").length;
   const errorCount     = transfers.filter((t) => t.status === "error").length;
-  const totalSpeed     = activeTransfers.reduce((sum, t) => sum + (t.speed ?? 0), 0);
+  const uploadSpeed    = activeTransfers
+    .filter((t) => t.direction === "upload")
+    .reduce((sum, t) => sum + (t.speed ?? 0), 0);
+  const downloadSpeed  = activeTransfers
+    .filter((t) => t.direction === "download")
+    .reduce((sum, t) => sum + (t.speed ?? 0), 0);
+  const maxConcurrentTransfers = readBatchSettings().maxConcurrentTransfers;
 
   // 포커스된 패널의 선택 항목 정보
   const localSelected  = local.selectedPaths.size;
@@ -71,8 +80,11 @@ export default function StatusBar() {
             <span className={`${styles.text} ${styles.active}`}>
               전송 중 {activeTransfers.length}개
             </span>
-            {totalSpeed > 0 && (
-              <span className={styles.speed}>{fmtSpeed(totalSpeed)}</span>
+            {uploadSpeed > 0 && (
+              <span className={styles.speed} title="업로드 속도">⬆ {fmtSpeed(uploadSpeed)}</span>
+            )}
+            {downloadSpeed > 0 && (
+              <span className={styles.speed} title="다운로드 속도">⬇ {fmtSpeed(downloadSpeed)}</span>
             )}
           </>
         ) : completedCount > 0 || errorCount > 0 ? (
@@ -82,6 +94,20 @@ export default function StatusBar() {
           </span>
         ) : (
           <span className={styles.text}>준비됨</span>
+        )}
+      </div>
+
+      <div className={styles.divider} />
+
+      {/* 네트워크 상태 */}
+      <div className={styles.section}>
+        <span className={styles.textMuted} title="활성 S3 요청 수 / 최대 동시 전송 수">
+          연결 {networkStats.activeS3Calls}/{maxConcurrentTransfers}
+        </span>
+        {networkStats.avgRttMs != null && (
+          <span className={styles.textMuted} title="최근 S3/CDN 호출 평균 응답시간">
+            · 평균RTT {networkStats.avgRttMs}ms
+          </span>
         )}
       </div>
 

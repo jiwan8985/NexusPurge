@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 const OPERATION_LOGS_FILENAME: &str = "operation_logs.json";
 const LOG_FILES_DIR: &str = "logs";
@@ -315,15 +316,18 @@ impl OperationLogService {
         Ok(())
     }
 
-    /// logs/ 폴더의 날짜별 텍스트 로그(system-*.log / transfer-*.log / cdn-*.log) 중
-    /// LOG_RETENTION_DAYS보다 오래된 파일을 삭제한다. audit-*.log는 tracing-appender의
-    /// max_log_files가 별도로 관리하므로 여기서는 건드리지 않는다.
+    /// logs/ 폴더의 날짜별 텍스트 로그(system-*.log / transfer-*.log / cdn-*.log)를 정리한다.
+    /// - 오늘 날짜가 아닌 `.log` 파일은 `.log.gz`로 압축해 디스크 사용량을 줄인다.
+    /// - LOG_RETENTION_DAYS(30일)보다 오래된 파일은 `.log`/`.log.gz` 상관없이 삭제한다.
+    /// audit-*.log는 tracing-appender의 max_log_files가 자기 prefix/suffix로 파일 개수를 세어
+    /// 자체 로테이션하므로, 확장자를 바꾸면 그 카운팅이 깨질 수 있어 여기서는 건드리지 않는다.
     pub async fn cleanup_old_logs(&self) -> Result<usize> {
         let dir = self.log_files_dir();
         if !dir.exists() {
             return Ok(0);
         }
-        let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(LOG_RETENTION_DAYS);
+        let today = chrono::Local::now().date_naive();
+        let cutoff = today - chrono::Duration::days(LOG_RETENTION_DAYS);
         let mut removed = 0usize;
         let mut entries = tokio::fs::read_dir(&dir)
             .await
@@ -338,15 +342,23 @@ impl OperationLogService {
             if !TYPED_LOG_KINDS.iter().any(|prefix| file_name.starts_with(prefix)) {
                 continue;
             }
-            let Some(stem) = file_name.strip_suffix(".log") else { continue };
+            let Some((stem, is_gz)) = strip_log_suffix(file_name) else { continue };
             if stem.len() < 10 {
                 continue;
             }
             let date_str = &stem[stem.len() - 10..];
             let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") else { continue };
+
             if date < cutoff {
                 if tokio::fs::remove_file(&path).await.is_ok() {
                     removed += 1;
+                }
+                continue;
+            }
+
+            if !is_gz && date < today {
+                if let Err(err) = compress_log_file(&path).await {
+                    tracing::warn!("로그 파일 압축 실패 ({}): {}", file_name, err);
                 }
             }
         }
@@ -354,6 +366,37 @@ impl OperationLogService {
     }
 
     // TODO: Add CSV export after report columns are confirmed.
+}
+
+/// `.log.gz`를 `.log`보다 먼저 확인해 `.log.gz` 파일도 `.log`로 오인하지 않도록 한다.
+/// 반환값: (날짜 추출용 stem, 이미 압축된 파일인지)
+fn strip_log_suffix(file_name: &str) -> Option<(&str, bool)> {
+    if let Some(stem) = file_name.strip_suffix(".log.gz") {
+        Some((stem, true))
+    } else {
+        file_name.strip_suffix(".log").map(|stem| (stem, false))
+    }
+}
+
+/// `{name}.log` 파일을 gzip 압축해 `{name}.log.gz`로 만들고 원본을 삭제한다.
+/// 디스크 I/O + CPU 압축이라 blocking 스레드에서 실행한다.
+async fn compress_log_file(path: &Path) -> Result<()> {
+    let mut gz_name = path.as_os_str().to_owned();
+    gz_name.push(".gz");
+    let gz_path = PathBuf::from(gz_name);
+    let src = path.to_path_buf();
+
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let data = std::fs::read(&src).context("압축 대상 로그 읽기 실패")?;
+        let file = std::fs::File::create(&gz_path).context("압축 파일 생성 실패")?;
+        let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        encoder.write_all(&data).context("gzip 쓰기 실패")?;
+        encoder.finish().context("gzip 종료 실패")?;
+        std::fs::remove_file(&src).context("원본 로그 삭제 실패")?;
+        Ok(())
+    })
+    .await
+    .context("로그 압축 작업 실행 실패")?
 }
 
 #[cfg(test)]
@@ -575,7 +618,7 @@ mod tests {
     }
 
     /// LOG_RETENTION_DAYS(30일)보다 오래된 system/transfer/cdn-*.log는 삭제되고,
-    /// 최근 파일과 audit-*.log(별도 관리 대상)는 남아있어야 함
+    /// 오늘 날짜 파일과 audit-*.log(별도 관리 대상)는 그대로 남아있어야 함
     #[tokio::test]
     async fn cleanup_old_logs_removes_only_stale_typed_logs() {
         let data_dir = std::env::temp_dir().join(format!(
@@ -589,15 +632,13 @@ mod tests {
         let old_date = (chrono::Local::now().date_naive() - chrono::Duration::days(31))
             .format("%Y-%m-%d")
             .to_string();
-        let recent_date = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
-            .format("%Y-%m-%d")
-            .to_string();
+        let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
 
         let old_system = logs_dir.join(format!("system-{}.log", old_date));
         let old_transfer = logs_dir.join(format!("transfer-{}.log", old_date));
         let old_audit = logs_dir.join(format!("audit-{}.log", old_date));
-        let recent_cdn = logs_dir.join(format!("cdn-{}.log", recent_date));
-        for path in [&old_system, &old_transfer, &old_audit, &recent_cdn] {
+        let today_cdn = logs_dir.join(format!("cdn-{}.log", today));
+        for path in [&old_system, &old_transfer, &old_audit, &today_cdn] {
             std::fs::write(path, "log content").unwrap();
         }
 
@@ -608,8 +649,52 @@ mod tests {
         assert!(!old_transfer.exists());
         // audit-*.log는 tracing-appender의 max_log_files가 관리 — 여기서는 건드리지 않음
         assert!(old_audit.exists());
-        // 최근 파일은 보존
-        assert!(recent_cdn.exists());
+        // 오늘 날짜 파일은 아직 쓰기 중일 수 있으므로 압축도, 삭제도 하지 않음
+        assert!(today_cdn.exists());
+
+        let _ = std::fs::remove_dir_all(data_dir);
+    }
+
+    /// 오늘 날짜가 아닌 typed 로그는 `.log.gz`로 압축되어 원본이 사라지고,
+    /// 압축 해제 시 원본 내용과 동일해야 함. 30일 초과분은 `.log.gz`도 삭제 대상.
+    #[tokio::test]
+    async fn cleanup_old_logs_compresses_non_today_logs_and_still_expires_gz() {
+        let data_dir = std::env::temp_dir().join(format!(
+            "nexuspurge-compress-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = OperationLogService::new(data_dir.clone());
+        let logs_dir = service.log_files_dir();
+        std::fs::create_dir_all(&logs_dir).unwrap();
+
+        let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
+        let yesterday_system = logs_dir.join(format!("system-{}.log", yesterday));
+        let content = "어제 기록된 시스템 로그\n두 번째 줄";
+        std::fs::write(&yesterday_system, content).unwrap();
+
+        service.cleanup_old_logs().await.unwrap();
+
+        assert!(!yesterday_system.exists(), "압축 후 원본 .log는 삭제되어야 함");
+        let gz_path = logs_dir.join(format!("system-{}.log.gz", yesterday));
+        assert!(gz_path.exists(), ".log.gz 파일이 생성되어야 함");
+
+        use std::io::Read;
+        let mut decoder = flate2::read::GzDecoder::new(std::fs::File::open(&gz_path).unwrap());
+        let mut decompressed = String::new();
+        decoder.read_to_string(&mut decompressed).unwrap();
+        assert_eq!(decompressed, content, "압축 해제 결과가 원본과 같아야 함");
+
+        // 이미 30일 지난 .log.gz 파일도 다음 정리에서 삭제되어야 함
+        let expired_gz = logs_dir.join(format!(
+            "cdn-{}.log.gz",
+            (chrono::Local::now().date_naive() - chrono::Duration::days(31)).format("%Y-%m-%d")
+        ));
+        std::fs::write(&expired_gz, "old gz").unwrap();
+        let removed = service.cleanup_old_logs().await.unwrap();
+        assert_eq!(removed, 1);
+        assert!(!expired_gz.exists());
 
         let _ = std::fs::remove_dir_all(data_dir);
     }

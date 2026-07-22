@@ -124,6 +124,14 @@ export interface TransferItem {
   completedAt?: string;
 }
 
+// ─── Network Stats ──────────────────────────────────────────────────────────
+
+/** Rust `network:stats` 이벤트 payload — S3/CDN 호출 평균 응답시간과 활성 S3 요청 수 */
+export interface NetworkStatsEvent {
+  avgRttMs: number | null;
+  activeS3Calls: number;
+}
+
 export interface TransferSummary {
   total: number;
   completed: number;
